@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+.pytest_cache/
+*.py[cod]
+*.pyo
+
+# Node / frontend build outputs
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
+
+# Rust / Tauri build outputs
+src-tauri/target/
+src-tauri/gen/
+
+# Local runtime, caches, and generated outputs
+.playwright-cli/
+.runtime/
+.workbuddy/
+Codex-Temp/
+OUTput_OrTemp_Workbuddy/
+04-输出版本存档/
+【Claude】/
+*.zip
+
+# Large source/reference material kept outside the code git baseline
+00-PRD/archive/
+02-比赛要求与目标/
+01-assets/01-UI参考图/00-reference/
+01-assets/01-UI参考图/01-assets/
+00-PRD/PRD-Claude建议包-2026年7月3日/*.png
+03-【匹配规则】-勘察测绘知识库-匹配规则提炼/01-原始资料/
+03-【匹配规则】-勘察测绘知识库-匹配规则提炼/02-ai生成资料/
+03-知识库-二维数据库制作/
+05-经验池-预警数据/
+07-汇报PPT 和 演示素材/
+
+# Local machine shortcuts
+*.lnk
+
+# Local secrets
+.env.local
+.env.*.local
+!.env.local.example

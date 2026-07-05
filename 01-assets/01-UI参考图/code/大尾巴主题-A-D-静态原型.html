@@ -1,0 +1,773 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>大尾巴主题 A / D 静态原型</title>
+  <style>
+    :root {
+      --font: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+      --mono: "Cascadia Mono", "Consolas", monospace;
+      --green: #15803d;
+      --green-bg: #eaf8ef;
+      --amber: #b7791f;
+      --amber-bg: #fff7df;
+      --red: #b42318;
+      --red-bg: #fff0ed;
+      --blue: #2563eb;
+      --line: #d9e2ee;
+      --ink: #102033;
+      --muted: #64748b;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: #e8eef6;
+      color: var(--ink);
+      font-family: var(--font);
+    }
+
+    .page {
+      display: grid;
+      gap: 28px;
+      padding: 28px;
+    }
+
+    .demo {
+      overflow: hidden;
+      min-height: 860px;
+      border: 1px solid rgba(15, 23, 42, 0.12);
+      border-radius: 24px;
+      box-shadow: 0 34px 90px rgba(15, 23, 42, 0.16);
+    }
+
+    .demo-a {
+      background: #f7f9fc;
+    }
+
+    .demo-d {
+      background:
+        linear-gradient(135deg, rgba(222, 250, 245, 0.92), rgba(235, 244, 255, 0.96)),
+        #f4fbfb;
+    }
+
+    .topbar {
+      display: grid;
+      grid-template-columns: 280px minmax(0, 1fr) 360px;
+      align-items: center;
+      gap: 18px;
+      height: 68px;
+      padding: 0 22px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.86);
+      backdrop-filter: blur(16px);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .mark {
+      display: grid;
+      place-items: center;
+      width: 38px;
+      height: 38px;
+      border-radius: 12px;
+      background: #173b77;
+      color: #fff;
+      font-weight: 900;
+    }
+
+    .demo-d .mark {
+      background: linear-gradient(135deg, #0f766e, #2f80ed);
+      box-shadow: 0 12px 30px rgba(47, 128, 237, 0.22);
+    }
+
+    .brand strong,
+    .brand span {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .brand strong {
+      font-size: 18px;
+      letter-spacing: 0;
+    }
+
+    .brand span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .crumbs {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .crumbs b {
+      color: var(--ink);
+      font-weight: 800;
+    }
+
+    .top-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 9px;
+    }
+
+    .pill,
+    .button,
+    .icon-btn {
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      font: inherit;
+    }
+
+    .button {
+      height: 34px;
+      padding: 0 13px;
+      border-radius: 9px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .button.primary {
+      border-color: #1d4ed8;
+      background: #1d4ed8;
+      color: #fff;
+    }
+
+    .demo-d .button.primary {
+      border-color: #0f766e;
+      background: #0f766e;
+    }
+
+    .icon-btn {
+      display: grid;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      border-radius: 10px;
+      font-size: 14px;
+    }
+
+    .shell {
+      display: grid;
+      grid-template-columns: 260px minmax(0, 1fr) 360px;
+      gap: 18px;
+      min-height: 792px;
+      padding: 18px;
+    }
+
+    .rail,
+    .assistant,
+    .panel,
+    .table-window {
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.92);
+    }
+
+    .demo-a .rail,
+    .demo-a .assistant,
+    .demo-a .panel,
+    .demo-a .table-window {
+      border-radius: 14px;
+      box-shadow: 0 18px 46px rgba(15, 23, 42, 0.07);
+    }
+
+    .demo-d .rail,
+    .demo-d .assistant,
+    .demo-d .panel,
+    .demo-d .table-window {
+      border-color: rgba(42, 157, 143, 0.22);
+      border-radius: 22px;
+      background: rgba(255, 255, 255, 0.78);
+      box-shadow: 0 22px 60px rgba(45, 106, 115, 0.12);
+      backdrop-filter: blur(18px);
+    }
+
+    .rail {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      min-width: 0;
+      padding: 14px;
+    }
+
+    .rail-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .rail-head strong {
+      font-size: 14px;
+    }
+
+    .nav-list {
+      display: grid;
+      align-content: start;
+      gap: 7px;
+      padding: 14px 0;
+    }
+
+    .nav-item {
+      display: grid;
+      grid-template-columns: 28px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 9px;
+      min-height: 42px;
+      padding: 7px 9px;
+      border: 1px solid transparent;
+      border-radius: 10px;
+      color: #334155;
+      font-size: 13px;
+    }
+
+    .nav-item.active {
+      border-color: #bfdbfe;
+      background: #eaf2ff;
+      color: #1d4ed8;
+      font-weight: 800;
+    }
+
+    .demo-d .nav-item.active {
+      border-color: rgba(15, 118, 110, 0.2);
+      background: rgba(221, 250, 244, 0.86);
+      color: #0f766e;
+    }
+
+    .nav-icon {
+      display: grid;
+      place-items: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: #f1f5f9;
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    .rail-foot {
+      display: grid;
+      gap: 9px;
+      padding-top: 12px;
+      border-top: 1px solid var(--line);
+    }
+
+    .collapse-note {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .main {
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr);
+      gap: 14px;
+      min-width: 0;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: end;
+      gap: 18px;
+      min-width: 0;
+    }
+
+    .hero h1 {
+      margin: 0;
+      font-size: 28px;
+      line-height: 1.18;
+      letter-spacing: 0;
+    }
+
+    .hero p {
+      margin: 7px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .stage {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .panel {
+      min-width: 0;
+      padding: 13px;
+    }
+
+    .panel small {
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .panel strong {
+      display: block;
+      margin-top: 5px;
+      font-size: 20px;
+    }
+
+    .table-window {
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr);
+      overflow: hidden;
+      min-width: 0;
+    }
+
+    .table-head {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 14px;
+      padding: 14px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .table-head strong {
+      display: block;
+      font-size: 15px;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 8px;
+      overflow: hidden;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(248, 250, 252, 0.78);
+    }
+
+    .tab {
+      flex: 0 0 auto;
+      padding: 7px 11px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .tab.active {
+      border-color: #2563eb;
+      background: #2563eb;
+      color: #fff;
+    }
+
+    .demo-d .tab.active {
+      border-color: #0f766e;
+      background: #0f766e;
+    }
+
+    .grid-wrap {
+      overflow: hidden;
+      padding: 0;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+      table-layout: fixed;
+    }
+
+    th,
+    td {
+      overflow: hidden;
+      padding: 10px 11px;
+      border-bottom: 1px solid #e8eef6;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    th {
+      background: #f8fafc;
+      color: #475569;
+      font-size: 11px;
+      text-align: left;
+    }
+
+    td.num {
+      text-align: right;
+      font-family: var(--mono);
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      padding: 0 8px;
+      border-radius: 999px;
+      font-weight: 800;
+    }
+
+    .ok {
+      background: var(--green-bg);
+      color: var(--green);
+    }
+
+    .warn {
+      background: var(--amber-bg);
+      color: var(--amber);
+    }
+
+    .bad {
+      background: var(--red-bg);
+      color: var(--red);
+    }
+
+    .assistant {
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr) auto;
+      overflow: hidden;
+      min-width: 0;
+    }
+
+    .assistant-head {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 12px;
+      padding: 15px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .assistant-head strong {
+      display: block;
+      font-size: 16px;
+    }
+
+    .assistant-head span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .context {
+      display: grid;
+      gap: 8px;
+      padding: 12px 15px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(248, 250, 252, 0.72);
+    }
+
+    .context-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .chip {
+      padding: 5px 8px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .messages {
+      display: grid;
+      align-content: start;
+      gap: 10px;
+      overflow: hidden;
+      padding: 15px;
+    }
+
+    .msg {
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: #fff;
+      font-size: 12px;
+      line-height: 1.58;
+    }
+
+    .msg.ai {
+      border-color: rgba(37, 99, 235, 0.2);
+      background: #eff6ff;
+    }
+
+    .demo-d .msg.ai {
+      border-color: rgba(15, 118, 110, 0.2);
+      background: rgba(222, 250, 245, 0.78);
+    }
+
+    .assistant-input {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      padding: 12px;
+      border-top: 1px solid var(--line);
+    }
+
+    .assistant-input div {
+      min-height: 36px;
+      padding: 9px 11px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fff;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .mini-collapsed {
+      display: none;
+    }
+
+    @media (max-width: 1180px) {
+      .topbar,
+      .shell {
+        grid-template-columns: 1fr;
+      }
+
+      .assistant,
+      .rail {
+        min-height: 320px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="demo demo-a" id="demo-a" aria-label="A 浅色专业工作台">
+      <div class="topbar">
+        <div class="brand">
+          <span class="mark">智</span>
+          <span>
+            <strong>造价智算</strong>
+            <span>大尾巴主题候选 A · 浅色专业工作台</span>
+          </span>
+        </div>
+        <div class="crumbs">当前模块 / <b>填价结果预览</b> / 表2-通用工程测量费用</div>
+        <div class="top-actions">
+          <button class="button">导入 Excel</button>
+          <button class="button primary">生成结果</button>
+          <button class="icon-btn">⚙</button>
+        </div>
+      </div>
+      <div class="shell">
+        <aside class="rail">
+          <div class="rail-head">
+            <strong>模块导航</strong>
+            <button class="icon-btn">‹</button>
+          </div>
+          <nav class="nav-list">
+            <div class="nav-item active"><span class="nav-icon">01</span><span>填价工作台</span><span>●</span></div>
+            <div class="nav-item"><span class="nav-icon">02</span><span>结果预览</span><span></span></div>
+            <div class="nav-item"><span class="nav-icon">03</span><span>经验池预警</span><span></span></div>
+            <div class="nav-item"><span class="nav-icon">04</span><span>工作量抓取</span><span></span></div>
+            <div class="nav-item"><span class="nav-icon">05</span><span>Word 报告</span><span></span></div>
+            <div class="nav-item"><span class="nav-icon">06</span><span>规则与知识库</span><span></span></div>
+          </nav>
+          <div class="rail-foot">
+            <div class="collapse-note"><span>◐</span><span>左侧可折叠，表格自动扩宽</span></div>
+          </div>
+        </aside>
+        <section class="main">
+          <div class="hero">
+            <div>
+              <h1>工程造价辅助智能体工作台</h1>
+              <p>清晰、稳定、审查友好。适合正式办公、长时间看表、逐行复核和输出成果。</p>
+            </div>
+            <div class="stage">阶段：生成报告与预览</div>
+          </div>
+          <div class="cards">
+            <div class="panel"><small>输入行</small><strong>257</strong></div>
+            <div class="panel"><small>结构匹配</small><strong>257</strong></div>
+            <div class="panel"><small>经验提示</small><strong>38</strong></div>
+            <div class="panel"><small>待复核</small><strong>12</strong></div>
+          </div>
+          <div class="table-window">
+            <div class="table-head">
+              <div>
+                <strong>填价结果预览</strong>
+                <small>表格是主视觉中心，AI 列固定可见，状态色稳定。</small>
+              </div>
+              <button class="button">设置</button>
+            </div>
+            <div class="tabs">
+              <span class="tab active">费用汇总</span>
+              <span class="tab">表2-通用工程测量费用</span>
+              <span class="tab">表3-地质测绘</span>
+              <span class="tab">表4-通用工程勘察费用</span>
+            </div>
+            <div class="grid-wrap">
+              <table>
+                <thead>
+                  <tr><th>要素1</th><th>要素2</th><th>要素4</th><th>单位</th><th>基价</th><th>实物系数</th><th>技术系数</th><th>状态</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td>地下管线测量</td><td>中等</td><td>线路</td><td>km</td><td class="num">1700.00</td><td class="num">1.00</td><td class="num">0.22</td><td><span class="tag ok">一层命中</span></td></tr>
+                  <tr><td>钻孔</td><td>复杂</td><td>抽水试验</td><td>m</td><td class="num">711.00</td><td class="num">1.50</td><td class="num">0.33</td><td><span class="tag warn">经验提示</span></td></tr>
+                  <tr><td>地质测绘</td><td>丘陵</td><td>1:2000</td><td>km²</td><td class="num">920.00</td><td class="num">--</td><td class="num">0.20</td><td><span class="tag bad">待复核</span></td></tr>
+                  <tr><td>工程物探</td><td>Ⅰ类</td><td>管线探测</td><td>点</td><td class="num">36.00</td><td class="num">1.20</td><td class="num">0.18</td><td><span class="tag ok">一层命中</span></td></tr>
+                  <tr><td>地形测量</td><td>Ⅲ类</td><td>可研阶段</td><td>km</td><td class="num">4500.00</td><td class="num">1.10</td><td class="num">0.26</td><td><span class="tag ok">一层命中</span></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+        <aside class="assistant">
+          <div class="assistant-head">
+            <span><strong>问问智算</strong><span>随行复核助手</span></span>
+            <button class="icon-btn">›</button>
+          </div>
+          <div class="context">
+            <div class="context-row">
+              <span class="chip">当前行：表4 第90行</span>
+              <span class="chip">已调用知识库</span>
+              <span class="chip">候选 3</span>
+            </div>
+          </div>
+          <div class="messages">
+            <div class="msg ai">这一行命中“利用钻孔抽水”场景，复杂等级对应技术系数应重点核查。建议核对 O 列复杂程度和规则表优先级。</div>
+            <div class="msg">查库：这个技术工作费调整系数为什么是 0.33？</div>
+            <div class="msg ai">依据第一层规则：复杂条件优先于一般条件。当前行若 O 列为复杂，应优先使用复杂档。</div>
+          </div>
+          <div class="assistant-input">
+            <div>询问当前行、当前模块或报告风险...</div>
+            <button class="button primary">发送</button>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <section class="demo demo-d" id="demo-d" aria-label="D 柔和蓝绿智能工作区">
+      <div class="topbar">
+        <div class="brand">
+          <span class="mark">智</span>
+          <span>
+            <strong>造价智算</strong>
+            <span>大尾巴主题候选 D · 柔和蓝绿智能工作区</span>
+          </span>
+        </div>
+        <div class="crumbs">智能工作区 / <b>可复核填价</b> / AI 随行解释</div>
+        <div class="top-actions">
+          <button class="button">选择文件</button>
+          <button class="button primary">开始智算</button>
+          <button class="icon-btn">⚙</button>
+        </div>
+      </div>
+      <div class="shell">
+        <aside class="rail">
+          <div class="rail-head">
+            <strong>工作模块</strong>
+            <button class="icon-btn">‹</button>
+          </div>
+          <nav class="nav-list">
+            <div class="nav-item active"><span class="nav-icon">填</span><span>Excel 填价</span><span>●</span></div>
+            <div class="nav-item"><span class="nav-icon">表</span><span>表格预览</span><span></span></div>
+            <div class="nav-item"><span class="nav-icon">警</span><span>经验池预警</span><span></span></div>
+            <div class="nav-item"><span class="nav-icon">抓</span><span>工作量抓取</span><span></span></div>
+            <div class="nav-item"><span class="nav-icon">报</span><span>Word 报告</span><span></span></div>
+            <div class="nav-item"><span class="nav-icon">问</span><span>知识库问答</span><span></span></div>
+          </nav>
+          <div class="rail-foot">
+            <div class="collapse-note"><span>◐</span><span>模块栏收起后保留图标入口</span></div>
+          </div>
+        </aside>
+        <section class="main">
+          <div class="hero">
+            <div>
+              <h1>柔和蓝绿智能工作区</h1>
+              <p>更轻、更舒展、更像“AI 在身边工作”。适合参赛展示，也适合后续打磨为主线。</p>
+            </div>
+            <div class="stage">AI 随行 · 证据可追溯</div>
+          </div>
+          <div class="cards">
+            <div class="panel"><small>本地规则</small><strong>一层优先</strong></div>
+            <div class="panel"><small>经验池</small><strong>38 条提示</strong></div>
+            <div class="panel"><small>知识库</small><strong>已索引</strong></div>
+            <div class="panel"><small>输出</small><strong>Excel + Word</strong></div>
+          </div>
+          <div class="table-window">
+            <div class="table-head">
+              <div>
+                <strong>当前表格：表2-通用工程测量费用</strong>
+                <small>中间区域更大、更安静，适合看表、比对和复核。</small>
+              </div>
+              <button class="button">设置</button>
+            </div>
+            <div class="tabs">
+              <span class="tab active">智能预览</span>
+              <span class="tab">费用汇总</span>
+              <span class="tab">规则说明</span>
+              <span class="tab">报告摘要</span>
+            </div>
+            <div class="grid-wrap">
+              <table>
+                <thead>
+                  <tr><th>项目</th><th>条件</th><th>单位</th><th>基价</th><th>实物</th><th>技术</th><th>依据</th><th>AI</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td>地下管线测量</td><td>中等</td><td>km</td><td class="num">1700.00</td><td class="num">1.00</td><td class="num">0.22</td><td><span class="tag ok">标准规则</span></td><td>问</td></tr>
+                  <tr><td>钻孔抽水</td><td>复杂</td><td>m</td><td class="num">711.00</td><td class="num">1.50</td><td class="num">0.33</td><td><span class="tag ok">高优先级</span></td><td>问</td></tr>
+                  <tr><td>地质测绘</td><td>丘陵</td><td>km²</td><td class="num">920.00</td><td class="num">--</td><td class="num">0.20</td><td><span class="tag warn">经验提示</span></td><td>问</td></tr>
+                  <tr><td>物探</td><td>Ⅰ类</td><td>点</td><td class="num">36.00</td><td class="num">1.20</td><td class="num">0.18</td><td><span class="tag bad">需复核</span></td><td>问</td></tr>
+                  <tr><td>控制测量</td><td>可研</td><td>km</td><td class="num">4500.00</td><td class="num">1.10</td><td class="num">0.26</td><td><span class="tag ok">标准规则</span></td><td>问</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+        <aside class="assistant">
+          <div class="assistant-head">
+            <span><strong>智算助手</strong><span>右侧可折叠，随当前模块变化</span></span>
+            <button class="icon-btn">›</button>
+          </div>
+          <div class="context">
+            <div class="context-row">
+              <span class="chip">当前模块：表格预览</span>
+              <span class="chip">证据 4 条</span>
+              <span class="chip">风险 2 项</span>
+            </div>
+          </div>
+          <div class="messages">
+            <div class="msg ai">我会优先解释当前表格中被选中的行，并标出基价、实物系数、技术系数分别来自哪一层规则。</div>
+            <div class="msg">帮我看一下这行为什么需要复核。</div>
+            <div class="msg ai">当前行实物工作费系数来自经验提示层，不是标准规则层。建议人工核实项目条件、单位和工作阶段。</div>
+          </div>
+          <div class="assistant-input">
+            <div>查库：输入问题，或点击表格行自动带入上下文...</div>
+            <button class="button primary">发送</button>
+          </div>
+        </aside>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

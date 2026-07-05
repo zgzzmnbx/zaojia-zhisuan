@@ -1,0 +1,15 @@
+[package]
+name = "guankanzhisuan-desktop"
+version = "5.4.1"
+description = "Tauri desktop shell MVP for zaojiazhisuan"
+authors = ["zaojiazhisuan"]
+edition = "2021"
+build = "build.rs"
+
+[build-dependencies]
+tauri-build = { version = "2.6.2", features = [] }
+
+[dependencies]
+tauri = { version = "2.11.3", features = [] }
+
+

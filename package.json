@@ -1,0 +1,15 @@
+{
+  "name": "guankanzhisuan-desktop-shell",
+  "version": "5.4.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "frontend:build": "npm --prefix frontend run build",
+    "tauri:dev": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/run_tauri.ps1 dev",
+    "tauri:build": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/run_tauri.ps1 build",
+    "tauri:release": "python tools/build_tauri_release.py"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.11.3"
+  }
+}

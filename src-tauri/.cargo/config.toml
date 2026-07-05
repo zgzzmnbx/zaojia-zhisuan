@@ -1,0 +1,13 @@
+[source.crates-io]
+replace-with = "rsproxy-sparse"
+
+[source.rsproxy-sparse]
+registry = "sparse+https://rsproxy.cn/index/"
+
+[http]
+timeout = 600
+low-speed-limit = 0
+check-revoke = false
+
+[net]
+retry = 5

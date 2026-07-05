@@ -1,0 +1,22 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "造价智算",
+  "version": "5.4.1",
+  "identifier": "com.guankanzhisuan.desktop",
+  "build": {
+    "devUrl": "http://127.0.0.1:8000",
+    "frontendDist": "../frontend/dist"
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": false,
+    "targets": "all"
+  }
+}
+
+

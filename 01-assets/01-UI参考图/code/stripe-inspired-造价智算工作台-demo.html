@@ -1,0 +1,834 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>造价智算 Stripe-inspired 工作台 Demo</title>
+  <style>
+    :root {
+      --stripe-indigo: #533afd;
+      --stripe-indigo-deep: #4434d4;
+      --stripe-navy: #1c1e54;
+      --stripe-ink: #0d253d;
+      --stripe-text: #273951;
+      --stripe-muted: #64748d;
+      --stripe-canvas: #ffffff;
+      --stripe-soft: #f6f9fc;
+      --stripe-cream: #f5e9d4;
+      --stripe-line: #e3e8ee;
+      --stripe-input: #a8c3de;
+      --stripe-ruby: #ea2261;
+      --stripe-magenta: #f96bee;
+      --chart-green: rgb(117, 188, 146);
+      --warning: #d97706;
+      --danger: #b42318;
+      font-family: Inter, "SF Pro Display", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei UI", sans-serif;
+      color: var(--stripe-ink);
+      background: var(--stripe-canvas);
+      font-feature-settings: "ss01";
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-width: 1280px;
+      min-height: 100vh;
+      overflow: hidden;
+      background: var(--stripe-canvas);
+    }
+
+    .mesh {
+      position: fixed;
+      inset: 0 0 auto 0;
+      z-index: -2;
+      height: 330px;
+      background:
+        radial-gradient(circle at 10% 24%, rgba(245, 233, 212, 0.95), transparent 30%),
+        radial-gradient(circle at 32% 14%, rgba(255, 165, 94, 0.75), transparent 28%),
+        radial-gradient(circle at 53% 8%, rgba(185, 185, 249, 0.95), transparent 34%),
+        radial-gradient(circle at 72% 20%, rgba(83, 58, 253, 0.72), transparent 33%),
+        radial-gradient(circle at 91% 16%, rgba(234, 34, 97, 0.62), transparent 26%),
+        linear-gradient(180deg, rgba(246, 249, 252, 0.74), #fff 86%);
+      filter: saturate(112%);
+    }
+
+    .mesh::after {
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(13, 37, 61, 0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(13, 37, 61, 0.035) 1px, transparent 1px);
+      background-size: 32px 32px;
+      mask-image: linear-gradient(180deg, #000, transparent 75%);
+      content: "";
+    }
+
+    .app {
+      display: grid;
+      grid-template-rows: 56px minmax(0, 1fr);
+      height: 100vh;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 22px;
+      border-bottom: 1px solid rgba(227, 232, 238, 0.85);
+      background: rgba(255, 255, 255, 0.78);
+      backdrop-filter: blur(20px);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 15px;
+      font-weight: 650;
+    }
+
+    .mark {
+      display: grid;
+      place-items: center;
+      width: 30px;
+      height: 30px;
+      border-radius: 9px;
+      background: var(--stripe-navy);
+      color: #fff;
+      font-weight: 700;
+    }
+
+    .top-meta {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: var(--stripe-muted);
+      font-size: 13px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      height: 32px;
+      padding: 0 14px;
+      border: 1px solid var(--stripe-line);
+      border-radius: 999px;
+      background: var(--stripe-canvas);
+      color: var(--stripe-ink);
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .primary {
+      border-color: var(--stripe-indigo);
+      background: var(--stripe-indigo);
+      color: #fff;
+    }
+
+    .shell {
+      display: grid;
+      grid-template-columns: 276px minmax(720px, 1fr) 370px;
+      min-height: 0;
+      background: rgba(255, 255, 255, 0.72);
+    }
+
+    .sidebar,
+    .assistant {
+      min-height: 0;
+      border-right: 1px solid var(--stripe-line);
+      background: rgba(255, 255, 255, 0.84);
+      backdrop-filter: blur(18px);
+    }
+
+    .assistant {
+      border-right: 0;
+      border-left: 1px solid var(--stripe-line);
+    }
+
+    .module-head {
+      padding: 20px 22px 14px;
+      border-bottom: 1px solid var(--stripe-line);
+    }
+
+    .eyebrow {
+      margin: 0 0 4px;
+      color: var(--stripe-muted);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    h1,
+    h2,
+    h3 {
+      margin: 0;
+      color: var(--stripe-ink);
+      font-weight: 350;
+      letter-spacing: -0.03em;
+    }
+
+    .module-head h1 {
+      font-size: 25px;
+      line-height: 1.05;
+    }
+
+    .nav {
+      display: grid;
+      gap: 5px;
+      padding: 18px 16px;
+    }
+
+    .nav-item {
+      display: grid;
+      grid-template-columns: 28px 30px minmax(0, 1fr);
+      align-items: center;
+      min-height: 50px;
+      padding: 8px 10px;
+      border-radius: 12px;
+      color: var(--stripe-text);
+      font-size: 13px;
+    }
+
+    .nav-item.active {
+      background: rgba(83, 58, 253, 0.08);
+      color: var(--stripe-indigo-deep);
+    }
+
+    .nav-item b {
+      color: inherit;
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .nav-icon {
+      display: grid;
+      place-items: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 999px;
+      background: #fff;
+      border: 1px solid var(--stripe-line);
+      color: var(--stripe-indigo);
+    }
+
+    .nav-copy strong,
+    .nav-copy span {
+      display: block;
+    }
+
+    .nav-copy strong {
+      color: inherit;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .nav-copy span {
+      margin-top: 2px;
+      color: var(--stripe-muted);
+      font-size: 11px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .side-chart {
+      margin: 24px 18px 0;
+      padding: 18px 14px;
+      border: 1px solid var(--stripe-line);
+      border-radius: 18px;
+      background: rgba(246, 249, 252, 0.82);
+    }
+
+    .donut {
+      display: grid;
+      place-items: center;
+      width: 112px;
+      height: 112px;
+      margin: 0 auto 12px;
+      border-radius: 50%;
+      background:
+        radial-gradient(circle at center, #fff 0 50%, transparent 52%),
+        conic-gradient(var(--chart-green) 0 98%, var(--danger) 98% 100%);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .donut strong {
+      display: block;
+      font-size: 24px;
+      font-weight: 650;
+      letter-spacing: -0.04em;
+    }
+
+    .side-stats {
+      display: grid;
+      gap: 7px;
+      font-size: 12px;
+      color: var(--stripe-muted);
+    }
+
+    .side-stats span {
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .side-stats b {
+      color: var(--stripe-ink);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .workspace {
+      min-height: 0;
+      padding: 18px;
+      overflow: hidden;
+    }
+
+    .hero-card {
+      position: relative;
+      display: grid;
+      grid-template-columns: minmax(360px, 0.85fr) minmax(480px, 1.15fr);
+      gap: 18px;
+      min-height: 100%;
+    }
+
+    .left-stack,
+    .right-stack {
+      display: grid;
+      gap: 18px;
+      min-height: 0;
+    }
+
+    .left-stack {
+      grid-template-rows: minmax(330px, 1fr) 260px;
+    }
+
+    .right-stack {
+      grid-template-rows: 300px minmax(0, 1fr);
+    }
+
+    .panel {
+      min-width: 0;
+      min-height: 0;
+      border: 1px solid var(--stripe-line);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.92);
+      box-shadow: 0 8px 24px rgba(0, 55, 112, 0.06);
+      overflow: hidden;
+    }
+
+    .panel-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 18px 20px;
+    }
+
+    .panel-head h2 {
+      font-size: 25px;
+      line-height: 1.06;
+    }
+
+    .panel-head small {
+      display: block;
+      margin-top: 4px;
+      color: var(--stripe-muted);
+      font-size: 12px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 30px;
+      height: 30px;
+      border-radius: 999px;
+      background: rgba(83, 58, 253, 0.1);
+      color: var(--stripe-indigo);
+      font-size: 12px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .drop {
+      display: grid;
+      place-items: center;
+      margin: 0 20px 16px;
+      min-height: 190px;
+      border: 1px dashed var(--stripe-input);
+      border-radius: 16px;
+      background: linear-gradient(180deg, rgba(246, 249, 252, 0.8), rgba(255, 255, 255, 0.88));
+      text-align: center;
+    }
+
+    .drop-icon {
+      display: grid;
+      place-items: center;
+      width: 42px;
+      height: 42px;
+      margin: 0 auto 12px;
+      color: var(--stripe-indigo);
+    }
+
+    .drop strong {
+      display: block;
+      font-size: 18px;
+      letter-spacing: -0.03em;
+    }
+
+    .drop span {
+      display: block;
+      margin-top: 8px;
+      color: var(--stripe-muted);
+      font-size: 13px;
+    }
+
+    .actions {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      padding: 0 20px 20px;
+    }
+
+    .summary {
+      padding: 0 20px 20px;
+    }
+
+    .summary-card {
+      display: grid;
+      grid-template-columns: 150px minmax(0, 1fr);
+      align-items: center;
+      min-height: 136px;
+      padding: 16px;
+      border: 1px solid var(--stripe-line);
+      border-radius: 16px;
+      background:
+        linear-gradient(100deg, rgba(83, 58, 253, 0.08), rgba(255, 255, 255, 0)),
+        var(--stripe-canvas);
+    }
+
+    .summary-card strong {
+      color: var(--stripe-ink);
+      font-size: 58px;
+      font-weight: 330;
+      letter-spacing: -0.08em;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .summary-card p {
+      margin: 0;
+      color: var(--stripe-text);
+      font-size: 15px;
+      line-height: 1.55;
+    }
+
+    .status-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      padding: 0 20px 20px;
+    }
+
+    .status-card {
+      display: grid;
+      align-content: center;
+      min-height: 150px;
+      padding: 18px;
+      border: 1px solid var(--stripe-line);
+      border-radius: 16px;
+      background: var(--stripe-canvas);
+    }
+
+    .status-card strong {
+      margin-top: 10px;
+      color: var(--chart-green);
+      font-size: 28px;
+      font-weight: 500;
+      letter-spacing: -0.05em;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .status-card span {
+      color: var(--stripe-muted);
+      font-size: 13px;
+    }
+
+    .quality {
+      display: grid;
+      grid-template-columns: 118px minmax(0, 1fr);
+      align-items: center;
+      gap: 18px;
+      min-height: 150px;
+      padding: 18px;
+      border: 1px solid var(--stripe-line);
+      border-radius: 16px;
+      background: var(--stripe-canvas);
+    }
+
+    .quality .donut {
+      width: 104px;
+      height: 104px;
+      margin: 0;
+      background:
+        radial-gradient(circle at center, #fff 0 51%, transparent 53%),
+        conic-gradient(var(--chart-green) 0 98%, var(--warning) 98% 99%, var(--danger) 99% 100%);
+    }
+
+    .quality h3 {
+      font-size: 24px;
+      line-height: 1.08;
+    }
+
+    .quality p {
+      margin: 8px 0 0;
+      color: var(--stripe-muted);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .table-mock {
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr);
+      background: var(--stripe-navy);
+      color: #dfe7ff;
+    }
+
+    .chrome {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 16px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+      color: #fff;
+    }
+
+    .dots {
+      display: flex;
+      gap: 6px;
+    }
+
+    .dots i {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.35);
+    }
+
+    .tabs {
+      display: flex;
+      gap: 8px;
+      padding: 12px 16px;
+      overflow: hidden;
+    }
+
+    .tabs span {
+      flex: 0 0 auto;
+      padding: 7px 11px;
+      border: 1px solid rgba(255, 255, 255, 0.11);
+      border-radius: 999px;
+      color: #c8d4ff;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .tabs span.active {
+      border-color: rgba(185, 185, 249, 0.65);
+      background: rgba(83, 58, 253, 0.34);
+      color: #fff;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    th,
+    td {
+      padding: 12px 14px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      text-align: left;
+      white-space: nowrap;
+    }
+
+    th {
+      color: #8fa0d6;
+      font-weight: 600;
+    }
+
+    td.ok {
+      color: #a5f3c1;
+      font-weight: 700;
+    }
+
+    td.warn {
+      color: #ffd08a;
+      font-weight: 700;
+    }
+
+    .assistant {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+    }
+
+    .assistant-head {
+      padding: 20px 22px 16px;
+      border-bottom: 1px solid var(--stripe-line);
+    }
+
+    .assistant-head h2 {
+      color: var(--stripe-indigo);
+      font-size: 25px;
+    }
+
+    .chat {
+      display: grid;
+      align-content: start;
+      gap: 14px;
+      padding: 24px 20px;
+      overflow: hidden;
+    }
+
+    .msg {
+      display: grid;
+      grid-template-columns: 26px minmax(0, 1fr);
+      gap: 8px;
+      max-width: 92%;
+    }
+
+    .avatar {
+      display: grid;
+      place-items: center;
+      width: 24px;
+      height: 24px;
+      border-radius: 999px;
+      background: var(--chart-green);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .bubble {
+      padding: 12px 14px;
+      border-radius: 16px;
+      background: var(--stripe-soft);
+      color: var(--stripe-text);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .compose {
+      padding: 18px 20px 20px;
+      border-top: 1px solid var(--stripe-line);
+      background: #fff;
+    }
+
+    .compose-box {
+      min-height: 92px;
+      padding: 14px;
+      border: 1px solid var(--stripe-line);
+      border-radius: 18px;
+      color: var(--stripe-muted);
+      font-size: 14px;
+    }
+
+    .floating-ai {
+      position: fixed;
+      right: 26px;
+      bottom: 26px;
+      display: grid;
+      place-items: center;
+      width: 56px;
+      height: 56px;
+      border: 1px solid rgba(83, 58, 253, 0.26);
+      border-radius: 18px;
+      background: #fff;
+      color: var(--stripe-indigo);
+      box-shadow: 0 8px 24px rgba(0, 55, 112, 0.12);
+    }
+  </style>
+</head>
+<body>
+  <div class="mesh" aria-hidden="true"></div>
+  <main class="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="mark">智</span>
+        <span>造价智算</span>
+      </div>
+      <div class="top-meta">
+        <span>本地结构化匹配 · v5.3.3 demo</span>
+        <span class="pill">欢迎页</span>
+        <span class="pill primary">开始转换</span>
+      </div>
+    </header>
+
+    <section class="shell">
+      <aside class="sidebar">
+        <div class="module-head">
+          <p class="eyebrow">当前模块</p>
+          <h1>填价工作台</h1>
+        </div>
+        <nav class="nav" aria-label="模块导航">
+          <div class="nav-item active">
+            <b>01</b><span class="nav-icon">⇧</span>
+            <span class="nav-copy"><strong>填价工作台</strong><span>上传与列映射</span></span>
+          </div>
+          <div class="nav-item">
+            <b>02</b><span class="nav-icon">▤</span>
+            <span class="nav-copy"><strong>结果预览</strong><span>13 行可视化</span></span>
+          </div>
+          <div class="nav-item">
+            <b>03</b><span class="nav-icon">△</span>
+            <span class="nav-copy"><strong>经验池预警</strong><span>手动运行</span></span>
+          </div>
+          <div class="nav-item">
+            <b>04</b><span class="nav-icon">▥</span>
+            <span class="nav-copy"><strong>工作量抓取</strong><span>独立预处理</span></span>
+          </div>
+          <div class="nav-item">
+            <b>05</b><span class="nav-icon">▣</span>
+            <span class="nav-copy"><strong>Word 报告</strong><span>可下载报告</span></span>
+          </div>
+          <div class="nav-item">
+            <b>06</b><span class="nav-icon">◎</span>
+            <span class="nav-copy"><strong>知识库问答</strong><span>@知识库</span></span>
+          </div>
+        </nav>
+        <div class="side-chart">
+          <div class="donut"><span><strong>101</strong>Total</span></div>
+          <div class="side-stats">
+            <span><b>101</b> 输入行</span>
+            <span><b>13</b> 可视化</span>
+            <span><b>0</b> 待复核</span>
+            <span><b>未运行</b> 预警</span>
+          </div>
+        </div>
+      </aside>
+
+      <section class="workspace">
+        <div class="hero-card">
+          <div class="left-stack">
+            <section class="panel">
+              <div class="panel-head">
+                <div>
+                  <p class="eyebrow">输入</p>
+                  <h2>上传标准 Excel</h2>
+                  <small>拖入控制价计算表，系统读取字段并保持本地处理。</small>
+                </div>
+                <span class="badge">01</span>
+              </div>
+              <div class="drop">
+                <div>
+                  <div class="drop-icon">⇧</div>
+                  <strong>拖拽 Excel 到这里</strong>
+                  <span>或点击选择 .xlsx 文件</span>
+                </div>
+              </div>
+              <div class="actions">
+                <span class="pill primary">开始转换</span>
+                <span class="pill">选文件</span>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-head">
+                <div>
+                  <p class="eyebrow">简报</p>
+                  <h2>转换后概览</h2>
+                </div>
+                <span class="badge">02</span>
+              </div>
+              <div class="summary">
+                <div class="summary-card">
+                  <strong>100%</strong>
+                  <p>输入 101 行，匹配 101 行。下载入口和 Word 报告会在这里集中呈现。</p>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <div class="right-stack">
+            <section class="panel">
+              <div class="panel-head">
+                <div>
+                  <p class="eyebrow">状态</p>
+                  <h2>工作状态</h2>
+                </div>
+                <span class="badge">03</span>
+              </div>
+              <div class="status-grid">
+                <div class="status-card">
+                  <span>匹配状态</span>
+                  <strong>101/101 行完成</strong>
+                  <span>待复核 0 行 · 预警未运行</span>
+                </div>
+                <div class="quality">
+                  <div class="donut"><span><strong>100%</strong>Total</span></div>
+                  <div>
+                    <h3>匹配质量分布</h3>
+                    <p>高置信匹配 101 行，低风险 0 行，高风险 0 行。</p>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="panel table-mock">
+              <div class="chrome">
+                <div class="dots"><i></i><i></i><i></i></div>
+                <strong>填价结果预览</strong>
+                <span class="pill">设置</span>
+              </div>
+              <div class="tabs">
+                <span class="active">费用汇总</span>
+                <span>表1-长输管道工程勘测费用</span>
+                <span>表2-通用工程测量费用</span>
+                <span>表3-地质测绘</span>
+              </div>
+              <table>
+                <thead>
+                  <tr><th>项目</th><th>单位</th><th>单价匹配</th><th>实物系数</th><th>技术系数</th><th>AI</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td>GPS测量C级</td><td>个</td><td class="ok">427400</td><td class="ok">0.6</td><td class="ok">0.22</td><td>◎</td></tr>
+                  <tr><td>GPS测量E级</td><td>个</td><td class="ok">3203</td><td class="ok">0.6</td><td class="ok">0.22</td><td>◎</td></tr>
+                  <tr><td>地形图测绘</td><td>km2</td><td class="ok">4983.36</td><td class="ok">1</td><td class="ok">0</td><td>◎</td></tr>
+                  <tr><td>合计（不含税）</td><td></td><td class="warn">2404.34</td><td></td><td></td><td>◎</td></tr>
+                </tbody>
+              </table>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <aside class="assistant">
+        <div class="assistant-head">
+          <p class="eyebrow">随行助手</p>
+          <h2>智算</h2>
+        </div>
+        <div class="chat">
+          <div class="msg">
+            <span class="avatar">Z</span>
+            <div class="bubble">你好，我是智算。你把 Excel 拖进来，我负责盯住字段、转换、预警、报告和每一行复核。</div>
+          </div>
+          <div class="msg">
+            <span class="avatar">Z</span>
+            <div class="bubble">转换完成后，可以让我跑“经验池预警分析”，也可以直接输出 Excel / Word。</div>
+          </div>
+        </div>
+        <div class="compose">
+          <div class="compose-box">@知识库：输入一句问题</div>
+        </div>
+      </aside>
+    </section>
+  </main>
+  <div class="floating-ai" aria-label="智算悬浮按钮">✧</div>
+</body>
+</html>
