@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## v5.4.2 - 2026-07-06
+
+- 升级版本号到 `v5.4.2`：同步根目录 npm 包、前端 npm 包、后端版本、Tauri 配置、Cargo 元数据、README 和当前版本计划。
+- 重画欢迎页为浅色 Navattic 式首屏：白底细线构图、居中大标题、克制主按钮和下方造价智算工作台预览框，弱化原深色大屏感。
+- 保留原深色欢迎页为未启用变体：旧深色流程板仍在前端分支和 CSS 中留存，默认入口暂不启用，不影响主界面和业务流程。
+- 验证：`npm run frontend:build` 通过。
+
 ## v5.4.1 - 2026-07-05
 
 - 升级版本号到 `v5.4.1`：同步根目录 npm 包、前端 npm 包、后端版本、Tauri 配置、Cargo 元数据、README 和当前版本计划。
@@ -21,11 +28,3 @@
 - 调整主流程为两阶段批量匹配体验：`开始转换` 只生成待匹配预览，预览窗口蓝色 `批量匹配` 按钮再执行价格和两个系数识别填写，右侧智算同步输出阶段提示。
 - 修复两阶段批量匹配：刷新预览、人工修改或重算公式后继续保留开始转换时的列映射和 sheet 配置，避免批量匹配误报缺少 `要素1 / 单位`。
 - 验证：`python -m pytest backend/tests -v` 通过（150 passed, 3 skipped）；`npm run frontend:build` 通过。
-
-## v5.3.7 - 2026-07-03
-
-- 升级版本号到 `v5.3.7`：同步根目录 npm 包、前端 npm 包、后端版本、Tauri 配置、Cargo 元数据、README 和当前版本计划。
-- 修复预览人工修改不可用问题：回车和失焦保存改为按当前输入框快照提交，避免双击其他单元格时串到下一个单元格。
-- 优化保存性能：单元格保存只做输出 Excel 快速写值、浅蓝标记、批注和 JSON 留痕，不再每次触发 Excel 重算、全量预览刷新和 Word 报告重写。
-- 新增结果预览“重算公式”按钮与 `/api/preview/recalculate` 接口：需要刷新汇总公式和 Word 报告时由用户手动触发。
-- 验证：`npm run frontend:build` 通过；`python -m pytest backend/tests/test_api.py::test_preview_cell_edit_updates_output_workbook_preview_and_log backend/tests/test_api.py::test_preview_cell_edit_rejects_formula_and_merged_non_start_cells -v` 通过。

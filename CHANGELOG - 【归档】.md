@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## v5.3.7 - 2026-07-03
+
+- 升级版本号到 `v5.3.7`：同步根目录 npm 包、前端 npm 包、后端版本、Tauri 配置、Cargo 元数据、README 和当前版本计划。
+- 修复预览人工修改不可用问题：回车和失焦保存改为按当前输入框快照提交，避免双击其他单元格时串到下一个单元格。
+- 优化保存性能：单元格保存只做输出 Excel 快速写值、浅蓝标记、批注和 JSON 留痕，不再每次触发 Excel 重算、全量预览刷新和 Word 报告重写。
+- 新增结果预览“重算公式”按钮与 `/api/preview/recalculate` 接口：需要刷新汇总公式和 Word 报告时由用户手动触发。
+- 验证：`npm run frontend:build` 通过；`python -m pytest backend/tests/test_api.py::test_preview_cell_edit_updates_output_workbook_preview_and_log backend/tests/test_api.py::test_preview_cell_edit_rejects_formula_and_merged_non_start_cells -v` 通过。
+
 ## v5.3.6 - 2026-07-02
 
 - 升级版本号到 `v5.3.6`：同步根目录 npm 包、前端 npm 包、后端版本、Tauri 配置、Cargo 元数据、README 和当前版本计划。

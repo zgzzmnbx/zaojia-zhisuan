@@ -34,7 +34,8 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.4.1";
+const APP_VERSION = "v5.4.2";
+const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const KNOWLEDGE_QA_ENTRY_COUNT = 3922;
 const KNOWLEDGE_QA_SOURCE_COUNT = 17;
 const PRICE_KNOWLEDGE_ROW_COUNT = 560;
@@ -129,7 +130,7 @@ const ZHISUAN_WELCOME_STORAGE_KEY = "guankanzhisuan-zhisuan-welcome-message";
 const ZHISUAN_DOCK_STYLE_STORAGE_KEY = "guankanzhisuan-zhisuan-dock-style";
 const WELCOME_SCREEN_HIDDEN_STORAGE_KEY = "guankanzhisuan-welcome-screen-hidden";
 const WELCOME_SCREEN_VERSION_STORAGE_KEY = "guankanzhisuan-welcome-screen-version";
-const WELCOME_SCREEN_VERSION = "brand-v5.4.1";
+const WELCOME_SCREEN_VERSION = "brand-v5.4.2";
 const ZHISUAN_QUICK_SETTINGS_VERSION = 2;
 const LEFT_COLUMN_COLLAPSED_STORAGE_KEY = "guankanzhisuan-left-column-collapsed";
 type MappingField = (typeof MAPPING_FIELDS)[number];
@@ -5395,11 +5396,14 @@ function DaweibaApp() {
       </nav>
 
       {isWelcomeScreenVisible && (
-        <section className="welcome-screen" aria-label="欢迎页">
+        <section className={`welcome-screen is-${WELCOME_SCREEN_VARIANT}`} aria-label="欢迎页">
           <div className="welcome-shell">
             <div className="welcome-copy">
-              <p className="welcome-kicker">本地运行 · 规则可追溯 · 工程造价数字员工</p>
-              <h1>{APP_NAME}</h1>
+              <p className="welcome-kicker">
+                <ShieldCheck size={15} />
+                本地运行 · 规则可追溯 · 人工兜底
+              </p>
+              <h1>让工程造价复核更快进入可信状态</h1>
               <p className="welcome-subtitle">{APP_SUBTITLE}</p>
               <p className="welcome-lead">
                 基价、调整系数、经验池预警、工作量抓取和 Word 报告在本地闭环处理；智算助手只做解释、复核提示和报告辅助，不裁决价格。
@@ -5419,33 +5423,110 @@ function DaweibaApp() {
                 </label>
               </div>
             </div>
-            <div className="welcome-board" aria-hidden="true">
-              <div className="welcome-board-head">
-                <span></span>
-                <span></span>
-                <span></span>
-                <strong>{APP_VERSION}</strong>
+            {WELCOME_SCREEN_VARIANT === "dark" ? (
+              <div className="welcome-board welcome-board-dark" aria-hidden="true">
+                <div className="welcome-board-head">
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                  <strong>{APP_VERSION}</strong>
+                </div>
+                <div className="welcome-flow">
+                  {[
+                    ["01", "上传标准 Excel", "识别 sheet、表头与列映射"],
+                    ["02", "结构化匹配", "本地知识库与规则表硬校验"],
+                    ["03", "输出成果", "Excel、Word、预览与预警"],
+                  ].map(([step, title, detail]) => (
+                    <div className="welcome-flow-item" key={step}>
+                      <b>{step}</b>
+                      <span>
+                        <strong>{title}</strong>
+                        <small>{detail}</small>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <div className="welcome-metrics">
+                  <span><strong>3</strong> 个关键数字本地裁决</span>
+                  <span><strong>0</strong> API Key 也可跑核心流程</span>
+                </div>
               </div>
-              <div className="welcome-flow">
-                {[
-                  ["01", "上传标准 Excel", "识别 sheet、表头与列映射"],
-                  ["02", "结构化匹配", "本地知识库与规则表硬校验"],
-                  ["03", "输出成果", "Excel、Word、预览与预警"],
-                ].map(([step, title, detail]) => (
-                  <div className="welcome-flow-item" key={step}>
-                    <b>{step}</b>
-                    <span>
-                      <strong>{title}</strong>
-                      <small>{detail}</small>
-                    </span>
+            ) : (
+              <div className="welcome-product-frame" aria-hidden="true">
+                <div className="welcome-frame-toolbar">
+                  <span className="welcome-frame-brand">造价智算工作台</span>
+                  <span>本地服务 {API_BASE_LABEL}</span>
+                </div>
+                <div className="welcome-frame-body">
+                  <div className="welcome-frame-rail">
+                    <span className="welcome-frame-logo">智</span>
+                    <FileSpreadsheet size={18} />
+                    <Columns3 size={18} />
+                    <Database size={18} />
+                    <MessageSquareText size={18} />
                   </div>
-                ))}
+                  <div className="welcome-frame-menu">
+                    <strong>填价工作台</strong>
+                    {["标准 Excel 转换", "表格预览", "经验池预警", "问问智算"].map((item, index) => (
+                      <span className={index === 0 ? "is-active" : ""} key={item}>
+                        {item}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="welcome-frame-main">
+                    <div className="welcome-frame-main-head">
+                      <span>
+                        <b>三数字匹配</b>
+                        <small>基价 / 实物系数 / 技术系数</small>
+                      </span>
+                      <button type="button">批量匹配</button>
+                    </div>
+                    <div className="welcome-upload-preview">
+                      <BookOpen size={20} />
+                      <span>
+                        <strong>规则引擎先裁决，AI 只解释</strong>
+                        <small>二维知识库、规则表和经验池预警分层处理</small>
+                      </span>
+                    </div>
+                    <div className="welcome-mini-grid">
+                      {[
+                        ["待匹配行", "100"],
+                        ["规则命中", "86"],
+                        ["待复核", "14"],
+                      ].map(([label, value]) => (
+                        <span key={label}>
+                          <small>{label}</small>
+                          <strong>{value}</strong>
+                        </span>
+                      ))}
+                    </div>
+                    <div className="welcome-table-preview">
+                      {["要素1", "单位", "基价", "匹配状态"].map((head) => (
+                        <b key={head}>{head}</b>
+                      ))}
+                      {[
+                        ["地形测量", "km", "1240", "已命中"],
+                        ["管线测量", "km", "待复核", "需人工确认"],
+                        ["技术工作费", "项", "0.85", "标准规则"],
+                      ].flatMap((row, rowIndex) =>
+                        row.map((cell, cellIndex) => (
+                          <span className={rowIndex === 1 && cellIndex >= 2 ? "is-warning" : ""} key={`${rowIndex}-${cellIndex}`}>
+                            {cell}
+                          </span>
+                        )),
+                      )}
+                    </div>
+                  </div>
+                  <div className="welcome-frame-ai">
+                    <div>
+                      <CheckCircle2 size={18} />
+                      <strong>复核提示</strong>
+                    </div>
+                    <p>发现 14 行需要人工确认，已整理候选依据和经验池对比。</p>
+                  </div>
+                </div>
               </div>
-              <div className="welcome-metrics">
-                <span><strong>3</strong> 个关键数字本地裁决</span>
-                <span><strong>0</strong> API Key 也可跑核心流程</span>
-              </div>
-            </div>
+            )}
           </div>
         </section>
       )}

@@ -97,7 +97,7 @@ from .paths import (
 from .report import append_risk_report, write_report
 
 
-APP_VERSION = "v5.4.1"
+APP_VERSION = "v5.4.2"
 OUTPUT_FILE_PREFIX = "【输出】"
 TEMP_FILE_PREFIX = "【临时】"
 PROCESS_STATE_FILENAME = "process-state.json"
