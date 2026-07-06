@@ -1058,6 +1058,137 @@ def test_workload_capture_run_endpoint_fills_and_downloads_workbooks(tmp_path):
     filled_book.close()
 
 
+def test_workload_capture_apply_to_current_updates_preview_and_keeps_marked_source_download(tmp_path, monkeypatch):
+    runtime_dir = tmp_path / "runtime"
+    monkeypatch.setattr(main_module, "RUNTIME_DIR", runtime_dir)
+    job_id = "current-workload-job"
+    job_dir = runtime_dir / job_id
+    job_dir.mkdir(parents=True)
+
+    source_path = tmp_path / "workload-source-current.xlsx"
+    source_book = Workbook()
+    source = source_book.active
+    source.title = "委托方工作量"
+    source.append(["要素1", "要素2", "单位", "数量", "实物工作费调整系数", "技术工作费调整系数", "委托方备注"])
+    source.append(["控制测量", "平面控制", "km", 12, 1.1, 0.8, "委托方给定"])
+    source_book.save(source_path)
+    source_book.close()
+
+    output_path = job_dir / "output.xlsx"
+    output_book = Workbook()
+    output = output_book.active
+    output.title = "表2 测量"
+    output.append(["要素1", "要素2", "单位", "数量(信息抓取)", "实物工作费调整系数(信息抓取)", "技术工作费调整系数(信息抓取)", "委托方备注(信息抓取)"])
+    output.append(["控制测量", "平面控制", "km", None, None, None, None])
+    output_book.save(output_path)
+    output_book.close()
+
+    summary = FillSummary(
+        total_data_rows=1,
+        price_column="",
+        filled_rows=0,
+        matched_rows=0,
+        unchanged_rows=0,
+        review_rows=0,
+        conflict_rows=0,
+        output_excel=output_path.name,
+        output_report="report.docx",
+        report_text="测试报告",
+        table_preview={
+            "sheet_name": "表2 测量",
+            "header_row": 1,
+            "headers": ["要素1", "要素2", "单位", "数量(信息抓取)"],
+            "rows": [["控制测量", "平面控制", "km", None]],
+            "row_numbers": [2],
+        },
+    )
+    main_module._save_process_state(job_dir, "input.xlsx", None, output_path, job_dir / "report.docx", summary)
+
+    source_configs = [
+        {
+            "sheet_name": "委托方工作量",
+            "enabled": True,
+            "header_row": 1,
+            "column_mapping": {
+                "要素1": "A",
+                "要素2": "B",
+                "单位": "C",
+                "数量": "D",
+                "实物工作费调整系数": "E",
+                "技术工作费调整系数": "F",
+                "委托方备注": "G",
+            },
+        }
+    ]
+    target_configs = [
+        {
+            "sheet_name": "表2 测量",
+            "enabled": True,
+            "header_row": 1,
+            "column_mapping": {
+                "要素1": "A",
+                "要素2": "B",
+                "单位": "C",
+                "数量(信息抓取)": "D",
+                "实物工作费调整系数(信息抓取)": "E",
+                "技术工作费调整系数(信息抓取)": "F",
+                "委托方备注(信息抓取)": "G",
+            },
+        }
+    ]
+
+    client = TestClient(app)
+    inspect_response = client.post("/api/workload-capture/inspect-current-target", data={"job_id": job_id})
+    assert inspect_response.status_code == 200
+    assert inspect_response.json()["sheets"][0]["suggested_mapping"]["数量(信息抓取)"] == "D"
+
+    with source_path.open("rb") as source_handle:
+        response = client.post(
+            "/api/workload-capture/apply-to-current",
+            data={
+                "job_id": job_id,
+                "selected_fields": json.dumps(
+                    [
+                        "数量(信息抓取)",
+                        "实物工作费调整系数(信息抓取)",
+                        "技术工作费调整系数(信息抓取)",
+                        "委托方备注(信息抓取)",
+                    ],
+                    ensure_ascii=False,
+                ),
+                "source_sheet_configs": json.dumps(source_configs, ensure_ascii=False),
+                "target_sheet_configs": json.dumps(target_configs, ensure_ascii=False),
+                "write_mode": "conservative",
+            },
+            files={
+                "workload_file": (
+                    source_path.name,
+                    source_handle,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                ),
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["workload_summary"]["filled_rows"] == 1
+    assert payload["workload_summary"]["written_cells"] == 4
+    assert payload["summary"]["table_preview"]["rows"][0][3] == 12
+    marked_response = client.get(payload["workload_downloads"]["workload"])
+    assert marked_response.status_code == 200
+
+    output_book = load_workbook(output_path, data_only=True)
+    try:
+        sheet = output_book["表2 测量"]
+        assert sheet["D2"].value == 12
+        assert sheet["E2"].value == 1.1
+        assert sheet["F2"].value == 0.8
+        assert sheet["G2"].value == "委托方给定"
+        assert "抓取成功" in sheet["H2"].value
+    finally:
+        output_book.close()
+
+
 def test_workload_capture_run_endpoint_filters_rows_by_selected_field(tmp_path):
     source_path = tmp_path / "workload-source-filter.xlsx"
     source_book = Workbook()

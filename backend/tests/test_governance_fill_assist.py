@@ -308,3 +308,70 @@ def test_process_can_defer_matching_until_batch_match(tmp_path, monkeypatch):
         assert edited["表2"]["G2"].value == 3203
     finally:
         edited.close()
+
+
+def test_batch_match_preserves_current_output_values_after_workload_like_prefill(tmp_path, monkeypatch):
+    kb_path = tmp_path / "kb.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append(["要素1", "要素2", "要素3", "要素4", "要素5", "单位", "基价", "实物工作费调整系数", "技术工作费调整系数"])
+    sheet.append(["控制测量", "GPS测量E级", "", "中等", "", "点", 3203, 0.6, 0.22])
+    workbook.save(kb_path)
+    workbook.close()
+
+    input_path = tmp_path / "input.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "表2"
+    sheet.append(["要素1", "要素2", "要素3", "要素4", "要素5", "单位", "基价", "数量"])
+    sheet.append(["控制测量", "GPS测量E级", "", "中等", "", "点", "", ""])
+    workbook.save(input_path)
+    workbook.close()
+
+    monkeypatch.setattr(main_module, "RUNTIME_DIR", tmp_path / "runtime")
+    monkeypatch.setattr(main_module, "DEFAULT_KB_PATH", kb_path)
+    client = TestClient(app)
+
+    with input_path.open("rb") as handle:
+        prepare_response = client.post(
+            "/api/process",
+            files={"file": ("input.xlsx", handle, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+            data={
+                "column_mapping": main_module.json.dumps(
+                    {
+                        "要素1": "A",
+                        "要素2": "B",
+                        "要素3": "C",
+                        "要素4": "D",
+                        "要素5": "E",
+                        "单位": "F",
+                        "输出-价格列": "G",
+                    },
+                    ensure_ascii=False,
+                ),
+                "only_match_rows_with_value": "false",
+                "defer_matching": "true",
+            },
+        )
+
+    assert prepare_response.status_code == 200
+    prepared = prepare_response.json()
+    output_path = main_module.RUNTIME_DIR / prepared["job_id"] / prepared["summary"]["output_excel"]
+    output_book = load_workbook(output_path)
+    try:
+        output_book["表2"]["H2"].value = 26
+        output_book.save(output_path)
+    finally:
+        output_book.close()
+
+    batch_response = client.post("/api/process/batch-match", json={"job_id": prepared["job_id"]})
+
+    assert batch_response.status_code == 200
+    matched = batch_response.json()
+    assert matched["summary"]["matching_status"] == "completed"
+    edited = load_workbook(output_path, data_only=True)
+    try:
+        assert edited["表2"]["G2"].value == 3203
+        assert edited["表2"]["H2"].value == 26
+    finally:
+        edited.close()

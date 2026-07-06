@@ -10,6 +10,8 @@ from app.workload_capture import (
     DEFAULT_SELECTED_WORKLOAD_FIELDS,
     SOURCE_DIAGNOSTIC_FIELD,
     TARGET_QUANTITY_FIELD,
+    WRITE_MODE_CONSERVATIVE,
+    WRITE_MODE_OVERWRITE,
     capture_workload,
     suggest_workload_column_mapping,
 )
@@ -193,6 +195,81 @@ def test_capture_workload_fills_target_and_marks_source(tmp_path):
         marked_source.close()
 
 
+def test_capture_workload_conservative_mode_keeps_existing_target_value(tmp_path):
+    source = tmp_path / "source.xlsx"
+    target = tmp_path / "target.xlsx"
+    output_source = tmp_path / "source-out.xlsx"
+    output_target = tmp_path / "target-out.xlsx"
+    _write_source(source)
+    _write_target(target)
+    workbook = load_workbook(target)
+    try:
+        workbook["表2 通用工程测量费用"]["F2"].value = 99
+        workbook.save(target)
+    finally:
+        workbook.close()
+
+    summary = capture_workload(
+        source,
+        target,
+        output_source,
+        output_target,
+        _source_configs(),
+        _target_configs(),
+        selected_fields=[TARGET_QUANTITY_FIELD],
+        write_mode=WRITE_MODE_CONSERVATIVE,
+    )
+
+    assert summary["filled_rows"] == 0
+    assert summary["overwritten_rows"] == 0
+    assert summary["skipped_existing_rows"] == 1
+    assert summary["skipped_existing_cells"] == 1
+    output = load_workbook(output_target, data_only=True)
+    try:
+        sheet = output["表2 通用工程测量费用"]
+        assert sheet["F2"].value == 99
+        assert "已匹配但未写入" in sheet["J2"].value
+    finally:
+        output.close()
+
+
+def test_capture_workload_overwrite_mode_replaces_existing_target_value(tmp_path):
+    source = tmp_path / "source.xlsx"
+    target = tmp_path / "target.xlsx"
+    output_source = tmp_path / "source-out.xlsx"
+    output_target = tmp_path / "target-out.xlsx"
+    _write_source(source)
+    _write_target(target)
+    workbook = load_workbook(target)
+    try:
+        workbook["表2 通用工程测量费用"]["F2"].value = 99
+        workbook.save(target)
+    finally:
+        workbook.close()
+
+    summary = capture_workload(
+        source,
+        target,
+        output_source,
+        output_target,
+        _source_configs(),
+        _target_configs(),
+        selected_fields=[TARGET_QUANTITY_FIELD],
+        write_mode=WRITE_MODE_OVERWRITE,
+    )
+
+    assert summary["filled_rows"] == 0
+    assert summary["overwritten_rows"] == 1
+    assert summary["overwritten_cells"] == 1
+    output = load_workbook(output_target, data_only=True)
+    try:
+        sheet = output["表2 通用工程测量费用"]
+        assert sheet["F2"].value == 26
+        assert "覆盖1项" in sheet["J2"].value
+    finally:
+        output.close()
+
+
 def test_capture_workload_warns_when_one_source_matches_multiple_targets(tmp_path):
     source = tmp_path / "source.xlsx"
     target = tmp_path / "target.xlsx"
@@ -212,6 +289,8 @@ def test_capture_workload_warns_when_one_source_matches_multiple_targets(tmp_pat
 
     assert summary["filled_rows"] == 0
     assert summary["duplicate_warning_rows"] == 2
+    assert len(summary["issue_log_preview"]) == 2
+    assert all("一对多预警" in row["message"] for row in summary["issue_log_preview"])
     output = load_workbook(output_target, data_only=True)
     try:
         sheet = output["表2 通用工程测量费用"]
@@ -473,6 +552,9 @@ def test_capture_workload_filters_rows_by_selected_non_empty_field(tmp_path):
 
     assert summary["source_rows"] == 1
     assert summary["filled_rows"] == 1
+    assert len(summary["issue_log_preview"]) == 1
+    assert summary["issue_log_preview"][0]["excel_row"] == 3
+    assert "模式A+B均未命中" in summary["issue_log_preview"][0]["message"]
     output = load_workbook(output_target, data_only=True)
     try:
         sheet = output["表2 通用工程测量费用"]

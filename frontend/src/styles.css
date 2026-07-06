@@ -3276,6 +3276,7 @@ h2 {
   display: inline-flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
 }
 
 .window-settings-button {
@@ -5258,8 +5259,26 @@ tbody tr:hover .row-ai-cell {
 
 .workload-file-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
+}
+
+.workload-input-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: stretch;
+  gap: 12px;
+}
+
+.workload-control-stack {
+  display: grid;
+  align-content: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: #fbfdff;
 }
 
 .workload-file-card {
@@ -5317,6 +5336,11 @@ tbody tr:hover .row-ai-cell {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
+  max-height: clamp(220px, 32vh, 360px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  align-items: start;
+  padding-right: 10px;
 }
 
 .mapping-subpanel {
@@ -5351,6 +5375,47 @@ tbody tr:hover .row-ai-cell {
 .workload-result > div {
   min-width: 0;
   flex: 1;
+}
+
+.workload-field-row {
+  gap: 6px 12px;
+  align-items: center;
+}
+
+.workload-field-row .experience-field-label {
+  font-size: 12px;
+}
+
+.workload-field-row .mapping-check-field {
+  align-items: center;
+  gap: 6px;
+  margin-top: 0;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.workload-field-row .mapping-check-field input {
+  width: 14px;
+  height: 14px;
+  margin-top: 0;
+}
+
+.workload-mode-row {
+  margin-top: -2px;
+}
+
+.sheet-tab-status.is-enabled {
+  color: var(--ok);
+  font-weight: 800;
+}
+
+.sheet-tab-status.is-skipped {
+  color: var(--muted);
+  font-weight: 650;
+}
+
+.sheet-tab-divider {
+  color: var(--muted);
 }
 
 .download-row.compact {
@@ -5647,6 +5712,7 @@ tbody tr:hover .row-ai-cell {
     .row-ai-compose,
     .stats,
     .settings-filter-row,
+    .workload-input-grid,
     .workload-file-grid,
     .workload-mapping-body {
     grid-template-columns: 1fr;
@@ -7985,6 +8051,7 @@ tbody tr:hover .row-ai-cell {
 }
 
 .shell.layout-daweiba .preview-window .preview-window-count {
+  flex: 0 0 auto;
   color: #64748b;
   font-size: 12px;
   font-weight: 500;
@@ -8742,6 +8809,33 @@ tbody tr:hover .row-ai-cell {
   overflow-x: auto;
 }
 
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-workload .mapping-panel.is-open {
+  display: block;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-workload .mapping-panel.is-open .mapping-body {
+  max-height: clamp(220px, 32vh, 360px);
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-right: 12px;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-workload .mapping-panel.is-open .mapping-body::-webkit-scrollbar {
+  width: 8px;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-workload .mapping-panel.is-open .mapping-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-workload .mapping-panel.is-open .mapping-body::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #cbd5e1;
+}
+
 .shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .brief-panel {
   grid-template-rows: auto minmax(86px, auto) auto auto auto;
   gap: 8px;
@@ -8945,8 +9039,19 @@ tbody tr:hover .row-ai-cell {
 }
 
 .shell.layout-daweiba .preview-window-title {
+  min-width: max-content;
   font-weight: 700;
   color: var(--db-text-strong);
+  line-height: 1.2;
+  white-space: nowrap;
+  writing-mode: horizontal-tb;
+}
+
+.shell.layout-daweiba .preview-window .preview-cell-edit-status {
+  max-width: min(340px, 34vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .shell.layout-daweiba tr.preview-total-row td {

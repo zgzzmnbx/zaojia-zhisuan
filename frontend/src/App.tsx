@@ -211,6 +211,15 @@ function workloadLogPreviewTone(message: string) {
   return "matched";
 }
 
+function isWorkloadIssueLog(item: WorkloadLogPreviewItem) {
+  return (
+    item.status === "warning"
+    || item.message.includes("一对多")
+    || item.message.includes("未抓取")
+    || item.message.includes("未匹配")
+  );
+}
+
 type UiStyleValues = {
   paddingX?: number;
   paddingY?: number;
@@ -758,22 +767,31 @@ type WorkloadSheetMappingConfig<T extends Record<string, string>> = {
 
 type WorkloadCaptureSummary = {
   source_file: string;
-  target_file: string;
-  output_workload: string;
-  output_target: string;
+  target_file?: string;
+  output_workload?: string;
+  output_target?: string;
   selected_fields: string[];
   source_rows: number;
   target_rows: number;
   filled_rows: number;
+  overwritten_rows?: number;
+  skipped_existing_rows?: number;
+  written_cells?: number;
+  overwritten_cells?: number;
+  skipped_existing_cells?: number;
   warning_rows: number;
   unmatched_source_rows: number;
   duplicate_warning_rows: number;
-  log_preview: Array<{
-    sheet_name: string;
-    excel_row: number;
-    status: string;
-    message: string;
-  }>;
+  write_mode?: "conservative" | "overwrite" | string;
+  issue_log_preview?: WorkloadLogPreviewItem[];
+  log_preview: WorkloadLogPreviewItem[];
+};
+
+type WorkloadLogPreviewItem = {
+  sheet_name: string;
+  excel_row: number;
+  status: string;
+  message: string;
 };
 
 type RiskItem = {
@@ -898,9 +916,16 @@ type PreviewJumpTarget = {
 type WorkloadCaptureResult = {
   job_id: string;
   summary: WorkloadCaptureSummary;
-  downloads: {
-    workload: string;
-    target: string;
+  downloads?: {
+    workload?: string;
+    target?: string;
+  };
+};
+
+type WorkloadApplyToCurrentResult = ProcessResult & {
+  workload_summary: WorkloadCaptureSummary;
+  workload_downloads?: {
+    workload?: string;
   };
 };
 
@@ -1020,6 +1045,13 @@ function clampPreviewColumnWidth(value: unknown) {
   const numericValue = Number(value);
   if (!Number.isFinite(numericValue)) return null;
   return Math.max(MIN_PREVIEW_COLUMN_WIDTH_PX, Math.min(MAX_PREVIEW_COLUMN_WIDTH_PX, Math.round(numericValue)));
+}
+
+function previewColumnWidthKeys(column: PreviewColumn) {
+  const keys = [`#${column.index}`];
+  const labelKey = column.label.trim();
+  if (labelKey) keys.push(labelKey);
+  return Array.from(new Set(keys));
 }
 
 function normalizePreviewColumnPreferences(raw?: Partial<PreviewColumnPreferences>): PreviewColumnPreferences {
@@ -1408,6 +1440,7 @@ function DaweibaApp() {
   const [workloadFile, setWorkloadFile] = useState<File | null>(null);
   const [workloadTargetFile, setWorkloadTargetFile] = useState<File | null>(null);
   const [selectedWorkloadFields, setSelectedWorkloadFields] = useState<string[]>([...WORKLOAD_CAPTURE_FIELD_OPTIONS]);
+  const [workloadWriteMode, setWorkloadWriteMode] = useState<"conservative" | "overwrite">("conservative");
   const [onlyCaptureWorkloadRowsWithValue, setOnlyCaptureWorkloadRowsWithValue] = useState(true);
   const [workloadValueFilterField, setWorkloadValueFilterField] = useState<WorkloadSourceField>("数量");
   const [workloadSourceConfigs, setWorkloadSourceConfigs] = useState<WorkloadSheetMappingConfig<WorkloadSourceMapping>[]>([]);
@@ -1436,6 +1469,7 @@ function DaweibaApp() {
   const [workloadProgressPercent, setWorkloadProgressPercent] = useState(0);
   const [workloadProgressText, setWorkloadProgressText] = useState("");
   const [workloadCaptureResult, setWorkloadCaptureResult] = useState<WorkloadCaptureResult | null>(null);
+  const [workloadPreviewCountdown, setWorkloadPreviewCountdown] = useState<number | null>(null);
   const [showAllWarnings, setShowAllWarnings] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const experienceFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -1467,7 +1501,7 @@ function DaweibaApp() {
   useEffect(() => {
     if (!isRunningWorkloadCapture && workloadProgressPercent <= 0) return;
     if (workloadProgressPercent < 28) {
-      setWorkloadProgressText("正在读取工作量表和控制价计算表...");
+      setWorkloadProgressText("正在读取工作量表和当前预览控制价表...");
       return;
     }
     if (workloadProgressPercent < 58) {
@@ -1479,11 +1513,31 @@ function DaweibaApp() {
       return;
     }
     if (workloadProgressPercent < 100) {
-      setWorkloadProgressText("正在生成下载文件...");
+      setWorkloadProgressText("正在刷新表格预览和标注工作量表...");
       return;
     }
     setWorkloadProgressText("抓取完成，正在刷新结果...");
   }, [isRunningWorkloadCapture, workloadProgressPercent]);
+
+  useEffect(() => {
+    if (workloadPreviewCountdown === null) return undefined;
+    if (workloadPreviewCountdown <= 0) {
+      setWorkloadPreviewCountdown(null);
+      setActiveDaweibaModule("preview");
+      return undefined;
+    }
+    const timer = window.setTimeout(() => {
+      setWorkloadPreviewCountdown((current) => (current === null ? null : Math.max(0, current - 1)));
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  }, [workloadPreviewCountdown]);
+
+  useEffect(() => {
+    if (workloadPreviewCountdown === null) return undefined;
+    const cancelCountdown = () => setWorkloadPreviewCountdown(null);
+    window.addEventListener("pointerdown", cancelCountdown, { capture: true });
+    return () => window.removeEventListener("pointerdown", cancelCountdown, { capture: true });
+  }, [workloadPreviewCountdown]);
 
   useEffect(() => {
     window.localStorage.setItem(LEFT_COLUMN_COLLAPSED_STORAGE_KEY, String(isLeftColumnCollapsed));
@@ -1611,7 +1665,8 @@ function DaweibaApp() {
     return Math.round((result.summary.filled_rows / result.summary.total_data_rows) * 100);
   }, [result]);
 
-  const displayCompletion = isProcessing ? progressPercent : completion;
+  const isBatchMatchPending = result?.summary.matching_status === "pending";
+  const displayCompletion = isProcessing ? progressPercent : isBatchMatchPending ? 35 : completion;
   const processingStage = useMemo(() => getProcessingStage(displayCompletion), [displayCompletion]);
 
   useEffect(() => {
@@ -1708,9 +1763,17 @@ function DaweibaApp() {
   );
   const warningSummary = result?.summary.warning_summary;
   const warningDetails = result?.summary.warning_details ?? [];
-  const isBatchMatchPending = result?.summary.matching_status === "pending";
   const canDownloadOutputs = Boolean(result?.downloads.excel && result?.downloads.report && !isBatchMatchPending);
   const visibleWarnings = showAllWarnings ? warningDetails : warningDetails.slice(0, 6);
+  const visibleWorkloadIssueLogs = useMemo(
+    () => {
+      if (!workloadCaptureResult) return [];
+      const issueLogs = workloadCaptureResult.summary.issue_log_preview;
+      if (issueLogs?.length) return issueLogs.slice(0, 4);
+      return workloadCaptureResult.summary.log_preview.filter(isWorkloadIssueLog).slice(0, 4);
+    },
+    [workloadCaptureResult],
+  );
   const wideHighWarningRows = warningSummary?.executed ? Number(warningSummary.high_rows ?? 0) : 0;
   const wideLowWarningRows = warningSummary?.executed ? Number(warningSummary.low_rows ?? warningSummary.medium_rows ?? 0) : 0;
   const wideReviewRows = result?.summary.review_rows ?? 0;
@@ -2521,7 +2584,12 @@ function DaweibaApp() {
 
   function previewColumnSavedWidth(sheet: TablePreview, column: PreviewColumn) {
     const sheetKey = previewSheetKey(sheet);
-    return previewColumnPreferences.columnWidths[sheetKey]?.[column.label] ?? null;
+    const savedWidths = previewColumnPreferences.columnWidths[sheetKey] ?? {};
+    for (const key of previewColumnWidthKeys(column)) {
+      const width = savedWidths[key];
+      if (width) return width;
+    }
+    return null;
   }
 
   function previewColumnWidthStyle(sheet: TablePreview, column: PreviewColumn) {
@@ -2534,18 +2602,19 @@ function DaweibaApp() {
     const sheetKey = previewSheetKey(sheet);
     const clampedWidth = clampPreviewColumnWidth(width);
     if (!sheetKey || clampedWidth === null) return;
-    setPreviewColumnPreferences((previous) =>
-      normalizePreviewColumnPreferences({
+    setPreviewColumnPreferences((previous) => {
+      const nextSheetWidths = { ...(previous.columnWidths[sheetKey] ?? {}) };
+      for (const key of previewColumnWidthKeys(column)) {
+        nextSheetWidths[key] = clampedWidth;
+      }
+      return normalizePreviewColumnPreferences({
         ...previous,
         columnWidths: {
           ...previous.columnWidths,
-          [sheetKey]: {
-            ...(previous.columnWidths[sheetKey] ?? {}),
-            [column.label]: clampedWidth,
-          },
+          [sheetKey]: nextSheetWidths,
         },
-      }),
-    );
+      });
+    });
   }
 
   function startPreviewColumnResize(
@@ -3170,8 +3239,8 @@ function DaweibaApp() {
       if (workloadFile) {
         void inspectWorkloadFile(workloadFile, "source");
       }
-      if (workloadTargetFile) {
-        void inspectWorkloadFile(workloadTargetFile, "target");
+      if (result) {
+        void inspectCurrentWorkloadTarget(result.job_id);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "保存工作量字段设置失败");
@@ -3243,8 +3312,8 @@ function DaweibaApp() {
       );
       setWorkloadTargetFieldPreferencesPath(payload.file_path ?? "");
       setIsWorkloadTargetFieldSettingsOpen(false);
-      if (workloadTargetFile) {
-        void inspectWorkloadFile(workloadTargetFile, "target");
+      if (result) {
+        void inspectCurrentWorkloadTarget(result.job_id);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "保存控制价计算表字段设置失败");
@@ -3263,6 +3332,7 @@ function DaweibaApp() {
 
   function selectWorkloadFile(role: WorkloadRole, nextFile: File | null) {
     setWorkloadCaptureResult(null);
+    setWorkloadPreviewCountdown(null);
     setIsWorkloadMappingOpen(false);
     if (role === "source") {
       setWorkloadSourceConfigs([]);
@@ -3288,6 +3358,9 @@ function DaweibaApp() {
         : `收到控制价计算表：${nextFile.name}。后面抓取工作量时，我只做信息搬运和提示，不改变价格匹配逻辑。`,
     );
     void inspectWorkloadFile(nextFile, role);
+    if (role === "source" && result) {
+      void inspectCurrentWorkloadTarget(result.job_id);
+    }
   }
 
   function toggleWorkloadField(field: string, checked: boolean) {
@@ -3365,16 +3438,70 @@ function DaweibaApp() {
     }
   }
 
+  async function inspectCurrentWorkloadTarget(jobId: string, selectedHeaderRow?: number, selectedSheetName?: string) {
+    setIsInspectingWorkload(true);
+    const body = new FormData();
+    body.append("job_id", jobId);
+    if (selectedHeaderRow) {
+      body.append("header_row", String(selectedHeaderRow));
+    }
+    if (selectedSheetName) {
+      body.append("sheet_name", selectedSheetName);
+    }
+    try {
+      const response = await fetch(`${API_BASE}/api/workload-capture/inspect-current-target`, {
+        method: "POST",
+        body,
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.detail ?? `读取当前预览控制价表失败：${response.status}`);
+      }
+      const payload = (await response.json()) as WorkloadInspectResult;
+      const configs = (payload.sheets ?? []).map((sheet) => ({
+        sheet_name: sheet.sheet_name,
+        enabled: sheet.enabled,
+        header_row: sheet.header_row,
+        columns: sheet.columns,
+        column_mapping: { ...EMPTY_WORKLOAD_TARGET_MAPPING, ...sheet.suggested_mapping },
+      }));
+      if (selectedSheetName) {
+        const nextConfig = configs[0];
+        if (nextConfig) {
+          setWorkloadTargetConfigs((current) =>
+            current.map((config) => (config.sheet_name === selectedSheetName ? nextConfig : config)),
+          );
+        }
+        return configs;
+      }
+      setWorkloadTargetConfigs(configs);
+      setActiveWorkloadTargetSheetName(configs.find((config) => config.enabled)?.sheet_name ?? configs[0]?.sheet_name ?? "");
+      if (configs.length > 0) {
+        setIsWorkloadMappingOpen(true);
+      }
+      return configs;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "读取当前预览控制价表失败");
+      return [];
+    } finally {
+      setIsInspectingWorkload(false);
+    }
+  }
+
   async function runWorkloadCapture() {
-    if (!workloadFile || !workloadTargetFile) {
-      setError("请同时选择工作量表格和控制价计算表");
+    if (!workloadFile || !result) {
+      setError("请先完成控制价计算表转换并选择工作量表格");
       return;
     }
+    let targetConfigsForRun = workloadTargetConfigs;
+    if (targetConfigsForRun.length === 0) {
+      targetConfigsForRun = await inspectCurrentWorkloadTarget(result.job_id) ?? [];
+    }
     const sourceEnabled = workloadSourceConfigs.filter((config) => config.enabled);
-    const targetEnabled = workloadTargetConfigs.filter((config) => config.enabled);
+    const targetEnabled = targetConfigsForRun.filter((config) => config.enabled);
     const selectedFieldsForRun = effectiveWorkloadSelectedFields(sourceEnabled, targetEnabled);
     if (sourceEnabled.length === 0 || targetEnabled.length === 0) {
-      setError("请至少选择一个工作量 sheet 和一个控制价计算 sheet");
+      setError("请至少选择一个工作量 sheet，并确认当前预览控制价表已识别到可写入 sheet");
       setIsWorkloadMappingOpen(true);
       return;
     }
@@ -3408,15 +3535,22 @@ function DaweibaApp() {
 
     setIsRunningWorkloadCapture(true);
     setWorkloadProgressPercent(6);
-    setWorkloadProgressText("正在读取工作量表和控制价计算表...");
+    setWorkloadProgressText("正在读取工作量表和当前预览控制价表...");
     setWorkloadCaptureResult(null);
+    setWorkloadPreviewCountdown(null);
     setError("");
+    setIsAiDockCollapsed(false);
+    appendZhisuanMessage(
+      `开始工作量抓取：先读取工作量表和当前预览控制价表，再按要素1-5、单位和术语归并规则匹配，最后按${workloadWriteMode === "conservative" ? "保守模式" : "覆盖模式"}写入${selectedFieldsForRun.map(workloadFieldLabel).join("、")}。`,
+      "system",
+    );
     const body = new FormData();
     body.append("workload_file", workloadFile);
-    body.append("target_file", workloadTargetFile);
+    body.append("job_id", result.job_id);
     body.append("selected_fields", JSON.stringify(selectedFieldsForRun));
     body.append("only_capture_rows_with_value", String(onlyCaptureWorkloadRowsWithValue));
     body.append("value_filter_field", workloadValueFilterField);
+    body.append("write_mode", workloadWriteMode);
     body.append(
       "source_sheet_configs",
       JSON.stringify(
@@ -3431,7 +3565,7 @@ function DaweibaApp() {
     body.append(
       "target_sheet_configs",
       JSON.stringify(
-        workloadTargetConfigs.map((config) => ({
+        targetConfigsForRun.map((config) => ({
           sheet_name: config.sheet_name,
           enabled: config.enabled,
           header_row: config.header_row,
@@ -3440,7 +3574,7 @@ function DaweibaApp() {
       ),
     );
     try {
-      const response = await fetch(`${API_BASE}/api/workload-capture/run`, {
+      const response = await fetch(`${API_BASE}/api/workload-capture/apply-to-current`, {
         method: "POST",
         body,
       });
@@ -3448,11 +3582,29 @@ function DaweibaApp() {
         const payload = await response.json().catch(() => null);
         throw new Error(payload?.detail ?? `工作量抓取失败：${response.status}`);
       }
-      const payload = (await response.json()) as WorkloadCaptureResult;
+      const payload = (await response.json()) as WorkloadApplyToCurrentResult;
       setWorkloadProgressPercent(100);
-      setWorkloadProgressText("抓取完成，正在刷新结果...");
-      setWorkloadCaptureResult(payload);
+      setWorkloadProgressText("抓取完成，已刷新表格预览。");
+      setResult(payload);
+      setActivePreviewSheetName(payload.summary.table_preview?.sheet_name ?? "");
+      setWorkloadCaptureResult({
+        job_id: payload.job_id,
+        summary: payload.workload_summary,
+        downloads: payload.workload_downloads,
+      });
+      setPreviewManualEditMessage(
+        `工作量抓取已写入当前预览：填写 ${payload.workload_summary.filled_rows} 行，覆盖 ${payload.workload_summary.overwritten_rows ?? 0} 行，保守跳过 ${payload.workload_summary.skipped_existing_rows ?? 0} 行。`,
+      );
+      appendZhisuanMessage(
+        `工作量抓取完成：写入 ${payload.workload_summary.filled_rows} 行，覆盖 ${payload.workload_summary.overwritten_rows ?? 0} 行，保守跳过 ${payload.workload_summary.skipped_existing_rows ?? 0} 行，预警 ${payload.workload_summary.warning_rows} 行。5 秒后我会自动跳到表格预览；你点击任意位置可以取消自动跳转。`,
+        "command",
+      );
+      setWorkloadPreviewCountdown(5);
     } catch (err) {
+      appendZhisuanMessage(
+        `工作量抓取失败：${err instanceof Error ? err.message : "未知错误"}。我没有继续自动跳转，请检查列映射或源表数据后重试。`,
+        "system",
+      );
       setError(err instanceof Error ? err.message : "工作量抓取失败");
     } finally {
       setIsRunningWorkloadCapture(false);
@@ -3463,6 +3615,7 @@ function DaweibaApp() {
     setError("");
     setResult(null);
     setActivePreviewSheetName("");
+    setWorkloadPreviewCountdown(null);
     setEditingPreviewCell(null);
     setSavingPreviewCellKey("");
     setPreviewManualEditMessage("");
@@ -4930,12 +5083,13 @@ function DaweibaApp() {
     const fields = role === "source" ? WORKLOAD_SOURCE_FIELDS : WORKLOAD_TARGET_FIELDS;
     const activeMapping = role === "source" ? activeWorkloadSourceMapping() : activeWorkloadTargetMapping();
     const mappedCount = role === "source" ? mappedWorkloadSourceFieldCount : mappedWorkloadTargetFieldCount;
-    const title = role === "source" ? "工作量表格列选择" : "控制价计算表列选择";
+    const title = role === "source" ? "工作量表格列选择" : "当前预览控制价表列选择";
     const currentFile = role === "source" ? workloadFile : workloadTargetFile;
+    const hasTargetWorkbook = role === "target" ? Boolean(result) : Boolean(currentFile);
     const activeName = role === "source" ? activeWorkloadSourceSheetName : activeWorkloadTargetSheetName;
     const setActiveName = role === "source" ? setActiveWorkloadSourceSheetName : setActiveWorkloadTargetSheetName;
 
-    if (!currentFile) return null;
+    if (!hasTargetWorkbook) return null;
     return (
       <div
         className="mapping-subpanel"
@@ -4949,7 +5103,7 @@ function DaweibaApp() {
               ? "正在读取表头"
               : configs.length > 0
                 ? `当前 ${activeConfig?.sheet_name ?? ""}，已映射 ${mappedCount}/${fields.length} 项`
-                : "选择文件后自动读取 sheet 和表头"}
+                : role === "source" ? "选择文件后自动读取 sheet 和表头" : "生成表格预览后自动读取 sheet 和表头"}
           </span>
         </div>
         {configs.length > 0 && (
@@ -4961,7 +5115,11 @@ function DaweibaApp() {
                 type="button"
                 onClick={() => setActiveName(config.sheet_name)}
               >
-                {config.enabled ? "录入 · " : "跳过 · "}{config.sheet_name}
+                <span className={config.enabled ? "sheet-tab-status is-enabled" : "sheet-tab-status is-skipped"}>
+                  {config.enabled ? "录入" : "跳过"}
+                </span>
+                <span className="sheet-tab-divider"> · </span>
+                <span>{config.sheet_name}</span>
               </button>
             ))}
           </div>
@@ -4990,7 +5148,15 @@ function DaweibaApp() {
                 <button
                   type="button"
                   disabled={isInspectingWorkload}
-                  onClick={() => inspectWorkloadFile(currentFile, role, activeConfig.header_row, activeConfig.sheet_name)}
+                  onClick={() => {
+                    if (role === "source" && currentFile) {
+                      void inspectWorkloadFile(currentFile, role, activeConfig.header_row, activeConfig.sheet_name);
+                      return;
+                    }
+                    if (role === "target" && result) {
+                      void inspectCurrentWorkloadTarget(result.job_id, activeConfig.header_row, activeConfig.sheet_name);
+                    }
+                  }}
                 >
                   读取该行
                 </button>
@@ -6487,78 +6653,88 @@ function DaweibaApp() {
               </div>
             </div>
 
-            <div className="workload-file-grid" data-ui-key="workload-file-grid" style={uiStyle("workload-file-grid")}>
-              <div
-                className={`workload-file-card ${workloadDraggingRole === "source" ? "is-dragging" : ""} ${workloadFile ? "has-file" : ""}`}
-                data-ui-key="workload-file-card"
-                style={uiStyle("workload-file-card")}
-                onDragOver={(event) => handleWorkloadDragOver(event, "source")}
-                onDragLeave={(event) => handleWorkloadDragLeave(event, "source")}
-                onDrop={(event) => handleWorkloadDrop(event, "source")}
-              >
-                <span>工作量表格</span>
-                <input
-                  accept=".xlsx"
-                  ref={workloadFileInputRef}
-                  type="file"
-                  onChange={handleWorkloadFileChange}
-                />
-                <button className="ghost-button" type="button" onClick={() => workloadFileInputRef.current?.click()}>
-                  <FileSpreadsheet size={18} />
-                  {workloadFile ? workloadFile.name : "选择工作量表格"}
-                </button>
-                <small>可拖入 .xlsx 工作量表格</small>
-              </div>
-              <div
-                className={`workload-file-card ${workloadDraggingRole === "target" ? "is-dragging" : ""} ${workloadTargetFile ? "has-file" : ""}`}
-                data-ui-key="workload-file-card"
-                style={uiStyle("workload-file-card")}
-                onDragOver={(event) => handleWorkloadDragOver(event, "target")}
-                onDragLeave={(event) => handleWorkloadDragLeave(event, "target")}
-                onDrop={(event) => handleWorkloadDrop(event, "target")}
-              >
-                <span>控制价计算表</span>
-                <input
-                  accept=".xlsx"
-                  ref={workloadTargetFileInputRef}
-                  type="file"
-                  onChange={handleWorkloadTargetFileChange}
-                />
-                <button className="ghost-button" type="button" onClick={() => workloadTargetFileInputRef.current?.click()}>
-                  <FileSpreadsheet size={18} />
-                  {workloadTargetFile ? workloadTargetFile.name : "选择控制价计算表"}
-                </button>
-                <small>可拖入 .xlsx 控制价计算表</small>
-              </div>
-            </div>
-
-            <div className="experience-field-row" data-ui-key="workload-field-row" style={uiStyle("workload-field-row")}>
-              <span className="experience-field-label">抓取字段</span>
-              {WORKLOAD_CAPTURE_FIELD_OPTIONS.map((field) => (
-                <label className="mapping-check-field" data-ui-key="check-field" style={uiStyle("check-field")} key={field}>
+            <div className="workload-input-grid">
+              <div className="workload-file-grid" data-ui-key="workload-file-grid" style={uiStyle("workload-file-grid")}>
+                <div
+                  className={`workload-file-card ${workloadDraggingRole === "source" ? "is-dragging" : ""} ${workloadFile ? "has-file" : ""}`}
+                  data-ui-key="workload-file-card"
+                  style={uiStyle("workload-file-card")}
+                  onDragOver={(event) => handleWorkloadDragOver(event, "source")}
+                  onDragLeave={(event) => handleWorkloadDragLeave(event, "source")}
+                  onDrop={(event) => handleWorkloadDrop(event, "source")}
+                >
+                  <span>工作量表格</span>
                   <input
-                    checked={selectedWorkloadFields.includes(field)}
-                    type="checkbox"
-                    onChange={(event) => toggleWorkloadField(field, event.target.checked)}
+                    accept=".xlsx"
+                    ref={workloadFileInputRef}
+                    type="file"
+                    onChange={handleWorkloadFileChange}
                   />
-                  <span>{workloadFieldLabel(field)}</span>
-                </label>
-              ))}
+                  <button className="ghost-button" type="button" onClick={() => workloadFileInputRef.current?.click()}>
+                    <FileSpreadsheet size={18} />
+                    {workloadFile ? workloadFile.name : "选择工作量表格"}
+                  </button>
+                  <small>可拖入 .xlsx 工作量表格</small>
+                </div>
+              </div>
+
+              <div className="workload-control-stack">
+                <div className="experience-field-row workload-field-row" data-ui-key="workload-field-row" style={uiStyle("workload-field-row")}>
+                  <span className="experience-field-label">抓取字段</span>
+                  {WORKLOAD_CAPTURE_FIELD_OPTIONS.map((field) => (
+                    <label className="mapping-check-field" data-ui-key="check-field" style={uiStyle("check-field")} key={field}>
+                      <input
+                        checked={selectedWorkloadFields.includes(field)}
+                        type="checkbox"
+                        onChange={(event) => toggleWorkloadField(field, event.target.checked)}
+                      />
+                      <span>{workloadFieldLabel(field)}</span>
+                    </label>
+                  ))}
+                </div>
+
+                <div className="experience-field-row workload-field-row workload-mode-row" data-ui-key="workload-field-row" style={uiStyle("workload-field-row")}>
+                  <span className="experience-field-label">写入模式</span>
+                  <label className="mapping-check-field" data-ui-key="check-field" style={uiStyle("check-field")}>
+                    <input
+                      checked={workloadWriteMode === "conservative"}
+                      name="workload-write-mode"
+                      type="radio"
+                      onChange={() => setWorkloadWriteMode("conservative")}
+                    />
+                    <span>保守模式：已有值不覆盖</span>
+                  </label>
+                  <label className="mapping-check-field" data-ui-key="check-field" style={uiStyle("check-field")}>
+                    <input
+                      checked={workloadWriteMode === "overwrite"}
+                      name="workload-write-mode"
+                      type="radio"
+                      onChange={() => setWorkloadWriteMode("overwrite")}
+                    />
+                    <span>覆盖模式：匹配成功即写入</span>
+                  </label>
+                </div>
+              </div>
             </div>
 
-            {(workloadFile || workloadTargetFile) && (
+            {(workloadFile || result) && (
               <div className={`mapping-panel experience-mapping-panel ${isWorkloadMappingOpen ? "is-open" : ""}`} data-ui-key="workload-mapping-panel" style={uiStyle("workload-mapping-panel")}>
                 <button
                   className="mapping-toggle"
                   type="button"
                   aria-expanded={isWorkloadMappingOpen}
-                  onClick={() => setIsWorkloadMappingOpen((current) => !current)}
+                  onClick={() => {
+                    setIsWorkloadMappingOpen((current) => !current);
+                    if (!isWorkloadMappingOpen && result && workloadTargetConfigs.length === 0) {
+                      void inspectCurrentWorkloadTarget(result.job_id);
+                    }
+                  }}
                 >
                   <span className="mapping-title">
                     <Columns3 size={18} />
                     <span>
                       <strong>工作量抓取列选择窗口</strong>
-                      <small>工作量表和控制价计算表分别选择 sheet、映射行和字段列。</small>
+                      <small>工作量表和当前预览控制价表分别选择 sheet、映射行和字段列。</small>
                     </span>
                   </span>
                   <ChevronDown className="mapping-chevron" size={18} />
@@ -6575,7 +6751,7 @@ function DaweibaApp() {
             <div className="workload-actions">
               <button
                 className="primary-button"
-                disabled={!workloadFile || !workloadTargetFile || isRunningWorkloadCapture}
+                disabled={!workloadFile || !result || isRunningWorkloadCapture}
                 type="button"
                 onClick={runWorkloadCapture}
               >
@@ -6604,25 +6780,36 @@ function DaweibaApp() {
                 <CheckCircle2 size={18} />
                 <div>
                   <strong>
-                    已填写 {workloadCaptureResult.summary.filled_rows} 行 · 预警 {workloadCaptureResult.summary.warning_rows} 行
+                    已填写 {workloadCaptureResult.summary.filled_rows} 行 · 覆盖 {workloadCaptureResult.summary.overwritten_rows ?? 0} 行 · 预警 {workloadCaptureResult.summary.warning_rows} 行
                   </strong>
                   <span>
                     工作量源行 {workloadCaptureResult.summary.source_rows} · 控制价目标行 {workloadCaptureResult.summary.target_rows} ·
-                    一对多预警 {workloadCaptureResult.summary.duplicate_warning_rows}
+                    保守跳过 {workloadCaptureResult.summary.skipped_existing_rows ?? 0} · 一对多预警 {workloadCaptureResult.summary.duplicate_warning_rows}
                   </span>
                   <div className="download-row compact" data-ui-key="download-row" style={uiStyle("download-row")}>
+                    {workloadCaptureResult.downloads?.workload && (
                     <a className="download-button secondary" href={`${API_BASE}${workloadCaptureResult.downloads.workload}`}>
                       <Download size={16} />
                       下载标注工作量表
                     </a>
-                    <a className="download-button" href={`${API_BASE}${workloadCaptureResult.downloads.target}`}>
-                      <Download size={16} />
-                      下载已抓取控制价表
-                    </a>
+                    )}
+                    <button
+                      className="download-button"
+                      type="button"
+                      onClick={() => {
+                        setWorkloadPreviewCountdown(null);
+                        setActiveDaweibaModule("preview");
+                      }}
+                    >
+                      <PanelTop size={16} />
+                      {workloadPreviewCountdown !== null
+                        ? `查看表格预览（${workloadPreviewCountdown}秒）`
+                        : "查看表格预览"}
+                    </button>
                   </div>
-                  {workloadCaptureResult.summary.log_preview.length > 0 && (
+                  {visibleWorkloadIssueLogs.length > 0 && (
                     <div className="workload-log-preview">
-                      {workloadCaptureResult.summary.log_preview.slice(0, 4).map((item) => (
+                      {visibleWorkloadIssueLogs.map((item) => (
                         <span
                           className={`tone-${workloadLogPreviewTone(item.message)}`}
                           key={`${item.sheet_name}-${item.excel_row}`}
@@ -7599,7 +7786,7 @@ function DaweibaApp() {
                 onClick={saveWorkloadFieldPreferences}
               >
                 {(isSavingWorkloadFieldSettings || isSavingWorkloadTargetFieldSettings) ? <Loader2 className="spin" size={17} /> : <Settings size={17} />}
-                {(workloadFile || workloadTargetFile) ? "保存并重新识别" : "保存设置"}
+                {(workloadFile || result) ? "保存并重新识别" : "保存设置"}
               </button>
             </div>
           </div>

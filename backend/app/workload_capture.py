@@ -58,6 +58,8 @@ SOURCE_TO_TARGET_FIELD = {
 
 MATCH_MODE_EXACT = "字段完全匹配"
 MATCH_MODE_ORDERED = "非空要素顺序匹配"
+WRITE_MODE_CONSERVATIVE = "conservative"
+WRITE_MODE_OVERWRITE = "overwrite"
 
 MATCH_FILL = PatternFill(fill_type="solid", fgColor="D9EAD3")
 WARNING_DUPLICATE_FILL = PatternFill(fill_type="solid", fgColor="FFF2CC")
@@ -99,6 +101,11 @@ class WorkloadCaptureResult:
     source_rows: list[SourceRecord] = field(default_factory=list)
     target_rows: list[TargetRecord] = field(default_factory=list)
     filled_rows: int = 0
+    overwritten_rows: int = 0
+    skipped_existing_rows: int = 0
+    written_cells: int = 0
+    overwritten_cells: int = 0
+    skipped_existing_cells: int = 0
     warning_rows: int = 0
     unmatched_source_rows: int = 0
     duplicate_warning_rows: int = 0
@@ -130,10 +137,13 @@ def capture_workload(
     target_sheet_configs: list[dict[str, Any]],
     selected_fields: list[str] | None = None,
     filter_non_empty_field: str | None = DEFAULT_WORKLOAD_FILTER_FIELD,
+    write_mode: str = WRITE_MODE_OVERWRITE,
 ) -> dict[str, Any]:
     selected = [field for field in (selected_fields or DEFAULT_SELECTED_WORKLOAD_FIELDS) if field in TARGET_CAPTURE_FIELDS]
     if not selected:
         raise ValueError("至少选择一个工作量抓取字段")
+    if write_mode not in {WRITE_MODE_CONSERVATIVE, WRITE_MODE_OVERWRITE}:
+        raise ValueError("工作量抓取写入模式只能是 conservative 或 overwrite")
 
     workload_path = Path(workload_path)
     target_path = Path(target_path)
@@ -175,14 +185,38 @@ def capture_workload(
             )
             if len(match.sources) == 1 and len(match.targets) == 1:
                 source = match.sources[0]
-                _write_target_success(target_workbook[target.sheet_name], target, source, selected, match.match_mode)
-                target.status = "matched"
+                write_result = _write_target_success(
+                    target_workbook[target.sheet_name],
+                    target,
+                    source,
+                    selected,
+                    match.match_mode,
+                    write_mode=write_mode,
+                )
+                written = int(write_result["written_fields"])
+                overwritten = int(write_result["overwritten_fields"])
+                skipped_existing = int(write_result["skipped_existing_fields"])
+                result.written_cells += written
+                result.overwritten_cells += overwritten
+                result.skipped_existing_cells += skipped_existing
+                if written:
+                    result.filled_rows += 1
+                if overwritten:
+                    result.overwritten_rows += 1
+                if skipped_existing and not written and not overwritten:
+                    result.skipped_existing_rows += 1
+                target.status = "matched" if written or overwritten else "skipped_existing"
                 target.matched_source = source
                 target.match_mode = match.match_mode
-                target.message = (
-                    f"抓取成功：{match.match_mode}，匹配工作量表 {source.sheet_name} 第 {source.excel_row} 行。"
-                )
-                result.filled_rows += 1
+                if written or overwritten:
+                    target.message = (
+                        f"抓取成功：{match.match_mode}，匹配工作量表 {source.sheet_name} 第 {source.excel_row} 行；"
+                        f"写入{written}项，覆盖{overwritten}项。"
+                    )
+                else:
+                    target.message = (
+                        f"已匹配但未写入：保守模式下目标行已有值，匹配工作量表 {source.sheet_name} 第 {source.excel_row} 行。"
+                    )
             else:
                 message = _target_warning_message(target, match)
                 _write_target_warning(
@@ -246,9 +280,25 @@ def capture_workload(
         "source_rows": len(result.source_rows),
         "target_rows": len(result.target_rows),
         "filled_rows": result.filled_rows,
+        "overwritten_rows": result.overwritten_rows,
+        "skipped_existing_rows": result.skipped_existing_rows,
+        "written_cells": result.written_cells,
+        "overwritten_cells": result.overwritten_cells,
+        "skipped_existing_cells": result.skipped_existing_cells,
         "warning_rows": result.warning_rows,
         "unmatched_source_rows": result.unmatched_source_rows,
         "duplicate_warning_rows": result.duplicate_warning_rows,
+        "write_mode": write_mode,
+        "issue_log_preview": [
+            {
+                "sheet_name": row.sheet_name,
+                "excel_row": row.excel_row,
+                "status": row.status,
+                "message": row.message,
+            }
+            for row in result.target_rows
+            if _is_target_issue_log(row)
+        ][:20],
         "log_preview": [
             {
                 "sheet_name": row.sheet_name,
@@ -259,6 +309,12 @@ def capture_workload(
             for row in result.target_rows[:20]
         ],
     }
+
+
+def _is_target_issue_log(row: TargetRecord) -> bool:
+    if row.status == "warning":
+        return True
+    return "一对多" in row.message or "未抓取" in row.message or "未匹配" in row.message
 
 
 def default_workload_field_preferences() -> dict[str, list[str]]:
@@ -609,21 +665,47 @@ def _write_target_success(
     source: SourceRecord,
     selected_fields: list[str],
     match_mode: str,
-) -> None:
+    *,
+    write_mode: str,
+) -> dict[str, int]:
+    written_fields = 0
+    overwritten_fields = 0
+    skipped_existing_fields = 0
     for target_field in selected_fields:
         column = target.output_columns.get(target_field)
         if not column:
             continue
         source_field = SOURCE_TO_TARGET_FIELD[target_field]
         value = source.values.get(source_field)
-        if target_field in TARGET_OPTIONAL_FIELDS and not _has_value(value):
+        if not _has_value(value):
             continue
         cell = sheet.cell(row=target.excel_row, column=column)
+        had_value = _has_value(cell.value)
+        if had_value and write_mode == WRITE_MODE_CONSERVATIVE:
+            skipped_existing_fields += 1
+            continue
         cell.value = value
         cell.fill = MATCH_FILL
+        if had_value:
+            overwritten_fields += 1
+        else:
+            written_fields += 1
     log_cell = sheet.cell(row=target.excel_row, column=target.log_column)
-    log_cell.value = f"抓取成功：{match_mode}，匹配 {source.sheet_name} 第 {source.excel_row} 行。"
-    log_cell.fill = MATCH_FILL
+    if written_fields or overwritten_fields:
+        log_cell.value = (
+            f"抓取成功：{match_mode}，匹配 {source.sheet_name} 第 {source.excel_row} 行；"
+            f"写入{written_fields}项，覆盖{overwritten_fields}项。"
+        )
+        log_cell.fill = MATCH_FILL
+    else:
+        log_cell.value = f"已匹配但未写入：保守模式下目标行已有值，匹配 {source.sheet_name} 第 {source.excel_row} 行。"
+        log_cell.fill = WARNING_DUPLICATE_FILL
+        log_cell.font = WARNING_DUPLICATE_FONT
+    return {
+        "written_fields": written_fields,
+        "overwritten_fields": overwritten_fields,
+        "skipped_existing_fields": skipped_existing_fields,
+    }
 
 
 def _write_target_warning(

@@ -58,6 +58,8 @@ from .workload_capture import (
     SOURCE_MAPPING_FIELDS,
     SOURCE_QUANTITY_FIELD,
     TARGET_MAPPING_FIELDS,
+    WRITE_MODE_CONSERVATIVE,
+    WRITE_MODE_OVERWRITE,
     WORKLOAD_FIELD_PREFERENCE_FIELDS,
     WORKLOAD_TARGET_FIELD_PREFERENCE_FIELDS,
     capture_workload,
@@ -362,18 +364,16 @@ async def batch_match_process(payload: dict[str, object] = Body(...)) -> dict[st
         raise HTTPException(status_code=500, detail=f"知识库不存在：{DEFAULT_KB_PATH}")
 
     state = _load_process_state(job_dir)
-    input_path = _state_path(job_dir, state, "input_excel")
+    input_path = _state_path(job_dir, state, "input_excel", required=False)
     output_excel = _state_path(job_dir, state, "output_excel")
-    if not input_path or not input_path.exists():
-        raise HTTPException(status_code=404, detail="输入 Excel 不存在，请重新上传")
-    if not output_excel:
+    if not output_excel or not output_excel.exists():
         raise HTTPException(status_code=404, detail="输出任务不存在，请重新上传")
 
     options = dict(state.get("process_options") or {})
     output_report = job_dir / f"{OUTPUT_FILE_PREFIX}-控制价报告-{_output_timestamp()}.docx"
     try:
         summary = FillEngine(KnowledgeBase.from_excel(DEFAULT_KB_PATH)).fill_workbook(
-            input_path,
+            output_excel,
             output_excel,
             column_mapping=options.get("column_mapping"),
             header_row=int(options.get("header_row") or 1),
@@ -397,7 +397,7 @@ async def batch_match_process(payload: dict[str, object] = Body(...)) -> dict[st
     )
     output_report = write_report(
         output_report,
-        str(state.get("input_filename") or input_path.name),
+        str(state.get("input_filename") or (input_path.name if input_path else output_excel.name)),
         summary,
         output_excel_path=output_excel,
         input_excel_path=input_path,
@@ -406,7 +406,7 @@ async def batch_match_process(payload: dict[str, object] = Body(...)) -> dict[st
     summary.output_report = output_report.name
     _save_process_state(
         job_dir,
-        str(state.get("input_filename") or input_path.name),
+        str(state.get("input_filename") or (input_path.name if input_path else output_excel.name)),
         input_path,
         output_excel,
         output_report,
@@ -912,6 +912,34 @@ async def inspect_workload_capture_excel(
     }
 
 
+@app.post("/api/workload-capture/inspect-current-target")
+async def inspect_current_workload_target(
+    job_id: str = Form(...),
+    header_row: int | None = Form(default=None),
+    sheet_name: str | None = Form(default=None),
+) -> dict[str, object]:
+    clean_job_id = str(job_id or "").strip()
+    if not clean_job_id:
+        raise HTTPException(status_code=400, detail="缺少当前任务编号")
+    job_dir = RUNTIME_DIR / clean_job_id
+    if not job_dir.exists():
+        raise HTTPException(status_code=404, detail="当前任务不存在，请先完成转换")
+    state = _load_process_state(job_dir)
+    excel_path = _state_path(job_dir, state, "output_excel")
+    if not excel_path or not excel_path.exists():
+        raise HTTPException(status_code=404, detail="当前预览控制价表不存在，请先完成转换")
+
+    sheets = _inspect_workload_sheets(excel_path, "target", header_row=header_row, sheet_name=sheet_name)
+    first = sheets[0] if sheets else {"header_row": 1, "headers": [], "columns": [], "suggested_mapping": {}}
+    return {
+        "header_row": first["header_row"],
+        "headers": first["headers"],
+        "columns": first["columns"],
+        "suggested_mapping": first["suggested_mapping"],
+        "sheets": sheets,
+    }
+
+
 @app.get("/api/workload-capture/field-preferences")
 async def get_workload_field_preferences() -> dict[str, object]:
     return _workload_field_preferences_payload()
@@ -1021,6 +1049,118 @@ async def run_workload_capture(
             "target": f"/api/workload-capture/download/{job_id}/target",
         },
     }
+
+
+@app.post("/api/workload-capture/apply-to-current")
+async def apply_workload_capture_to_current(
+    workload_file: UploadFile = File(...),
+    job_id: str = Form(...),
+    selected_fields: str | None = Form(default=None),
+    source_sheet_configs: str | None = Form(default=None),
+    target_sheet_configs: str | None = Form(default=None),
+    only_capture_rows_with_value: bool = Form(default=True),
+    value_filter_field: str = Form(default=SOURCE_QUANTITY_FIELD),
+    write_mode: str = Form(default="conservative"),
+) -> dict[str, object]:
+    if not workload_file.filename or not workload_file.filename.lower().endswith(".xlsx"):
+        raise HTTPException(status_code=400, detail="请上传 .xlsx 格式的工作量表格")
+    clean_job_id = str(job_id or "").strip()
+    if not clean_job_id:
+        raise HTTPException(status_code=400, detail="缺少当前任务编号")
+    job_dir = RUNTIME_DIR / clean_job_id
+    if not job_dir.exists():
+        raise HTTPException(status_code=404, detail="当前任务不存在，请先完成转换")
+
+    selected = _parse_workload_selected_fields(selected_fields)
+    source_configs = _parse_workload_sheet_configs(source_sheet_configs, "source")
+    target_configs = _parse_workload_sheet_configs(target_sheet_configs, "target")
+    filter_field = _parse_workload_filter_field(value_filter_field) if only_capture_rows_with_value else None
+    mode = _parse_workload_write_mode(write_mode)
+    if not source_configs or not target_configs:
+        raise HTTPException(status_code=400, detail="请先完成工作量表和当前控制价表的 sheet/列映射")
+
+    state = _load_process_state(job_dir)
+    excel_path = _state_path(job_dir, state, "output_excel")
+    if not excel_path or not excel_path.exists():
+        raise HTTPException(status_code=404, detail="当前预览控制价表不存在，请先完成转换")
+    input_path = _state_path(job_dir, state, "input_excel", required=False)
+    input_name = str(state.get("input_filename") or (input_path.name if input_path else "input.xlsx"))
+
+    workload_dir = job_dir / "workload-current"
+    workload_dir.mkdir(parents=True, exist_ok=True)
+    workload_path = workload_dir / workload_file.filename
+    workload_path.write_bytes(await workload_file.read())
+    marked_workload = workload_dir / f"{TEMP_FILE_PREFIX}-原表-(工作量信息抓取后标注符合用)-{_output_timestamp()}.xlsx"
+
+    try:
+        workload_summary = capture_workload(
+            workload_path,
+            excel_path,
+            marked_workload,
+            excel_path,
+            source_configs,
+            target_configs,
+            selected_fields=selected,
+            filter_non_empty_field=filter_field,
+            write_mode=mode,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    recalculate_workbook(excel_path)
+    summary = _summary_from_dict(state.get("summary", {}))
+    summary.table_preview = _refresh_table_preview_from_output(summary.table_preview, excel_path)
+    report_path = _state_path(job_dir, state, "output_report", required=False)
+    if report_path:
+        report_path = write_report(
+            report_path,
+            input_name,
+            summary,
+            output_excel_path=excel_path,
+            input_excel_path=input_path,
+        )
+        summary.output_report = report_path.name
+    else:
+        summary.output_report = str(state.get("output_report") or "")
+    summary.output_excel = excel_path.name
+    _save_process_state(
+        job_dir,
+        input_name,
+        input_path,
+        excel_path,
+        report_path,
+        summary,
+        extra={"workload_capture_summary": workload_summary},
+    )
+    return {
+        "job_id": clean_job_id,
+        "summary": summary.to_dict(),
+        "downloads": {
+            "excel": f"/api/download/{clean_job_id}/excel",
+            "report": f"/api/download/{clean_job_id}/report",
+        },
+        "workload_summary": workload_summary,
+        "workload_downloads": {
+            "workload": f"/api/workload-capture/current-download/{clean_job_id}/workload",
+        },
+    }
+
+
+@app.get("/api/workload-capture/current-download/{job_id}/{kind}")
+def download_current_workload_capture(job_id: str, kind: str) -> FileResponse:
+    if kind != "workload":
+        raise HTTPException(status_code=400, detail="当前预览写入流程只提供标注工作量表下载")
+    job_dir = RUNTIME_DIR / str(job_id).strip()
+    if not job_dir.exists():
+        raise HTTPException(status_code=404, detail="任务不存在")
+    workload_dir = job_dir / "workload-current"
+    if not workload_dir.exists():
+        raise HTTPException(status_code=404, detail="标注工作量表不存在")
+    matches = sorted(workload_dir.glob(f"{TEMP_FILE_PREFIX}-原表-*.xlsx"), key=lambda path: path.stat().st_mtime, reverse=True)
+    if not matches:
+        raise HTTPException(status_code=404, detail="标注工作量表不存在")
+    path = matches[0]
+    return FileResponse(path, filename=path.name)
 
 
 @app.get("/api/workload-capture/download/{job_id}/{kind}")
@@ -3279,6 +3419,15 @@ def _parse_workload_filter_field(raw_field: str | None) -> str:
     if field not in SOURCE_MAPPING_FIELDS:
         raise HTTPException(status_code=400, detail=f"工作量抓取过滤字段不支持：{field}")
     return field
+
+
+def _parse_workload_write_mode(raw_mode: str | None) -> str:
+    mode = str(raw_mode or WRITE_MODE_CONSERVATIVE).strip().lower()
+    if mode in {WRITE_MODE_CONSERVATIVE, "safe", "保守", "保守模式"}:
+        return WRITE_MODE_CONSERVATIVE
+    if mode in {WRITE_MODE_OVERWRITE, "cover", "覆盖", "覆盖模式"}:
+        return WRITE_MODE_OVERWRITE
+    raise HTTPException(status_code=400, detail="工作量抓取写入模式只能是保守模式或覆盖模式")
 
 
 def _parse_workload_sheet_configs(raw_configs: str | None, role: str) -> list[dict[str, object]] | None:
