@@ -5404,10 +5404,10 @@ function DaweibaApp() {
                 本地运行 · 规则可追溯 · 人工兜底
               </p>
               <h1>{APP_NAME}</h1>
-              <p className="welcome-subtitle">让工程造价复核更快进入可信状态</p>
               <p className="welcome-role">{APP_SUBTITLE}</p>
+              <p className="welcome-subtitle">让工程造价复核更快进入可信状态</p>
               <p className="welcome-lead">
-                基价、调整系数、经验池预警、工作量抓取和 Word 报告在本地闭环处理；智算助手只做解释、复核提示和报告辅助，不裁决价格。
+                本地规则匹配价格与系数，联动经验池预警、工作量抓取和 Word 报告。
               </p>
               <div className="welcome-actions">
                 <button className="welcome-primary" type="button" onClick={enterAppFromWelcome}>
