@@ -1769,8 +1769,8 @@ function DaweibaApp() {
     () => {
       if (!workloadCaptureResult) return [];
       const issueLogs = workloadCaptureResult.summary.issue_log_preview;
-      if (issueLogs?.length) return issueLogs.slice(0, 4);
-      return workloadCaptureResult.summary.log_preview.filter(isWorkloadIssueLog).slice(0, 4);
+      if (issueLogs?.length) return issueLogs.filter(isWorkloadIssueLog).slice(0, 20);
+      return [];
     },
     [workloadCaptureResult],
   );

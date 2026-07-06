@@ -79,6 +79,8 @@ class SourceRecord:
     diagnostic_column: int
     exact_key: tuple[str, ...]
     ordered_key: tuple[str, tuple[str, ...]]
+    message: str = ""
+    status: str = "skipped"
 
 
 @dataclass
@@ -245,15 +247,19 @@ def capture_workload(
             diagnosis = _build_source_diagnosis(source, match, target_records)
             if len(match.sources) == 1 and len(match.targets) == 1:
                 target = match.targets[0]
+                source.status = "matched"
+                source.message = f"抓取成功：{match.match_mode}，写入控制价计算表 {target.sheet_name} 第 {target.excel_row} 行。"
                 _write_source_log(
                     sheet,
                     source,
-                    f"抓取成功：{match.match_mode}，写入控制价计算表 {target.sheet_name} 第 {target.excel_row} 行。",
+                    source.message,
                     diagnosis,
                     matched=True,
                 )
             else:
                 message = _source_warning_message(source, match)
+                source.status = "warning"
+                source.message = message
                 _write_source_log(
                     sheet,
                     source,
@@ -296,8 +302,8 @@ def capture_workload(
                 "status": row.status,
                 "message": row.message,
             }
-            for row in result.target_rows
-            if _is_target_issue_log(row)
+            for row in result.source_rows
+            if _is_source_failed_log(row)
         ][:20],
         "log_preview": [
             {
@@ -311,10 +317,8 @@ def capture_workload(
     }
 
 
-def _is_target_issue_log(row: TargetRecord) -> bool:
-    if row.status == "warning":
-        return True
-    return "一对多" in row.message or "未抓取" in row.message or "未匹配" in row.message
+def _is_source_failed_log(row: SourceRecord) -> bool:
+    return row.status == "warning" or "未抓取" in row.message or "未匹配" in row.message
 
 
 def default_workload_field_preferences() -> dict[str, list[str]]:

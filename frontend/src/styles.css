@@ -5427,6 +5427,9 @@ tbody tr:hover .row-ai-cell {
   display: grid;
   gap: 6px;
   margin-top: 12px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .workload-log-preview span {

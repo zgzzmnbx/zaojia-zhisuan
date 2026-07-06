@@ -290,7 +290,9 @@ def test_capture_workload_warns_when_one_source_matches_multiple_targets(tmp_pat
     assert summary["filled_rows"] == 0
     assert summary["duplicate_warning_rows"] == 2
     assert len(summary["issue_log_preview"]) == 2
-    assert all("一对多预警" in row["message"] for row in summary["issue_log_preview"])
+    assert all(row["sheet_name"] == "委托方工作量" for row in summary["issue_log_preview"])
+    assert any("一对多预警" in row["message"] for row in summary["issue_log_preview"])
+    assert any("未抓取成功" in row["message"] for row in summary["issue_log_preview"])
     output = load_workbook(output_target, data_only=True)
     try:
         sheet = output["表2 通用工程测量费用"]
@@ -552,9 +554,7 @@ def test_capture_workload_filters_rows_by_selected_non_empty_field(tmp_path):
 
     assert summary["source_rows"] == 1
     assert summary["filled_rows"] == 1
-    assert len(summary["issue_log_preview"]) == 1
-    assert summary["issue_log_preview"][0]["excel_row"] == 3
-    assert "模式A+B均未命中" in summary["issue_log_preview"][0]["message"]
+    assert summary["issue_log_preview"] == []
     output = load_workbook(output_target, data_only=True)
     try:
         sheet = output["表2 通用工程测量费用"]
@@ -669,7 +669,7 @@ def test_capture_workload_source_diagnostic_identifies_unit_mismatch(tmp_path, m
         tmp_path / "missing-term-rules.xlsx",
     )
 
-    capture_workload(
+    summary = capture_workload(
         source,
         target,
         output_source,
@@ -693,6 +693,11 @@ def test_capture_workload_source_diagnostic_identifies_unit_mismatch(tmp_path, m
         ],
         selected_fields=[TARGET_QUANTITY_FIELD],
     )
+
+    assert len(summary["issue_log_preview"]) == 1
+    assert summary["issue_log_preview"][0]["sheet_name"] == "委托方工作量"
+    assert summary["issue_log_preview"][0]["excel_row"] == 2
+    assert "未抓取成功" in summary["issue_log_preview"][0]["message"]
 
     marked_source = load_workbook(output_source, data_only=True)
     try:
