@@ -217,7 +217,7 @@ button {
   margin: 0;
   color: #101827;
   font-family: var(--font-display);
-  font-size: 44px;
+  font-size: 48px;
   font-weight: 900;
   letter-spacing: 0;
   line-height: 1.05;
@@ -310,6 +310,28 @@ button {
   border-radius: 8px 8px 0 0;
   background: #ffffff;
   box-shadow: 0 22px 70px rgba(15, 23, 42, 0.08);
+  animation: welcome-workbench-rise 900ms cubic-bezier(0.22, 1, 0.36, 1) 180ms both;
+  will-change: transform, opacity;
+}
+
+@keyframes welcome-workbench-rise {
+  from {
+    opacity: 0;
+    transform: translateY(72px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .welcome-product-frame {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .welcome-product-frame::before {
@@ -442,6 +464,10 @@ button {
   color: #ffffff;
   font-size: 13px;
   font-weight: 750;
+}
+
+.shell.layout-daweiba .welcome-screen.is-light .welcome-frame-main-head button {
+  color: #ffffff;
 }
 
 .welcome-upload-preview {
@@ -752,7 +778,7 @@ button {
 .welcome-screen.is-dark .welcome-copy h1 {
   max-width: 700px;
   color: #ffffff;
-  font-size: 44px;
+  font-size: 48px;
   line-height: 1.05;
 }
 
@@ -1112,7 +1138,7 @@ button {
 
 .shell.layout-daweiba .welcome-screen.is-light .welcome-copy h1 {
   color: #101827;
-  font-size: 44px;
+  font-size: 48px;
   font-weight: 900;
   line-height: 1.05;
 }
@@ -1606,6 +1632,19 @@ h1 {
   font-size: 12px;
 }
 
+.ai-dock-avatar-frame {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 52px;
+  height: 52px;
+}
+
+.ai-dock-avatar {
+  width: 50px;
+  height: 50px;
+}
+
 .ai-dock-actions {
   display: inline-flex;
   align-items: center;
@@ -1764,6 +1803,11 @@ h1 {
   border-color: rgba(0, 102, 204, 0.32);
   background: #ffffff;
   color: var(--blue);
+}
+
+.ai-dock-rail-avatar {
+  width: 34px;
+  height: 34px;
 }
 
 .ai-dock.zhisuan-style-analysis .chat-window,
@@ -8656,7 +8700,12 @@ tbody tr:hover .row-ai-cell {
 }
 
 .shell.layout-daweiba .ai-dock-title {
-  gap: 0;
+  align-items: center;
+  gap: 9px;
+}
+
+.shell.layout-daweiba .ai-dock-title .ai-dock-avatar-frame {
+  margin-left: -5px;
 }
 
 .shell.layout-daweiba .ai-dock-title p,
@@ -8874,6 +8923,17 @@ tbody tr:hover .row-ai-cell {
 
 .shell.layout-daweiba .daweiba-fill-quality-card {
   align-items: center;
+}
+
+.shell.layout-daweiba .daweiba-fill-quality-card .widescreen-ring {
+  background:
+    radial-gradient(circle at center, #ffffff 0 52%, transparent 53%),
+    conic-gradient(
+      #73a77c 0 var(--wide-ok),
+      #c8a96a var(--wide-ok) var(--wide-low),
+      #a55f66 var(--wide-low) 100%
+    );
+  box-shadow: inset 0 0 0 1px rgba(120, 92, 96, 0.12);
 }
 
 .shell.layout-daweiba .daweiba-fill-quality-card strong {
@@ -9222,7 +9282,7 @@ tbody tr:hover .row-ai-cell {
 
 .shell.layout-daweiba .welcome-screen.is-dark .welcome-copy h1 {
   color: #f8fbff;
-  font-size: 44px;
+  font-size: 48px;
   font-weight: 850;
   line-height: 1.05;
   opacity: 1;
@@ -9576,13 +9636,13 @@ tbody tr:hover .row-ai-cell {
   pointer-events: auto;
   display: inline-grid;
   place-items: center;
-  width: 56px;
-  height: 56px;
-  min-width: 56px;
-  min-height: 56px;
+  width: 64px;
+  height: 64px;
+  min-width: 64px;
+  min-height: 64px;
   padding: 0;
   border: 1px solid var(--db-border);
-  border-radius: 18px;
+  border-radius: 20px;
   background: #ffffff;
   color: var(--db-primary);
   writing-mode: horizontal-tb;
@@ -9602,12 +9662,12 @@ tbody tr:hover .row-ai-cell {
   box-shadow: 0 16px 36px rgba(37, 99, 235, 0.2);
 }
 
-.shell.layout-daweiba .daweiba-layout-shell.is-ai-collapsed > .ai-dock .ai-dock-rail svg {
-  width: 23px;
-  height: 23px;
+.shell.layout-daweiba .daweiba-layout-shell.is-ai-collapsed > .ai-dock .ai-dock-rail .ai-dock-rail-avatar {
+  width: 54px;
+  height: 54px;
 }
 
-.shell.layout-daweiba .daweiba-layout-shell.is-ai-collapsed > .ai-dock .ai-dock-rail span {
+.shell.layout-daweiba .daweiba-layout-shell.is-ai-collapsed > .ai-dock .ai-dock-rail .ai-dock-rail-label {
   position: absolute;
   width: 1px;
   height: 1px;

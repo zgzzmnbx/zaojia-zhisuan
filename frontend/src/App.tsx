@@ -22,6 +22,7 @@ import {
   Upload,
 } from "lucide-react";
 import { DaweibaLayoutV2 } from "./DaweibaLayoutV2";
+import ZhisuanAvatar, { type ZhisuanAvatarState } from "./components/ZhisuanAvatar";
 
 const DEFAULT_API_BASE = import.meta.env.DEV ? "http://127.0.0.1:8000" : "";
 const API_BASE = import.meta.env.VITE_API_BASE ?? DEFAULT_API_BASE;
@@ -34,7 +35,7 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.4.2";
+const APP_VERSION = "v5.5.0";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const KNOWLEDGE_QA_ENTRY_COUNT = 3922;
 const KNOWLEDGE_QA_SOURCE_COUNT = 17;
@@ -130,7 +131,7 @@ const ZHISUAN_WELCOME_STORAGE_KEY = "guankanzhisuan-zhisuan-welcome-message";
 const ZHISUAN_DOCK_STYLE_STORAGE_KEY = "guankanzhisuan-zhisuan-dock-style";
 const WELCOME_SCREEN_HIDDEN_STORAGE_KEY = "guankanzhisuan-welcome-screen-hidden";
 const WELCOME_SCREEN_VERSION_STORAGE_KEY = "guankanzhisuan-welcome-screen-version";
-const WELCOME_SCREEN_VERSION = "brand-v5.4.2";
+const WELCOME_SCREEN_VERSION = "brand-v5.5.0";
 const ZHISUAN_QUICK_SETTINGS_VERSION = 2;
 const LEFT_COLUMN_COLLAPSED_STORAGE_KEY = "guankanzhisuan-left-column-collapsed";
 type MappingField = (typeof MAPPING_FIELDS)[number];
@@ -436,6 +437,15 @@ const ZHISUAN_DOCK_STYLE_OPTIONS: Array<{ id: ZhisuanDockStyle; name: string; de
   { id: "analysis", name: "智算分析台", description: "更像专业审查面板" },
   { id: "companion", name: "随行光带", description: "更像贴身 AI 助手" },
 ];
+const ZHISUAN_AVATAR_STATE_LABELS: Record<ZhisuanAvatarState, string> = {
+  idle: "待命",
+  listening: "听取输入",
+  thinking: "思考中",
+  processing: "处理中",
+  warning: "需复核",
+  error: "异常",
+  success: "已完成",
+};
 
 type LlmDebugInfo = {
   provider: string;
@@ -1398,6 +1408,8 @@ function DaweibaApp() {
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [fillAssistDialog, setFillAssistDialog] = useState<FillAssistDialogState | null>(null);
   const [chatInput, setChatInput] = useState("");
+  const [isChatInputFocused, setIsChatInputFocused] = useState(false);
+  const [avatarSuccessUntil, setAvatarSuccessUntil] = useState(0);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [zhisuanChatHeight, setZhisuanChatHeight] = useState(readInitialZhisuanChatHeight);
   const [zhisuanChatHeightDraft, setZhisuanChatHeightDraft] = useState(() => String(readInitialZhisuanChatHeight()));
@@ -1603,6 +1615,28 @@ function DaweibaApp() {
       behavior: "smooth",
     });
   }, [chatMessages]);
+
+  useEffect(() => {
+    const successMarker = [
+      result?.summary.output_excel,
+      warningProgress.status === "completed" ? `warning-${warningProgress.processed_rows}-${warningProgress.warning_rows}` : "",
+      riskReport ? `risk-${riskReport.length}` : "",
+      previewManualEditMessage.includes("完成") || previewManualEditMessage.includes("成功")
+        ? previewManualEditMessage
+        : "",
+    ].filter(Boolean).join("|");
+    if (!successMarker) return undefined;
+    setAvatarSuccessUntil(Date.now() + 2200);
+    const timer = window.setTimeout(() => setAvatarSuccessUntil(0), 2200);
+    return () => window.clearTimeout(timer);
+  }, [
+    result?.summary.output_excel,
+    warningProgress.status,
+    warningProgress.processed_rows,
+    warningProgress.warning_rows,
+    riskReport,
+    previewManualEditMessage,
+  ]);
 
   useEffect(() => {
     void loadUiPreferences();
@@ -1814,6 +1848,64 @@ function DaweibaApp() {
     }
     return warningProgress.status === "completed" ? 100 : 0;
   }, [warningProgress]);
+  const zhisuanAvatarState = useMemo<ZhisuanAvatarState>(() => {
+    const hasAvatarError = Boolean(error || warningProgress.error || fillAssistDialog?.error);
+    const isAvatarThinking = isChatting || isRowAiLoading || chatMessages.some((message) => message.role === "assistant" && message.isTyping);
+    const isAvatarProcessing = Boolean(
+      isProcessing
+      || isBatchMatching
+      || isInspecting
+      || isDemoLoading
+      || isRecalculatingPreview
+      || savingPreviewCellKey
+      || isRunningWarnings
+      || isGeneratingRisk
+      || isRiskSummaryLoading
+      || isExperienceGovernanceLoading
+      || isInspectingExperience
+      || isImportingExperience
+      || isRunningWorkloadCapture,
+    );
+    const hasAvatarWarning = Boolean(
+      warningDetails.length > 0
+      || (warningSummary?.executed && Number(warningSummary.warning_rows ?? 0) > 0)
+      || (result?.summary.review_rows ?? 0) > 0,
+    );
+    if (hasAvatarError) return "error";
+    if (isAvatarThinking) return "thinking";
+    if (isAvatarProcessing) return "processing";
+    if (hasAvatarWarning) return "warning";
+    if (avatarSuccessUntil > Date.now()) return "success";
+    if (isChatInputFocused || chatInput.trim()) return "listening";
+    return "idle";
+  }, [
+    error,
+    warningProgress.error,
+    fillAssistDialog?.error,
+    isChatting,
+    isRowAiLoading,
+    chatMessages,
+    isProcessing,
+    isBatchMatching,
+    isInspecting,
+    isDemoLoading,
+    isRecalculatingPreview,
+    savingPreviewCellKey,
+    isRunningWarnings,
+    isGeneratingRisk,
+    isRiskSummaryLoading,
+    isExperienceGovernanceLoading,
+    isInspectingExperience,
+    isImportingExperience,
+    isRunningWorkloadCapture,
+    warningDetails.length,
+    warningSummary,
+    result,
+    avatarSuccessUntil,
+    isChatInputFocused,
+    chatInput,
+  ]);
+  const zhisuanAvatarLabel = ZHISUAN_AVATAR_STATE_LABELS[zhisuanAvatarState];
 
   function activeSheetConfig() {
     return sheetConfigs.find((config) => config.sheet_name === activeSheetName) ?? null;
@@ -5405,7 +5497,6 @@ function DaweibaApp() {
               </p>
               <h1>{APP_NAME}</h1>
               <p className="welcome-role">{APP_SUBTITLE}</p>
-              <p className="welcome-subtitle">让工程造价复核更快进入可信状态</p>
               <p className="welcome-lead">
                 本地规则匹配价格与系数，联动经验池预警、工作量抓取和 Word 报告。
               </p>
@@ -7090,16 +7181,18 @@ function DaweibaApp() {
         <aside className={`ai-dock zhisuan-style-${zhisuanDockStyle} ${isAiDockCollapsed ? "is-collapsed" : ""}`} id="ai-dock" data-ui-key="ai-dock" style={uiStyle("ai-dock")} aria-label="智算助手">
           {isAiDockCollapsed ? (
             <button className="ai-dock-rail" type="button" aria-label="展开智算" title="展开智算" onClick={() => setIsAiDockCollapsed(false)}>
-              <MessageSquareText size={22} />
-              <span data-ui-text-key="ai.title">{uiText("ai.title", "智算")}</span>
+              <ZhisuanAvatar className="ai-dock-rail-avatar" state={zhisuanAvatarState} size="normal" />
+              <span className="ai-dock-rail-label" data-ui-text-key="ai.title">{uiText("ai.title", "智算")}</span>
             </button>
           ) : (
             <section className="llm-section ai-dock-panel">
               <div className="ai-dock-head">
                 <div className="ai-dock-title">
-                  <span className="ai-dock-index">04</span>
+                  <span className="ai-dock-avatar-frame">
+                    <ZhisuanAvatar className="ai-dock-avatar" state={zhisuanAvatarState} size="normal" />
+                  </span>
                   <div>
-                    <p>随行助手</p>
+                    <p>随行助手 · {zhisuanAvatarLabel}</p>
                     <h2>智算</h2>
                   </div>
                 </div>
@@ -7190,6 +7283,8 @@ function DaweibaApp() {
                         rows={3}
                         placeholder="输入一句问题"
                         onChange={(event) => setChatInput(event.target.value)}
+                        onFocus={() => setIsChatInputFocused(true)}
+                        onBlur={() => setIsChatInputFocused(false)}
                         onKeyDown={(event) => {
                           if (event.key === "Enter" && !event.altKey) {
                             event.preventDefault();

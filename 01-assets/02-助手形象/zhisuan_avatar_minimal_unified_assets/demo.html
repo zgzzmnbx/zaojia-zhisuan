@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>造价智算极简统一形象 Demo</title>
+<style>
+body {
+  margin: 0;
+  padding: 36px;
+  background: #f5f5f7;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei UI", sans-serif;
+  color: #0f172a;
+}
+h1 { margin: 0 0 8px; font-size: 24px; }
+p { margin: 0 0 22px; color: #64748b; line-height: 1.8; }
+.panel {
+  width: min(920px, 100%);
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 24px;
+  padding: 24px;
+  box-shadow: 0 20px 60px rgba(15,23,42,.07);
+}
+.preview {
+  display: grid;
+  grid-template-columns: 160px minmax(0,1fr);
+  gap: 24px;
+  align-items: center;
+}
+.avatar-wrap {
+  display: grid;
+  place-items: center;
+  min-height: 160px;
+  border-radius: 22px;
+  background: linear-gradient(180deg, #f8fafc, #eef6ff);
+  border: 1px solid #dbeafe;
+}
+.controls { display: flex; flex-wrap: wrap; gap: 10px; }
+button {
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #fff;
+  color: #334155;
+  padding: 9px 14px;
+  cursor: pointer;
+}
+button:hover { border-color: #2563eb; color: #2563eb; }
+button.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+.note {
+  margin-top: 18px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 14px;
+}
+
+.zhisuan-avatar {
+  display: inline-grid;
+  place-items: center;
+  width: 96px;
+  height: 96px;
+  transform-origin: 50% 55%;
+}
+.zhisuan-avatar svg { width: 100%; height: 100%; overflow: visible; }
+.shell,.screen,.eye,.z,.ring,.status-dot,.scan,.check,.warning,.error {
+  transition: opacity 180ms ease, transform 180ms ease, stroke 180ms ease, fill 180ms ease;
+}
+.ring,.scan,.check,.warning,.error { opacity: 0; }
+
+.zhisuan-avatar[data-state="idle"] { animation: breathe 3.3s ease-in-out infinite; }
+.zhisuan-avatar[data-state="listening"] { animation: listening 2.4s ease-in-out infinite; }
+.zhisuan-avatar[data-state="thinking"] .scan { opacity: .82; animation: scan 1.4s ease-in-out infinite; }
+.zhisuan-avatar[data-state="thinking"] .eye { animation: eyeScan 1.4s ease-in-out infinite; }
+.zhisuan-avatar[data-state="thinking"] .ring { opacity: .45; stroke: #2563eb; }
+.zhisuan-avatar[data-state="processing"] .ring {
+  opacity: .95; stroke: #2563eb; transform-origin: 50px 50px; animation: spin 1.15s linear infinite;
+}
+.zhisuan-avatar[data-state="warning"] { animation: nudge .42s ease-in-out 1; }
+.zhisuan-avatar[data-state="warning"] .screen { fill: #fffbeb; stroke: #fde68a; }
+.zhisuan-avatar[data-state="warning"] .status-dot { fill: #f59e0b; }
+.zhisuan-avatar[data-state="warning"] .warning { opacity: 1; fill: #f59e0b; stroke: #f59e0b; }
+.zhisuan-avatar[data-state="error"] { animation: shake .34s ease-in-out 1; }
+.zhisuan-avatar[data-state="error"] .screen { fill: #fff1f0; stroke: #fecaca; }
+.zhisuan-avatar[data-state="error"] .status-dot { fill: #b42318; }
+.zhisuan-avatar[data-state="error"] .error { opacity: 1; stroke: #b42318; }
+.zhisuan-avatar[data-state="success"] { animation: pop .46s cubic-bezier(.2,.9,.2,1) 1; }
+.zhisuan-avatar[data-state="success"] .screen { fill: #f0fdf4; stroke: #dcfce7; }
+.zhisuan-avatar[data-state="success"] .status-dot { fill: #16a34a; }
+.zhisuan-avatar[data-state="success"] .check { opacity: 1; stroke: #16a34a; }
+
+@keyframes breathe { 0%,100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-1px) scale(1.01); } }
+@keyframes listening { 0%,100% { transform: translateY(0) rotate(0deg) scale(1); } 50% { transform: translateY(-.5px) rotate(-.8deg) scale(1.004); } }
+@keyframes scan { 0%,100% { transform: translateY(-9px); opacity: .18; } 50% { transform: translateY(9px); opacity: .82; } }
+@keyframes eyeScan { 0%,100% { transform: translateX(-1px); } 50% { transform: translateX(1px); } }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes nudge { 0%,100% { transform: translateX(0); } 25% { transform: translateX(-1.2px); } 70% { transform: translateX(1.2px); } }
+@keyframes shake { 0%,100% { transform: translateX(0); } 20% { transform: translateX(-2px); } 40% { transform: translateX(2px); } 60% { transform: translateX(-1.2px); } 80% { transform: translateX(1.2px); } }
+@keyframes pop { 0% { transform: scale(.97); } 55% { transform: scale(1.045); } 100% { transform: scale(1); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .zhisuan-avatar,.zhisuan-avatar * { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+  <h1>造价智算虚拟形象：极简统一形象</h1>
+  <p>所有状态共用同一个 SVG 主体。状态只通过状态环、状态点、扫描线、勾号、叹号、错误符号表达。idle 有轻微呼吸感。</p>
+  <div class="panel">
+    <div class="preview">
+      <div class="avatar-wrap">
+        <span class="zhisuan-avatar" id="avatar" data-state="idle" role="img" aria-label="智算待命中">
+          <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle class="ring" cx="50" cy="50" r="41" stroke="#2563EB" stroke-width="4" stroke-linecap="round" stroke-dasharray="28 220"/>
+            <rect class="shell" x="22" y="22" width="56" height="56" rx="18" fill="#FFFFFF" stroke="#D7DEE8" stroke-width="3"/>
+            <rect class="screen" x="32" y="34" width="36" height="25" rx="10" fill="#F8FBFF" stroke="#DBEAFE" stroke-width="2"/>
+            <circle class="status-dot" cx="73" cy="27" r="5.2" fill="#38BDF8" stroke="#FFFFFF" stroke-width="2.4"/>
+            <circle class="eye" cx="43" cy="46" r="2.4" fill="#2563EB"/>
+            <circle class="eye" cx="57" cy="46" r="2.4" fill="#2563EB"/>
+            <path class="z" d="M42 63H59L43 73H60" stroke="#94A3B8" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+            <line class="scan" x1="36" y1="39" x2="64" y2="39" stroke="#60A5FA" stroke-width="2" stroke-linecap="round"/>
+            <path class="check" d="M69 25.5L72 28.5L78 21.5" stroke="#16A34A" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round"/>
+            <path class="warning" d="M73 23.5V29.5" stroke="#F59E0B" stroke-width="2.8" stroke-linecap="round"/>
+            <circle class="warning" cx="73" cy="33.5" r="1.2" fill="#F59E0B"/>
+            <path class="error" d="M69.5 23.5L76.5 30.5M76.5 23.5L69.5 30.5" stroke="#B42318" stroke-width="2.6" stroke-linecap="round"/>
+          </svg>
+        </span>
+      </div>
+      <div>
+        <div class="controls" id="controls"></div>
+        <div class="note" id="note">当前状态：idle。主体形象不变，能看到轻微呼吸感。</div>
+      </div>
+    </div>
+  </div>
+<script>
+const states = [
+  ["idle", "待命 / 呼吸"],
+  ["listening", "听取输入"],
+  ["thinking", "思考"],
+  ["processing", "处理中"],
+  ["warning", "预警"],
+  ["error", "出错"],
+  ["success", "完成"]
+];
+const avatar = document.getElementById("avatar");
+const controls = document.getElementById("controls");
+const note = document.getElementById("note");
+function setState(state) {
+  avatar.dataset.state = state;
+  avatar.setAttribute("aria-label", "智算状态：" + state);
+  [...controls.querySelectorAll("button")].forEach(btn => btn.classList.toggle("active", btn.dataset.state === state));
+  note.textContent = "当前状态：" + state + "。主体形象保持一致，只改变状态层。" + (state === "idle" ? " 能看到轻微呼吸感。" : "");
+}
+states.forEach(([id, label]) => {
+  const btn = document.createElement("button");
+  btn.textContent = label;
+  btn.dataset.state = id;
+  btn.onclick = () => setState(id);
+  controls.appendChild(btn);
+});
+setState("idle");
+</script>
+</body>
+</html>

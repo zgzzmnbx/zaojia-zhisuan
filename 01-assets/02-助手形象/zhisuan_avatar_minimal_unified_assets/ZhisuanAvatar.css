@@ -1,0 +1,263 @@
+/* ZhisuanAvatar.css
+   极简统一形象：所有状态共用同一个 SVG 主体，只改变状态层。
+*/
+
+.zhisuan-avatar {
+  --za-blue: #2563eb;
+  --za-blue-soft: #dbeafe;
+  --za-slate: #64748b;
+  --za-line: #dbe3ee;
+  --za-surface: #ffffff;
+  --za-screen: #f8fbff;
+  --za-warning: #f59e0b;
+  --za-error: #b42318;
+  --za-success: #16a34a;
+
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 56px;
+  height: 56px;
+  transform-origin: 50% 55%;
+  color: var(--za-blue);
+  will-change: transform;
+}
+
+.zhisuan-avatar--compact {
+  width: 34px;
+  height: 34px;
+}
+
+.zhisuan-avatar--normal {
+  width: 56px;
+  height: 56px;
+}
+
+.zhisuan-avatar--large {
+  width: 72px;
+  height: 72px;
+}
+
+.zhisuan-avatar__svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.zhisuan-avatar__shell,
+.zhisuan-avatar__screen,
+.zhisuan-avatar__eye,
+.zhisuan-avatar__z,
+.zhisuan-avatar__ring,
+.zhisuan-avatar__status-dot,
+.zhisuan-avatar__scan,
+.zhisuan-avatar__check,
+.zhisuan-avatar__warning,
+.zhisuan-avatar__error {
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease,
+    stroke 180ms ease,
+    fill 180ms ease;
+}
+
+.zhisuan-avatar__ring,
+.zhisuan-avatar__scan,
+.zhisuan-avatar__check,
+.zhisuan-avatar__warning,
+.zhisuan-avatar__error {
+  opacity: 0;
+}
+
+/* idle：核心呼吸感 */
+.zhisuan-avatar[data-state="idle"] {
+  animation: zhisuan-breathe 3.3s ease-in-out infinite;
+}
+
+/* listening：仍是同一形象，只轻微前倾 */
+.zhisuan-avatar[data-state="listening"] {
+  animation: zhisuan-listening 2.4s ease-in-out infinite;
+}
+
+.zhisuan-avatar[data-state="listening"] .zhisuan-avatar__eye {
+  fill: #1d4ed8;
+}
+
+/* thinking：扫描线和眼点微动 */
+.zhisuan-avatar[data-state="thinking"] .zhisuan-avatar__scan {
+  opacity: 0.82;
+  animation: zhisuan-scan 1.4s ease-in-out infinite;
+}
+
+.zhisuan-avatar[data-state="thinking"] .zhisuan-avatar__eye {
+  animation: zhisuan-eye-scan 1.4s ease-in-out infinite;
+}
+
+.zhisuan-avatar[data-state="thinking"] .zhisuan-avatar__ring {
+  opacity: 0.45;
+  stroke: var(--za-blue);
+}
+
+/* processing：同一外圈转动 */
+.zhisuan-avatar[data-state="processing"] .zhisuan-avatar__ring {
+  opacity: 0.95;
+  stroke: var(--za-blue);
+  transform-origin: 50px 50px;
+  animation: zhisuan-spin 1.15s linear infinite;
+}
+
+.zhisuan-avatar[data-state="processing"] .zhisuan-avatar__status-dot {
+  fill: var(--za-blue);
+}
+
+/* warning：只改变状态层 */
+.zhisuan-avatar[data-state="warning"] {
+  animation: zhisuan-nudge 0.42s ease-in-out 1;
+}
+
+.zhisuan-avatar[data-state="warning"] .zhisuan-avatar__screen {
+  fill: #fffbeb;
+  stroke: #fde68a;
+}
+
+.zhisuan-avatar[data-state="warning"] .zhisuan-avatar__status-dot {
+  fill: var(--za-warning);
+}
+
+.zhisuan-avatar[data-state="warning"] .zhisuan-avatar__warning {
+  opacity: 1;
+  fill: var(--za-warning);
+  stroke: var(--za-warning);
+}
+
+/* error：只改变状态层，短促反馈 */
+.zhisuan-avatar[data-state="error"] {
+  animation: zhisuan-shake 0.34s ease-in-out 1;
+}
+
+.zhisuan-avatar[data-state="error"] .zhisuan-avatar__screen {
+  fill: #fff1f0;
+  stroke: #fecaca;
+}
+
+.zhisuan-avatar[data-state="error"] .zhisuan-avatar__status-dot {
+  fill: var(--za-error);
+}
+
+.zhisuan-avatar[data-state="error"] .zhisuan-avatar__error {
+  opacity: 1;
+  stroke: var(--za-error);
+}
+
+/* success：只改变状态层，短暂确认 */
+.zhisuan-avatar[data-state="success"] {
+  animation: zhisuan-pop 0.46s cubic-bezier(.2,.9,.2,1) 1;
+}
+
+.zhisuan-avatar[data-state="success"] .zhisuan-avatar__screen {
+  fill: #f0fdf4;
+  stroke: #dcfce7;
+}
+
+.zhisuan-avatar[data-state="success"] .zhisuan-avatar__status-dot {
+  fill: var(--za-success);
+}
+
+.zhisuan-avatar[data-state="success"] .zhisuan-avatar__check {
+  opacity: 1;
+  stroke: var(--za-success);
+}
+
+@keyframes zhisuan-breathe {
+  0%, 100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-1px) scale(1.01);
+  }
+}
+
+@keyframes zhisuan-listening {
+  0%, 100% {
+    transform: translateY(0) rotate(0deg) scale(1);
+  }
+  50% {
+    transform: translateY(-0.5px) rotate(-0.8deg) scale(1.004);
+  }
+}
+
+@keyframes zhisuan-scan {
+  0%, 100% {
+    transform: translateY(-9px);
+    opacity: 0.18;
+  }
+  50% {
+    transform: translateY(9px);
+    opacity: 0.82;
+  }
+}
+
+@keyframes zhisuan-eye-scan {
+  0%, 100% {
+    transform: translateX(-1px);
+  }
+  50% {
+    transform: translateX(1px);
+  }
+}
+
+@keyframes zhisuan-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes zhisuan-nudge {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-1.2px);
+  }
+  70% {
+    transform: translateX(1.2px);
+  }
+}
+
+@keyframes zhisuan-shake {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-2px);
+  }
+  40% {
+    transform: translateX(2px);
+  }
+  60% {
+    transform: translateX(-1.2px);
+  }
+  80% {
+    transform: translateX(1.2px);
+  }
+}
+
+@keyframes zhisuan-pop {
+  0% {
+    transform: scale(.97);
+  }
+  55% {
+    transform: scale(1.045);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .zhisuan-avatar,
+  .zhisuan-avatar * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "concept": "极简统一形象：同一个 SVG 主体，不同状态只改变状态层",
+  "states": [
+    {
+      "id": "idle",
+      "label": "待命",
+      "change": "呼吸感"
+    },
+    {
+      "id": "listening",
+      "label": "听取输入",
+      "change": "轻微前倾、眼点聚焦"
+    },
+    {
+      "id": "thinking",
+      "label": "思考",
+      "change": "扫描线、眼点轻扫"
+    },
+    {
+      "id": "processing",
+      "label": "处理中",
+      "change": "外圈旋转"
+    },
+    {
+      "id": "warning",
+      "label": "预警",
+      "change": "黄色状态点、叹号"
+    },
+    {
+      "id": "error",
+      "label": "出错",
+      "change": "红色状态点、错误短线、短促摇头"
+    },
+    {
+      "id": "success",
+      "label": "完成",
+      "change": "绿色状态点、勾号、轻弹"
+    }
+  ],
+  "priority": [
+    "error",
+    "thinking",
+    "processing",
+    "warning",
+    "success",
+    "listening",
+    "idle"
+  ],
+  "hard_rules": [
+    "所有状态共用同一套 SVG DOM",
+    "不能为不同状态加载不同机器人主图",
+    "idle 必须有呼吸感",
+    "必须支持 prefers-reduced-motion"
+  ]
+}

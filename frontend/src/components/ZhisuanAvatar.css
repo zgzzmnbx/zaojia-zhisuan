@@ -1,0 +1,480 @@
+.zhisuan-avatar {
+  --za-blue: #2563eb;
+  --za-blue-soft: #dbeafe;
+  --za-slate: #64748b;
+  --za-line: #dbe3ee;
+  --za-surface: #ffffff;
+  --za-screen: #f8fbff;
+  --za-warning: #f59e0b;
+  --za-error: #b42318;
+  --za-success: #16a34a;
+
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  position: relative;
+  width: 56px;
+  height: 56px;
+  color: var(--za-blue);
+  transform-origin: 50% 55%;
+  will-change: transform;
+}
+
+.zhisuan-avatar::before {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border-radius: 18px;
+  background: rgba(37, 99, 235, 0.12);
+  opacity: 0;
+  transform: scale(0.78);
+  transform-origin: center;
+  pointer-events: none;
+}
+
+.zhisuan-avatar--compact {
+  width: 34px;
+  height: 34px;
+}
+
+.zhisuan-avatar--normal {
+  width: 56px;
+  height: 56px;
+}
+
+.zhisuan-avatar--large {
+  width: 72px;
+  height: 72px;
+}
+
+.zhisuan-avatar__svg {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.zhisuan-avatar__shell,
+.zhisuan-avatar__screen,
+.zhisuan-avatar__eye,
+.zhisuan-avatar__z,
+.zhisuan-avatar__ring,
+.zhisuan-avatar__status-dot,
+.zhisuan-avatar__magnifier,
+.zhisuan-avatar__magnifier-lens,
+.zhisuan-avatar__magnifier-handle,
+.zhisuan-avatar__scan,
+.zhisuan-avatar__check,
+.zhisuan-avatar__warning,
+.zhisuan-avatar__error {
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease,
+    stroke 180ms ease,
+    fill 180ms ease;
+}
+
+.zhisuan-avatar__ring,
+.zhisuan-avatar__magnifier,
+.zhisuan-avatar__scan,
+.zhisuan-avatar__check,
+.zhisuan-avatar__warning,
+.zhisuan-avatar__error {
+  opacity: 0;
+}
+
+.zhisuan-avatar[data-state="idle"] {
+  animation: zhisuan-breathe 2.15s ease-in-out infinite;
+}
+
+.zhisuan-avatar[data-state="idle"]::before {
+  animation: zhisuan-breathe-halo 2.15s ease-in-out infinite;
+}
+
+.zhisuan-avatar[data-state="idle"] .zhisuan-avatar__shell {
+  animation: zhisuan-shell-breathe 2.15s ease-in-out infinite;
+}
+
+.zhisuan-avatar[data-state="idle"] .zhisuan-avatar__screen {
+  animation: zhisuan-screen-breathe 2.15s ease-in-out infinite;
+}
+
+.zhisuan-avatar[data-state="idle"] .zhisuan-avatar__status-dot {
+  animation: zhisuan-dot-breathe 2.15s ease-in-out infinite;
+}
+
+.zhisuan-avatar[data-state="idle"] .zhisuan-avatar__ring {
+  opacity: 0.42;
+  stroke: #60a5fa;
+  animation: zhisuan-ring-breathe 2.15s ease-in-out infinite;
+}
+
+.zhisuan-avatar[data-state="listening"] {
+  animation: zhisuan-listening 2.4s ease-in-out infinite;
+}
+
+.zhisuan-avatar[data-state="listening"] .zhisuan-avatar__eye {
+  fill: #1d4ed8;
+}
+
+.zhisuan-avatar[data-state="thinking"] .zhisuan-avatar__scan {
+  opacity: 0.82;
+  stroke: #8fd1ab;
+  animation: zhisuan-scan 1.4s ease-in-out infinite;
+}
+
+.zhisuan-avatar[data-state="thinking"],
+.zhisuan-avatar[data-state="processing"] {
+  animation: zhisuan-breathe 2.05s ease-in-out infinite;
+}
+
+.zhisuan-avatar[data-state="thinking"]::before,
+.zhisuan-avatar[data-state="processing"]::before {
+  background: rgba(74, 163, 116, 0.14);
+  animation: zhisuan-breathe-halo 2.05s ease-in-out infinite;
+}
+
+.zhisuan-avatar[data-state="thinking"] .zhisuan-avatar__shell,
+.zhisuan-avatar[data-state="processing"] .zhisuan-avatar__shell {
+  animation: zhisuan-shell-breathe-green 2.05s ease-in-out infinite;
+}
+
+.zhisuan-avatar[data-state="thinking"] .zhisuan-avatar__screen,
+.zhisuan-avatar[data-state="processing"] .zhisuan-avatar__screen {
+  animation: zhisuan-screen-breathe-green 2.05s ease-in-out infinite;
+}
+
+.zhisuan-avatar[data-state="thinking"] .zhisuan-avatar__status-dot,
+.zhisuan-avatar[data-state="processing"] .zhisuan-avatar__status-dot {
+  animation: zhisuan-dot-breathe-green 2.05s ease-in-out infinite;
+}
+
+.zhisuan-avatar[data-state="thinking"] .zhisuan-avatar__ring,
+.zhisuan-avatar[data-state="processing"] .zhisuan-avatar__ring {
+  opacity: 0.42;
+  stroke: #7fc59c;
+  animation: zhisuan-ring-breathe-green 2.05s ease-in-out infinite;
+}
+
+.zhisuan-avatar[data-state="thinking"] .zhisuan-avatar__eye {
+  animation: zhisuan-eye-scan 1.4s ease-in-out infinite;
+}
+
+.zhisuan-avatar[data-state="thinking"] .zhisuan-avatar__magnifier {
+  opacity: 1;
+  transform-origin: 68px 58px;
+  animation: zhisuan-magnifier-think 1.7s ease-in-out infinite;
+}
+
+.zhisuan-avatar[data-state="thinking"] .zhisuan-avatar__magnifier-lens {
+  animation: zhisuan-magnifier-lens 1.7s ease-in-out infinite;
+}
+
+.zhisuan-avatar[data-state="thinking"] .zhisuan-avatar__magnifier-handle,
+.zhisuan-avatar[data-state="processing"] .zhisuan-avatar__magnifier-handle {
+  stroke: #4aa374;
+}
+
+.zhisuan-avatar[data-state="processing"] .zhisuan-avatar__ring {
+  transform-origin: 50px 50px;
+}
+
+.zhisuan-avatar[data-state="processing"] .zhisuan-avatar__magnifier {
+  opacity: 1;
+  transform-origin: 68px 58px;
+  animation: zhisuan-magnifier-work 1.05s ease-in-out infinite;
+}
+
+.zhisuan-avatar[data-state="processing"] .zhisuan-avatar__magnifier-lens {
+  animation: zhisuan-magnifier-lens 1.05s ease-in-out infinite;
+}
+
+.zhisuan-avatar[data-state="warning"] {
+  animation: zhisuan-nudge 0.42s ease-in-out 1;
+}
+
+.zhisuan-avatar[data-state="warning"] .zhisuan-avatar__screen {
+  fill: #fffbeb;
+  stroke: #fde68a;
+}
+
+.zhisuan-avatar[data-state="warning"] .zhisuan-avatar__status-dot {
+  fill: var(--za-warning);
+}
+
+.zhisuan-avatar[data-state="warning"] .zhisuan-avatar__warning {
+  opacity: 1;
+  fill: var(--za-warning);
+  stroke: var(--za-warning);
+}
+
+.zhisuan-avatar[data-state="error"] {
+  animation: zhisuan-shake 0.34s ease-in-out 1;
+}
+
+.zhisuan-avatar[data-state="error"] .zhisuan-avatar__screen {
+  fill: #fff1f0;
+  stroke: #fecaca;
+}
+
+.zhisuan-avatar[data-state="error"] .zhisuan-avatar__status-dot {
+  fill: var(--za-error);
+}
+
+.zhisuan-avatar[data-state="error"] .zhisuan-avatar__error {
+  opacity: 1;
+  stroke: var(--za-error);
+}
+
+.zhisuan-avatar[data-state="success"] {
+  animation: zhisuan-pop 0.46s cubic-bezier(.2,.9,.2,1) 1;
+}
+
+.zhisuan-avatar[data-state="success"] .zhisuan-avatar__screen {
+  fill: #f0fdf4;
+  stroke: #dcfce7;
+}
+
+.zhisuan-avatar[data-state="success"] .zhisuan-avatar__status-dot {
+  fill: var(--za-success);
+}
+
+.zhisuan-avatar[data-state="success"] .zhisuan-avatar__check {
+  opacity: 1;
+  stroke: var(--za-success);
+}
+
+@keyframes zhisuan-breathe {
+  0%, 100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-2px) scale(1.1);
+  }
+}
+
+@keyframes zhisuan-breathe-halo {
+  0%, 100% {
+    opacity: 0;
+    transform: scale(0.84);
+  }
+  45% {
+    opacity: 0.72;
+    transform: scale(1.16);
+  }
+  70% {
+    opacity: 0.24;
+    transform: scale(1.28);
+  }
+}
+
+@keyframes zhisuan-shell-breathe {
+  0%, 100% {
+    stroke: #d7dee8;
+    filter: none;
+  }
+  50% {
+    stroke: #93c5fd;
+    filter: drop-shadow(0 3px 8px rgba(37, 99, 235, 0.18));
+  }
+}
+
+@keyframes zhisuan-screen-breathe {
+  0%, 100% {
+    fill: #f8fbff;
+    stroke: #dbeafe;
+  }
+  50% {
+    fill: #eff6ff;
+    stroke: #bfdbfe;
+  }
+}
+
+@keyframes zhisuan-dot-breathe {
+  0%, 100% {
+    transform: scale(1);
+    fill: #38bdf8;
+  }
+  50% {
+    transform: scale(1.34);
+    fill: #2563eb;
+  }
+}
+
+@keyframes zhisuan-ring-breathe {
+  0%, 100% {
+    opacity: 0.18;
+    stroke-dasharray: 14 234;
+    transform: rotate(0deg);
+  }
+  50% {
+    opacity: 0.86;
+    stroke-dasharray: 78 170;
+    transform: rotate(20deg);
+  }
+}
+
+@keyframes zhisuan-shell-breathe-green {
+  0%, 100% {
+    stroke: #d7dee8;
+    filter: none;
+  }
+  50% {
+    stroke: #9fd6b7;
+    filter: drop-shadow(0 3px 8px rgba(74, 163, 116, 0.2));
+  }
+}
+
+@keyframes zhisuan-screen-breathe-green {
+  0%, 100% {
+    fill: #f8fbff;
+    stroke: #dbeafe;
+  }
+  50% {
+    fill: #f0fdf6;
+    stroke: #b9e7cb;
+  }
+}
+
+@keyframes zhisuan-dot-breathe-green {
+  0%, 100% {
+    transform: scale(1);
+    fill: #86d2a7;
+  }
+  50% {
+    transform: scale(1.34);
+    fill: #3f9f6a;
+  }
+}
+
+@keyframes zhisuan-ring-breathe-green {
+  0%, 100% {
+    opacity: 0.18;
+    stroke-dasharray: 14 234;
+    transform: rotate(0deg);
+  }
+  50% {
+    opacity: 0.78;
+    stroke-dasharray: 78 170;
+    transform: rotate(20deg);
+  }
+}
+
+@keyframes zhisuan-listening {
+  0%, 100% {
+    transform: translateY(0) rotate(0deg) scale(1);
+  }
+  50% {
+    transform: translateY(-0.5px) rotate(-0.8deg) scale(1.004);
+  }
+}
+
+@keyframes zhisuan-scan {
+  0%, 100% {
+    transform: translateY(-9px);
+    opacity: 0.18;
+  }
+  50% {
+    transform: translateY(9px);
+    opacity: 0.82;
+  }
+}
+
+@keyframes zhisuan-eye-scan {
+  0%, 100% {
+    transform: translateX(-1px);
+  }
+  50% {
+    transform: translateX(1px);
+  }
+}
+
+@keyframes zhisuan-magnifier-think {
+  0%, 100% {
+    transform: translate(0, 0) rotate(-2deg);
+  }
+  50% {
+    transform: translate(-1px, -1px) rotate(2deg);
+  }
+}
+
+@keyframes zhisuan-magnifier-work {
+  0%, 100% {
+    transform: translate(0, 0) rotate(0deg);
+  }
+  25% {
+    transform: translate(-1.4px, .7px) rotate(-5deg);
+  }
+  55% {
+    transform: translate(1px, -1px) rotate(4deg);
+  }
+  78% {
+    transform: translate(.6px, .9px) rotate(-2deg);
+  }
+}
+
+@keyframes zhisuan-magnifier-lens {
+  0%, 100% {
+    stroke: #4aa374;
+  }
+  50% {
+    stroke: #8fd1ab;
+  }
+}
+
+@keyframes zhisuan-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes zhisuan-nudge {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-1.2px);
+  }
+  70% {
+    transform: translateX(1.2px);
+  }
+}
+
+@keyframes zhisuan-shake {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-2px);
+  }
+  40% {
+    transform: translateX(2px);
+  }
+  60% {
+    transform: translateX(-1.2px);
+  }
+  80% {
+    transform: translateX(1.2px);
+  }
+}
+
+@keyframes zhisuan-pop {
+  0% {
+    transform: scale(.97);
+  }
+  55% {
+    transform: scale(1.045);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .zhisuan-avatar,
+  .zhisuan-avatar * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
