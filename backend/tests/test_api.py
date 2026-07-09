@@ -42,7 +42,7 @@ def test_health_endpoint():
 
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
-    assert response.json()["version"] == "v5.5.1"
+    assert response.json()["version"] == "v5.5.2"
 
 
 def test_ui_preferences_are_saved_and_loaded(tmp_path, monkeypatch):

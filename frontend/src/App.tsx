@@ -36,7 +36,7 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.5.1";
+const APP_VERSION = "v5.5.2";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const KNOWLEDGE_QA_ENTRY_COUNT = 3922;
 const KNOWLEDGE_QA_SOURCE_COUNT = 17;
@@ -132,7 +132,7 @@ const ZHISUAN_WELCOME_STORAGE_KEY = "guankanzhisuan-zhisuan-welcome-message";
 const ZHISUAN_DOCK_STYLE_STORAGE_KEY = "guankanzhisuan-zhisuan-dock-style";
 const WELCOME_SCREEN_HIDDEN_STORAGE_KEY = "guankanzhisuan-welcome-screen-hidden";
 const WELCOME_SCREEN_VERSION_STORAGE_KEY = "guankanzhisuan-welcome-screen-version";
-const WELCOME_SCREEN_VERSION = "brand-v5.5.1";
+const WELCOME_SCREEN_VERSION = "brand-v5.5.2";
 const ZHISUAN_QUICK_SETTINGS_VERSION = 2;
 const LEFT_COLUMN_COLLAPSED_STORAGE_KEY = "guankanzhisuan-left-column-collapsed";
 type MappingField = (typeof MAPPING_FIELDS)[number];
