@@ -6,11 +6,7 @@
 
 本项目不是让大模型直接猜价格。`基价 / 单价`、`实物工作费调整系数`、`技术工作费调整系数` 由本地二维知识库、规则表和经验提示层处理；右侧“智算”助手只负责问答、解释、风险报告、导出提示和行级复核。
 
-面向普通读者、汇报对象或参赛评委的一页式介绍见：
-
-```text
-项目介绍-给人看的版本-【codex】.md
-```
+面向普通读者、汇报对象、参赛评委或其他 AI 的项目说明，以本 README 和 `00-PRD/00-产品总览.md` 为准；早期一页式介绍已归档到 `docs/归档/项目介绍-给人看的版本-历史.md`。
 
 ## 当前基线
 
@@ -20,7 +16,8 @@
 - 当前页面布局：`大尾巴主题 / daweiba` 唯一主界面
 - 前端：React + TypeScript + Vite
 - 后端：Python + FastAPI
-- 桌面壳：Tauri 2，作为第三入口
+- 当前对外交付入口：传统开发版、Windows 绿色版、Windows Tauri 桌面版
+- 桌面壳：Tauri 2，作为开发调试入口和 Windows 桌面 exe 交付入口
 - Excel：openpyxl
 - Word：python-docx
 - 大模型：默认官方 DeepSeek `deepseek-v4-flash`
@@ -46,8 +43,8 @@ CHANGELOG.md
 | UI 参考图 / Bug 截图 / 设计笔记 | `01-assets/01-UI参考图/` |
 | 三个数字匹配规则 | `03-【匹配规则】-勘察测绘知识库-匹配规则提炼/【重要匹配规则】项目以及总体匹配规则介绍.md` |
 | 要素1-5 + 单位同类识别 | `03-【匹配规则】-勘察测绘知识库-匹配规则提炼/【重要匹配规则】要素1-5和单位的匹配模式介绍.md` |
-| 评委绿色版 | `docs/评委运行版说明.md` |
-| Tauri 桌面壳 | `docs/Tauri桌面壳MVP说明.md` |
+| Windows 绿色版 | `docs/绿色版说明.md` |
+| Tauri 桌面版 | `docs/Tauri桌面壳MVP说明.md` |
 | 统信 UOS 兼容性准备 | `docs/统信UOS兼容性开发说明.md` |
 
 ## PRD 入口
@@ -172,17 +169,19 @@ python tools/check_prd_consistency.py --strict
 00-PRD/01-模块PRD/06-Word报告生成/PRD.md
 ```
 
-### 桌面端与评委版
+### 运行入口
 
-- 本机网页、评委绿色版、Tauri 桌面壳三类入口并存。
-- Tauri 只作为第三入口，不重写 React 主界面和 FastAPI 业务逻辑。
-- 绿色版不携带真实 API Key，目标电脑使用 `.env.local` 配置。
+- 当前对外交付维护三类运行入口：传统开发版、Windows 绿色版、Windows Tauri 桌面版。
+- 传统开发版用于本机开发调试：后端 `8000`、前端 Vite `5174`，依赖本机 Python 和 Node 环境。
+- Windows 绿色版用于发给其他 Windows 电脑直接运行：仍然是后端 `8000`、前端 Vite `5174` 传统双服务启动，但随包携带 Python、Node 和前端依赖。
+- Windows Tauri 桌面版用于发给其他 Windows 电脑直接双击 exe：随包携带 Python 和后端依赖，不需要目标电脑安装 Python、Node、npm、Rust 或 Cargo；前端使用 `frontend/dist`，由本地 FastAPI 静态托管。
+- 绿色版和 Tauri 桌面版打包时会复制项目根目录现有 `.env.local`，便于目标电脑直接使用问问智算；`.env.local` 仍不写入源码和代码存档。
 
 详细需求和运行说明见：
 
 ```text
 00-PRD/01-模块PRD/07-桌面端与评委版/PRD.md
-docs/评委运行版说明.md
+docs/绿色版说明.md
 docs/Tauri桌面壳MVP说明.md
 ```
 
@@ -253,7 +252,7 @@ backend/app/rules/physical_factor_overrides.csv
 03-知识库-二维数据库制作/【输入】【合并】-管勘智算数据库-v1.7.2-【输入测试-空单价100】（全部半角）.xlsx
 03-知识库-二维数据库制作/【输入-答案】【合并】-管勘智算数据库-v1.7.2-【输入测试-空单价100】（全部半角）.xlsx
 03-知识库-二维数据库制作/【委托方例子】【工作量信息抓取】委托方原始工作量和系数的例子.xlsx
-项目介绍-给人看的版本-【codex】.md
+00-PRD/00-产品总览.md
 ```
 
 ## 开发运行
@@ -323,7 +322,7 @@ python tools/check_prd_consistency.py --strict
 python tools/check_platform_compat.py
 ```
 
-该命令是未来统信 / Linux 迁移的手动专项检查，不是平时代码开发必跑项；日常 Windows 开发、前端构建、后端测试、评委版和 Tauri Windows 流程不默认执行它。
+该命令是未来统信 / Linux 迁移的手动专项检查，不是平时代码开发必跑项；日常 Windows 开发、前端构建、后端测试和绿色版流程不默认执行它。
 
 常用样例：100 行空单价输入表、项目例子控制价表、委托方工作量抓取样例。
 
@@ -393,8 +392,8 @@ python tools/export_ai_review_bundle.py
 - UI 参考图、Bug 截图、参考设计、技术经验、踩坑记录和 UI 小样实验统一进入 `01-assets/01-UI参考图/`；其中外部参考图放 `00-reference/`，自制设计稿 / Bug 图放 `01-assets/`，分析笔记放 `02-notes/`，静态原型放 `code/`，正式代码仍在 `frontend/`、`backend/`、`src-tauri/`。
 - `CHANGELOG.md` 写已经完成的实际变化；每次集中修改后运行一次 `python tools/trim_changelog.py`，保持最新 3 条记录，更早内容进入 `CHANGELOG - 【归档】.md`。
 - `AGENTS.md` 写协作规则、重要文件入口和长期注意事项。
-- `docs/` 写运行版、桌面壳、历史计划等专项说明。
-- 项目根目录只保留源码、规则资料、正式资料入口、文档和必要启动文件；临时缓存、Playwright 检查输出、pytest 缓存、临时外包件、截图 / 过程产物等统一放到 `Codex-Temp/` 下。`.runtime` 当前仍被 Tauri / 评委版脚本直接引用，暂不迁移；`node_modules` 是根目录 npm / Tauri 依赖，也不按临时文件移动。
+- `docs/` 写绿色版、兼容性和历史计划等专项说明。
+- 项目根目录只保留源码、规则资料、正式资料入口、文档和必要启动文件；临时缓存、Playwright 检查输出、pytest 缓存、临时外包件、截图 / 过程产物等统一放到 `Codex-Temp/` 下。`node_modules` 是根目录 npm 依赖，不按临时文件移动。
 - 旧任务看板已归档到 `docs/归档/TASKS-归档-2026-06-18.md`，日常不再读取。
 
 

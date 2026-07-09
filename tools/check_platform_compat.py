@@ -53,13 +53,13 @@ FRONTEND_IMPORT_RE = re.compile(
 KNOWN_WINDOWS_ONLY_FILES = {
     "tools/check_platform_compat.py": "兼容性检查脚本自身的 Windows 风险关键字定义",
     "tools/archive_code.py": "按项目约定同步复制到 Windows 工作流目录",
-    "tools/build_judge_release.py": "生成现有 Windows 评委绿色版启动器",
+    "tools/build_green_release.py": "生成现有 Windows 绿色版启动器和便携运行目录",
     "tools/run_tauri.ps1": "现有 Windows Tauri 辅助启动脚本",
     "tools/export_ai_review_bundle_window.ps1": "现有 Windows 图形导出辅助脚本",
     "backend/app/excel_recalc.py": "可选调用本机 Excel/COM 重算公式，失败时返回 False",
 }
 KNOWN_WINDOWS_PATTERNS = {
-    "package.json": ("powershell", "现有 Tauri Windows 脚本入口"),
+    "package.json": ("powershell", "现有 Windows 脚本入口"),
 }
 REQUIRED_RELATIVE_PATHS = (
     "backend/app/main.py",

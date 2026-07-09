@@ -1,13 +1,13 @@
 {
-  "name": "guankanzhisuan-desktop-shell",
+  "name": "zaojiazhisuan",
   "version": "5.5.1",
   "private": true,
   "type": "module",
   "scripts": {
     "frontend:build": "npm --prefix frontend run build",
+    "green:build": "python tools/build_green_release.py",
     "tauri:dev": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/run_tauri.ps1 dev",
-    "tauri:build": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/run_tauri.ps1 build",
-    "tauri:release": "python tools/build_tauri_release.py"
+    "tauri:build": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/run_tauri.ps1 build"
   },
   "devDependencies": {
     "@tauri-apps/cli": "2.11.3"

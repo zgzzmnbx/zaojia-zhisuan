@@ -2,7 +2,7 @@
 
 ## 定位
 
-Tauri 是第三种入口，不是新系统。当前 MVP 只负责：
+Tauri 是开发调试和 Windows 桌面 exe 交付入口；它不替代传统网页绿色版，两者并行维护。当前 MVP 只负责：
 
 - 启动或复用本机 `127.0.0.1:8000` 造价智算 FastAPI 后端。
 - 等待 `/api/health` 确认服务身份。
@@ -20,7 +20,7 @@ tools/build_tauri_release.py
 docs/Tauri桌面壳MVP说明.md
 ```
 
-`src-tauri/` 放在项目根目录，便于同时访问 `backend/`、`frontend/` 和评委运行版绿色目录结构。
+`src-tauri/` 放在项目根目录，便于同时访问 `backend/`、`frontend/` 和绿色版运行目录结构。
 
 ## 开发运行
 
@@ -83,24 +83,60 @@ winget install Microsoft.VisualStudio.2022.BuildTools --override "--wait --add M
 src-tauri/target/release/guankanzhisuan-desktop.exe
 ```
 
-## 评委版兼容
+## 桌面版打包
 
-Tauri 壳的后端启动逻辑兼容阶段一评委绿色目录：
+生成 Windows Tauri 桌面版目录和 zip：
+
+```powershell
+python tools/build_tauri_release.py --date 2026-07-09 --skip-frontend-install --skip-npm-install
+```
+
+输出目录形如：
+
+```text
+04-输出版本存档/造价智算-Tauri桌面版-YYYY-MM-DD-vX.X.X
+```
+
+目标 Windows 电脑可直接双击：
+
+```text
+造价智算-Tauri-MVP.exe
+```
+
+或双击：
+
+```text
+启动造价智算-Tauri桌面版.bat
+```
+
+异常退出后如需清理后端，可双击：
+
+```text
+停止造价智算-Tauri桌面版.bat
+```
+
+该目录不携带 `runtime/node/`、`frontend/node_modules/` 和 Rust / Cargo；前端使用 `frontend/dist`，由本地 FastAPI 后端托管。
+
+如果项目根目录存在 `.env.local`，打包脚本会复制到 Tauri 桌面版目录；问问智算会读取其中的大模型 Key。`.env.local` 仍不写入源码。
+
+## 绿色版兼容边界
+
+Tauri 壳的后端启动逻辑兼容绿色版目录，但当前 Windows 绿色版不依赖 Tauri：
 
 - 若应用根目录存在 `runtime/python/python.exe`，优先使用该便携 Python。
 - 若存在 `runtime/python-libs`，自动加入 `PYTHONPATH`。
-- 若存在 `web/index.html`，优先作为前端静态目录。
+- 若存在 `frontend/dist/index.html`，可作为前端静态目录。
 - 若存在 `.env.local`，后端仍按现有启动链路读取环境变量。
 
-因此后续产品化打包可以复用评委运行版目录，再把 Tauri exe 放入同一目录。
+因此桌面壳复用绿色版目录的后端、运行时和规则资产；传统 Windows 绿色版仍按 `启动造价智算.bat` 启动后端 `8000` 和 Vite 前端 `5174`，Tauri 桌面版则由 exe 启动后端并打开 WebView。
 
-生成 Tauri MVP 绿色目录的入口为：
+生成 Tauri MVP 开发/验证目录的入口为：
 
 ```powershell
-python tools/build_tauri_release.py --version v5.3.3
+python tools/build_tauri_release.py --date 2026-07-09 --skip-frontend-install
 ```
 
-该脚本会先生成评委运行版绿色目录，再执行 Tauri release 构建，并把 Tauri exe 与启动 bat 放入绿色目录。
+该脚本会先生成绿色版阶段目录，再执行 Tauri release 构建，并把 Tauri exe、启动 bat、停止 bat 和停止 ps1 放入同一目录。日常网页绿色版打包仍使用 `python tools/build_green_release.py`。
 
 ## 日志与运行目录
 

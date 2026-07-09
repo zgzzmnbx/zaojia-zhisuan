@@ -11,7 +11,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use tauri::{path::BaseDirectory, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{path::BaseDirectory, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 
 const APP_URL: &str = "http://127.0.0.1:8000/";
 const HEALTH_HOST: [u8; 4] = [127, 0, 0, 1];
@@ -20,18 +20,21 @@ const BACKEND_START_TIMEOUT: Duration = Duration::from_secs(75);
 
 struct BackendState {
     child: Mutex<Option<Child>>,
+    pid_path: Option<PathBuf>,
 }
 
 impl BackendState {
     fn reused_existing() -> Self {
         Self {
             child: Mutex::new(None),
+            pid_path: None,
         }
     }
 
-    fn spawned(child: Child) -> Self {
+    fn spawned(child: Child, pid_path: PathBuf) -> Self {
         Self {
             child: Mutex::new(Some(child)),
+            pid_path: Some(pid_path),
         }
     }
 
@@ -44,6 +47,9 @@ impl BackendState {
             let _ = child.wait();
         }
         *guard = None;
+        if let Some(pid_path) = &self.pid_path {
+            let _ = fs::remove_file(pid_path);
+        }
     }
 }
 
@@ -54,7 +60,7 @@ impl Drop for BackendState {
 }
 
 fn main() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .setup(|app| {
             let backend_state = ensure_backend(app)?;
             app.manage(backend_state);
@@ -77,13 +83,23 @@ fn main() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
+            if matches!(
+                event,
+                tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed
+            ) {
                 let state = window.app_handle().state::<BackendState>();
                 state.stop();
             }
         })
-        .run(tauri::generate_context!())
-        .expect("failed to run zaojiazhisuan desktop shell");
+        .build(tauri::generate_context!())
+        .expect("failed to build zaojiazhisuan desktop shell");
+
+    app.run(|app_handle, event| {
+        if matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {
+            let state = app_handle.state::<BackendState>();
+            state.stop();
+        }
+    });
 }
 
 fn ensure_backend(app: &tauri::App) -> Result<BackendState, Box<dyn std::error::Error>> {
@@ -97,14 +113,15 @@ fn ensure_backend(app: &tauri::App) -> Result<BackendState, Box<dyn std::error::
     }
 
     let app_root = resolve_app_root(app)?;
-    let mut child = spawn_backend(&app_root)?;
+    let (mut child, pid_path) = spawn_backend(&app_root)?;
     if let Err(error) = wait_for_backend(Some(&mut child), BACKEND_START_TIMEOUT) {
         let _ = child.kill();
         let _ = child.wait();
+        let _ = fs::remove_file(pid_path);
         return Err(error);
     }
 
-    Ok(BackendState::spawned(child))
+    Ok(BackendState::spawned(child, pid_path))
 }
 
 fn resolve_app_root(app: &tauri::App) -> Result<PathBuf, Box<dyn std::error::Error>> {
@@ -170,25 +187,26 @@ fn is_app_root(path: &Path) -> bool {
 }
 
 fn frontend_static_dir(app_root: &Path) -> Option<PathBuf> {
-    let web = app_root.join("web");
-    if web.join("index.html").exists() {
-        return Some(web);
-    }
     let dist = app_root.join("frontend").join("dist");
     if dist.join("index.html").exists() {
         return Some(dist);
     }
+    let web = app_root.join("web");
+    if web.join("index.html").exists() {
+        return Some(web);
+    }
     None
 }
 
-fn spawn_backend(app_root: &Path) -> Result<Child, Box<dyn std::error::Error>> {
+fn spawn_backend(app_root: &Path) -> Result<(Child, PathBuf), Box<dyn std::error::Error>> {
     let runtime_dir = app_root.join(".runtime").join("logs");
     fs::create_dir_all(&runtime_dir)?;
     let stdout = open_log_file(&runtime_dir.join("tauri-backend.log"))?;
     let stderr = open_log_file(&runtime_dir.join("tauri-backend-error.log"))?;
+    let pid_path = app_root.join(".runtime").join("tauri-backend.pid");
     let python = resolve_python(app_root);
     let frontend_dir = frontend_static_dir(app_root).ok_or_else(|| {
-        boxed_error("未找到前端静态目录 web/ 或 frontend/dist/，请先运行 npm run frontend:build。")
+        boxed_error("未找到前端静态目录 frontend/dist/，请先运行 npm run frontend:build。")
     })?;
 
     let mut command = Command::new(&python);
@@ -218,9 +236,11 @@ fn spawn_backend(app_root: &Path) -> Result<Child, Box<dyn std::error::Error>> {
         command.creation_flags(CREATE_NO_WINDOW);
     }
 
-    command
+    let child = command
         .spawn()
-        .map_err(|error| boxed_error(format!("后端启动失败：{error}；Python={}", python.display())))
+        .map_err(|error| boxed_error(format!("后端启动失败：{error}；Python={}", python.display())))?;
+    fs::write(&pid_path, child.id().to_string())?;
+    Ok((child, pid_path))
 }
 
 fn resolve_python(app_root: &Path) -> PathBuf {

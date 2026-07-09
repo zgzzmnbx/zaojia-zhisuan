@@ -16,6 +16,7 @@ import {
   PanelTop,
   PanelLeftClose,
   PanelLeftOpen,
+  RefreshCw,
   Send,
   ShieldCheck,
   Sparkles,
@@ -1850,6 +1851,7 @@ function DaweibaApp() {
   const wideLowEndPercent = result
     ? Math.min(100, wideStablePercent + Math.round((wideLowWarningRows / wideTotalRows) * 1000) / 10)
     : Math.min(100, Math.round(displayCompletion));
+  const isWideRingEmpty = wideStableRows <= 0 && wideLowWarningRows <= 0 && wideHighWarningRows <= 0;
   const wideRingStyle = {
     "--wide-ok": `${wideStablePercent}%`,
     "--wide-low": `${wideLowEndPercent}%`,
@@ -2807,6 +2809,22 @@ function DaweibaApp() {
       throw new Error(payload?.detail ?? `刷新预览失败：${response.status}`);
     }
     return (await response.json()) as ProcessResult;
+  }
+
+  async function refreshActivePreviewSettingsSheet() {
+    if (!result) return;
+    const currentSheetKey = previewSheetKey(activePreviewSettingsSheet);
+    setIsRefreshingPreviewSettings(true);
+    setError("");
+    try {
+      const payload = await refreshPreviewWithPreferences(result, previewColumnPreferences);
+      setResult(payload);
+      setActivePreviewSettingsSheetName(currentSheetKey);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "刷新预览列名失败");
+    } finally {
+      setIsRefreshingPreviewSettings(false);
+    }
   }
 
   function previewEditKey(sheetName: string, rowNumber: number, columnNumber: number) {
@@ -6165,7 +6183,7 @@ function DaweibaApp() {
                       </small>
                     </div>
                     <div className="widescreen-ring-card daweiba-fill-quality-card">
-                      <div className="widescreen-ring" style={wideRingStyle}>
+                      <div className={`widescreen-ring ${isWideRingEmpty ? "is-empty" : ""}`} style={wideRingStyle}>
                         <span>{wideStablePercent}%</span>
                       </div>
                       <div>
@@ -7663,32 +7681,55 @@ function DaweibaApp() {
         <div className="modal-backdrop" role="presentation" onClick={() => setIsPreviewSettingsOpen(false)}>
           <div className="settings-modal preview-column-settings-modal" role="dialog" aria-modal="true" aria-label="预览列设置" onClick={(event) => event.stopPropagation()}>
             <div className="modal-title">
-              <strong>预览列设置</strong>
+              <span>
+                <strong>预览列设置</strong>
+                <small>默认列、表头行和列宽会保存为项目默认</small>
+              </span>
               <button type="button" onClick={() => setIsPreviewSettingsOpen(false)}>关闭</button>
             </div>
-            <label>
-              <span>默认显示列名</span>
-              <textarea
-                value={previewDefaultLabelsDraft}
-                rows={4}
-                onChange={(event) => setPreviewDefaultLabelsDraft(event.target.value)}
-              />
-            </label>
-            <p className="settings-hint">按换行、英文逗号或中文逗号分隔；未单独设置的 sheet 会优先按这里的列名显示，找不到时再回退到原始表头。</p>
-            <label className="preview-width-control">
-              <span>每列最大显示宽度</span>
-              <input
-                type="number"
-                min={4}
-                max={40}
-                value={previewColumnPreferences.maxDisplayChars}
-                onChange={(event) => updatePreviewMaxDisplayChars(Number(event.target.value))}
-              />
-              <em>字符</em>
-            </label>
-            <p className="settings-hint">默认 8 个字符；超出后自动换行，最多显示 2 行，鼠标悬浮可查看完整内容。</p>
+            <div className="preview-settings-summary">
+              <span>
+                <strong>默认打开</strong>
+                <small>{parsePreferenceText(previewDefaultLabelsDraft).length || DEFAULT_CORE_PREVIEW_LABELS.length} 列</small>
+              </span>
+              <span>
+                <strong>当前表头</strong>
+                <small>{previewSheets.length > 0 ? `第 ${previewHeaderRowValue(activePreviewSettingsSheet)} 行` : "使用预设"}</small>
+              </span>
+              <span>
+                <strong>保存范围</strong>
+                <small>新用户和绿色版首次打开生效</small>
+              </span>
+            </div>
+            <div className="preview-settings-section">
+              <div className="settings-subsection-title">全局默认</div>
+              <div className="preview-settings-default-grid">
+                <label className="preview-default-column-editor">
+                  <span>默认打开的列</span>
+                  <textarea
+                    value={previewDefaultLabelsDraft}
+                    rows={4}
+                    onChange={(event) => setPreviewDefaultLabelsDraft(event.target.value)}
+                  />
+                </label>
+                <label className="preview-width-control">
+                  <span>列内容宽度</span>
+                  <input
+                    type="number"
+                    min={4}
+                    max={40}
+                    value={previewColumnPreferences.maxDisplayChars}
+                    onChange={(event) => updatePreviewMaxDisplayChars(Number(event.target.value))}
+                  />
+                  <em>字符</em>
+                  <small>超出后自动换行，鼠标悬浮可看完整内容。</small>
+                </label>
+              </div>
+              <p className="settings-hint">未单独设置 sheet 时，优先按这里的列名打开；如果没有保存过配置，就使用系统内置预设。</p>
+            </div>
             {previewSheets.length > 0 && (
-              <>
+              <div className="preview-settings-section">
+                <div className="settings-subsection-title">当前 sheet 单独设置</div>
                 <div className="preview-settings-tabs" role="tablist" aria-label="预览列配置 sheet">
                   {previewSheets.map((sheet, sheetIndex) => {
                     const sheetKey = previewSheetKey(sheet);
@@ -7707,7 +7748,10 @@ function DaweibaApp() {
                 </div>
                 <div className="preview-settings-body">
                   <div className="preview-settings-head">
-                    <strong>{previewSheetLabel(activePreviewSettingsSheet, Math.max(0, previewSheets.findIndex((sheet) => previewSheetKey(sheet) === previewSheetKey(activePreviewSettingsSheet))))}</strong>
+                    <span className="preview-settings-sheet-title">
+                      <strong>{previewSheetLabel(activePreviewSettingsSheet, Math.max(0, previewSheets.findIndex((sheet) => previewSheetKey(sheet) === previewSheetKey(activePreviewSettingsSheet))))}</strong>
+                      <small>勾选本 sheet 默认打开的列；改表头行后点一次刷新列名。</small>
+                    </span>
                     <label className="preview-header-row-control">
                       <span>读取第</span>
                       <input
@@ -7719,6 +7763,15 @@ function DaweibaApp() {
                       />
                       <span>行作为列名</span>
                     </label>
+                    <button
+                      className="ghost-button"
+                      type="button"
+                      disabled={isRefreshingPreviewSettings || !result}
+                      onClick={refreshActivePreviewSettingsSheet}
+                    >
+                      <RefreshCw className={isRefreshingPreviewSettings ? "spin" : undefined} size={16} />
+                      刷新列名
+                    </button>
                     <button className="ghost-button" type="button" onClick={resetPreviewSheetColumns}>
                       恢复默认列
                     </button>
@@ -7745,7 +7798,7 @@ function DaweibaApp() {
                     })}
                   </div>
                 </div>
-              </>
+              </div>
             )}
             <div className="settings-action-row">
               <button className="ghost-button" type="button" onClick={() => setPreviewDefaultLabelsDraft(preferenceText(previewColumnPreferences.defaultLabels))}>
