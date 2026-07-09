@@ -42,7 +42,7 @@ def test_health_endpoint():
 
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
-    assert response.json()["version"] == "v5.5.0"
+    assert response.json()["version"] == "v5.5.1"
 
 
 def test_ui_preferences_are_saved_and_loaded(tmp_path, monkeypatch):
@@ -75,6 +75,38 @@ def test_ui_preferences_are_saved_and_loaded(tmp_path, monkeypatch):
     get_response = client.get("/api/ui-preferences")
     assert get_response.status_code == 200
     assert get_response.json()["preferences"]["text"]["hero.title"] == "管勘智算测试"
+
+
+def test_preview_column_preferences_are_saved_and_loaded(tmp_path, monkeypatch):
+    preferences_path = tmp_path / "preview-column-preferences.json"
+    monkeypatch.setattr(main_module, "DEFAULT_PREVIEW_COLUMN_PREFERENCES_PATH", preferences_path)
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/preview-column-preferences",
+        json={
+            "preferences": {
+                "defaultLabels": ["要素1", "单价", "", "单价"],
+                "sheetOverrides": {"表2": ["要素1", "预警参数"], "空表": []},
+                "headerRows": {"表2": 4, "错误": 0, "过大": 1200},
+                "maxDisplayChars": 99,
+                "columnWidths": {"表2": {"#1": 90, "单价": 9999, "": 120}},
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["preferences"]["defaultLabels"] == ["要素1", "单价"]
+    assert payload["preferences"]["sheetOverrides"] == {"表2": ["要素1", "预警参数"]}
+    assert payload["preferences"]["headerRows"] == {"表2": 4, "过大": 999}
+    assert payload["preferences"]["maxDisplayChars"] == 40
+    assert payload["preferences"]["columnWidths"] == {"表2": {"#1": 90, "单价": 420}}
+    assert preferences_path.exists()
+
+    get_response = client.get("/api/preview-column-preferences")
+    assert get_response.status_code == 200
+    assert get_response.json()["preferences"]["columnWidths"]["表2"]["单价"] == 420
 
 
 def test_download_excel_can_hide_empty_core_sheet_rows_by_warning_filter_field(tmp_path, monkeypatch):

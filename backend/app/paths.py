@@ -24,6 +24,7 @@ DEFAULT_EXPERIENCE_WARNING_SETTINGS_PATH = EXPERIENCE_POOL_DIR / "experience-war
 DEFAULT_WORKLOAD_FIELD_PREFERENCES_PATH = EXPERIENCE_POOL_DIR / "workload-field-preferences-【codex】.json"
 DEFAULT_WORKLOAD_TARGET_FIELD_PREFERENCES_PATH = EXPERIENCE_POOL_DIR / "workload-target-field-preferences-【codex】.json"
 DEFAULT_UI_PREFERENCES_PATH = RUNTIME_DIR / "ui-preferences-【codex】.json"
+DEFAULT_PREVIEW_COLUMN_PREFERENCES_PATH = RUNTIME_DIR / "preview-column-preferences.json"
 DEFAULT_KNOWLEDGE_QA_INDEX_PATH = RUNTIME_DIR / "knowledge-qa-index-【codex】.json"
 DEFAULT_REPORT_TEMPLATE_PATH = TEMPLATE_DIR / "【模板勿动】控制价报告模板-yyyy-mm-dd.docx"
 DEFAULT_WORKLOAD_TERM_RULES_PATH = MATCHING_RULES_DIR / "【术语归并】术语归并与匹配放宽规则表.xlsx"

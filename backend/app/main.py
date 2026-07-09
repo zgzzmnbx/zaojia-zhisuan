@@ -87,6 +87,7 @@ from .paths import (
     DEFAULT_EXPERIENCE_WARNING_SETTINGS_PATH,
     DEFAULT_INPUT_FIELD_PREFERENCES_PATH,
     DEFAULT_KB_PATH,
+    DEFAULT_PREVIEW_COLUMN_PREFERENCES_PATH,
     DEFAULT_UI_PREFERENCES_PATH,
     DEFAULT_WORKLOAD_FIELD_PREFERENCES_PATH,
     DEFAULT_WORKLOAD_TARGET_FIELD_PREFERENCES_PATH,
@@ -97,7 +98,7 @@ from .paths import (
 from .report import append_risk_report, write_report
 
 
-APP_VERSION = "v5.5.0"
+APP_VERSION = "v5.5.1"
 OUTPUT_FILE_PREFIX = "【输出】"
 TEMP_FILE_PREFIX = "【临时】"
 PROCESS_STATE_FILENAME = "process-state.json"
@@ -127,6 +128,22 @@ MANUAL_EDIT_READONLY_HEADERS = {
     "输出-候选数量",
     "输出-匹配说明",
 }
+DEFAULT_PREVIEW_CELL_MAX_DISPLAY_CHARS = 8
+MIN_PREVIEW_COLUMN_WIDTH_PX = 72
+MAX_PREVIEW_COLUMN_WIDTH_PX = 420
+DEFAULT_CORE_PREVIEW_LABELS = [
+    "要素1",
+    "要素2",
+    "要素3",
+    "要素4",
+    "要素5",
+    "单位",
+    "单价",
+    "实物工作费调整系数",
+    "技术工作费调整系数",
+    "预警参数",
+    "预警细节",
+]
 RISK_REPORT_KNOWLEDGE_QUERIES = [
     "第二层经验提示是什么意思？",
     "待复核是什么原因？",
@@ -233,6 +250,23 @@ async def save_ui_preferences(payload: dict[str, object] = Body(...)) -> dict[st
     preferences = _sanitize_ui_preferences(raw_preferences)
     _save_ui_preferences(preferences)
     return _ui_preferences_payload(preferences)
+
+
+@app.get("/api/preview-column-preferences")
+async def get_preview_column_preferences() -> dict[str, object]:
+    return _preview_column_preferences_payload()
+
+
+@app.post("/api/preview-column-preferences")
+async def save_preview_column_preferences(payload: dict[str, object] = Body(...)) -> dict[str, object]:
+    raw_preferences = payload.get("preferences")
+    if raw_preferences is None:
+        raw_preferences = payload
+    if not isinstance(raw_preferences, dict):
+        raise HTTPException(status_code=400, detail="预览列设置必须是对象")
+    preferences = _sanitize_preview_column_preferences(raw_preferences)
+    _save_preview_column_preferences(preferences)
+    return _preview_column_preferences_payload(preferences)
 
 
 @app.post("/api/process")
@@ -2640,6 +2674,24 @@ def _ui_preferences_payload(preferences: dict[str, object] | None = None) -> dic
     }
 
 
+def _default_preview_column_preferences() -> dict[str, object]:
+    return {
+        "defaultLabels": DEFAULT_CORE_PREVIEW_LABELS,
+        "sheetOverrides": {},
+        "headerRows": {},
+        "maxDisplayChars": DEFAULT_PREVIEW_CELL_MAX_DISPLAY_CHARS,
+        "columnWidths": {},
+    }
+
+
+def _preview_column_preferences_payload(preferences: dict[str, object] | None = None) -> dict[str, object]:
+    return {
+        "defaults": _default_preview_column_preferences(),
+        "preferences": preferences if preferences is not None else _load_preview_column_preferences(),
+        "file_path": str(DEFAULT_PREVIEW_COLUMN_PREFERENCES_PATH),
+    }
+
+
 def _suggest_experience_column_mapping(headers: list[str]) -> dict[str, str]:
     mapping: dict[str, str] = {field: "" for field in EXPERIENCE_MAPPING_FIELDS}
     defaults = _default_experience_field_preferences()
@@ -2791,6 +2843,21 @@ def _load_ui_preferences() -> dict[str, object]:
     return _sanitize_ui_preferences(raw)
 
 
+def _load_preview_column_preferences() -> dict[str, object]:
+    defaults = _default_preview_column_preferences()
+    if not DEFAULT_PREVIEW_COLUMN_PREFERENCES_PATH.exists():
+        return defaults
+    try:
+        raw = json.loads(DEFAULT_PREVIEW_COLUMN_PREFERENCES_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return defaults
+    if isinstance(raw, dict) and isinstance(raw.get("preferences"), dict):
+        raw = raw["preferences"]
+    if not isinstance(raw, dict):
+        return defaults
+    return _sanitize_preview_column_preferences(raw)
+
+
 def _load_experience_field_preferences() -> dict[str, list[str]]:
     defaults = _default_experience_field_preferences()
     if not DEFAULT_EXPERIENCE_FIELD_PREFERENCES_PATH.exists():
@@ -2929,6 +2996,19 @@ def _save_ui_preferences(preferences: dict[str, object]) -> None:
     )
 
 
+def _save_preview_column_preferences(preferences: dict[str, object]) -> None:
+    DEFAULT_PREVIEW_COLUMN_PREFERENCES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "version": 1,
+        "updated_at": datetime.now().isoformat(timespec="seconds"),
+        "preferences": preferences,
+    }
+    DEFAULT_PREVIEW_COLUMN_PREFERENCES_PATH.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
 def _save_experience_field_preferences(preferences: dict[str, list[str]]) -> None:
     DEFAULT_EXPERIENCE_FIELD_PREFERENCES_PATH.parent.mkdir(parents=True, exist_ok=True)
     payload = {
@@ -3023,6 +3103,84 @@ def _sanitize_ui_preferences(raw_preferences: dict[object, object]) -> dict[str,
         "styles": styles,
         "text": text,
     }
+
+
+def _sanitize_preview_column_preferences(raw_preferences: dict[object, object]) -> dict[str, object]:
+    defaults = _default_preview_column_preferences()
+    raw_default_labels = raw_preferences.get("defaultLabels", defaults["defaultLabels"])
+    raw_sheet_overrides = raw_preferences.get("sheetOverrides", {})
+    raw_header_rows = raw_preferences.get("headerRows", {})
+    raw_max_display_chars = raw_preferences.get("maxDisplayChars", defaults["maxDisplayChars"])
+    raw_column_widths = raw_preferences.get("columnWidths", {})
+
+    default_labels = _sanitize_text_list(raw_default_labels)
+    if not default_labels:
+        default_labels = list(defaults["defaultLabels"])
+
+    sheet_overrides: dict[str, list[str]] = {}
+    if isinstance(raw_sheet_overrides, dict):
+        for raw_sheet_name, raw_labels in raw_sheet_overrides.items():
+            sheet_name = str(raw_sheet_name or "").strip()
+            labels = _sanitize_text_list(raw_labels)
+            if sheet_name and labels:
+                sheet_overrides[sheet_name] = labels
+
+    header_rows: dict[str, int] = {}
+    if isinstance(raw_header_rows, dict):
+        for raw_sheet_name, raw_row in raw_header_rows.items():
+            sheet_name = str(raw_sheet_name or "").strip()
+            if not sheet_name:
+                continue
+            try:
+                row_number = int(float(str(raw_row).strip()))
+            except (TypeError, ValueError):
+                continue
+            if row_number >= 1:
+                header_rows[sheet_name] = min(row_number, 999)
+
+    try:
+        max_display_chars = int(float(str(raw_max_display_chars).strip()))
+    except (TypeError, ValueError):
+        max_display_chars = DEFAULT_PREVIEW_CELL_MAX_DISPLAY_CHARS
+    max_display_chars = max(4, min(40, max_display_chars))
+
+    column_widths: dict[str, dict[str, int]] = {}
+    if isinstance(raw_column_widths, dict):
+        for raw_sheet_name, raw_widths in raw_column_widths.items():
+            sheet_name = str(raw_sheet_name or "").strip()
+            if not sheet_name or not isinstance(raw_widths, dict):
+                continue
+            widths: dict[str, int] = {}
+            for raw_column_label, raw_width in raw_widths.items():
+                column_label = str(raw_column_label or "").strip()
+                if not column_label:
+                    continue
+                try:
+                    width = int(round(float(str(raw_width).strip())))
+                except (TypeError, ValueError):
+                    continue
+                widths[column_label] = max(MIN_PREVIEW_COLUMN_WIDTH_PX, min(MAX_PREVIEW_COLUMN_WIDTH_PX, width))
+            if widths:
+                column_widths[sheet_name] = widths
+
+    return {
+        "defaultLabels": default_labels,
+        "sheetOverrides": sheet_overrides,
+        "headerRows": header_rows,
+        "maxDisplayChars": max_display_chars,
+        "columnWidths": column_widths,
+    }
+
+
+def _sanitize_text_list(raw_values: object) -> list[str]:
+    if not isinstance(raw_values, list):
+        return []
+    values: list[str] = []
+    for raw_value in raw_values:
+        value = str(raw_value or "").replace("\r", "").strip()
+        if value and value not in values:
+            values.append(value)
+    return values
 
 
 def _clean_ui_key(raw_key: object) -> str:

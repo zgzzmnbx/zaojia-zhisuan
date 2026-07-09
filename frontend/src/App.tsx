@@ -35,7 +35,7 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.5.0";
+const APP_VERSION = "v5.5.1";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const KNOWLEDGE_QA_ENTRY_COUNT = 3922;
 const KNOWLEDGE_QA_SOURCE_COUNT = 17;
@@ -131,7 +131,7 @@ const ZHISUAN_WELCOME_STORAGE_KEY = "guankanzhisuan-zhisuan-welcome-message";
 const ZHISUAN_DOCK_STYLE_STORAGE_KEY = "guankanzhisuan-zhisuan-dock-style";
 const WELCOME_SCREEN_HIDDEN_STORAGE_KEY = "guankanzhisuan-welcome-screen-hidden";
 const WELCOME_SCREEN_VERSION_STORAGE_KEY = "guankanzhisuan-welcome-screen-version";
-const WELCOME_SCREEN_VERSION = "brand-v5.5.0";
+const WELCOME_SCREEN_VERSION = "brand-v5.5.1";
 const ZHISUAN_QUICK_SETTINGS_VERSION = 2;
 const LEFT_COLUMN_COLLAPSED_STORAGE_KEY = "guankanzhisuan-left-column-collapsed";
 type MappingField = (typeof MAPPING_FIELDS)[number];
@@ -501,6 +501,12 @@ type PreviewColumnPreferences = {
   headerRows: Record<string, number>;
   maxDisplayChars: number;
   columnWidths: Record<string, Record<string, number>>;
+};
+
+type PreviewColumnPreferencesPayload = {
+  defaults: Partial<PreviewColumnPreferences>;
+  preferences: Partial<PreviewColumnPreferences>;
+  file_path: string;
 };
 
 type RowAiContext = {
@@ -1117,6 +1123,11 @@ function readInitialPreviewColumnPreferences() {
   }
 }
 
+function hasStoredPreviewColumnPreferences() {
+  if (typeof window === "undefined") return false;
+  return Boolean(window.localStorage.getItem(PREVIEW_COLUMN_PREFERENCES_STORAGE_KEY));
+}
+
 function normalizeOutputRowFilterSettings(raw?: Partial<OutputRowFilterSettings>): OutputRowFilterSettings {
   const rawField = String(raw?.value_filter_field ?? DEFAULT_OUTPUT_ROW_FILTER_SETTINGS.value_filter_field);
   const valueFilterField = (WARNING_FILTER_FIELDS as readonly string[]).includes(rawField)
@@ -1640,6 +1651,26 @@ function DaweibaApp() {
 
   useEffect(() => {
     void loadUiPreferences();
+  }, []);
+
+  useEffect(() => {
+    if (hasStoredPreviewColumnPreferences()) return;
+    let isCancelled = false;
+    async function loadPreviewColumnPreferences() {
+      try {
+        const response = await fetch(`${API_BASE}/api/preview-column-preferences`);
+        if (!response.ok) return;
+        const payload = (await response.json()) as PreviewColumnPreferencesPayload;
+        if (isCancelled) return;
+        setPreviewColumnPreferences(normalizePreviewColumnPreferences(payload.preferences ?? payload.defaults));
+      } catch {
+        // The built-in defaults are still usable if the backend is not ready yet.
+      }
+    }
+    void loadPreviewColumnPreferences();
+    return () => {
+      isCancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -2918,21 +2949,34 @@ function DaweibaApp() {
       sheetOverrides: previewColumnPreferences.sheetOverrides,
       headerRows: previewColumnPreferences.headerRows,
       maxDisplayChars: previewColumnPreferences.maxDisplayChars,
+      columnWidths: previewColumnPreferences.columnWidths,
     });
     setPreviewColumnPreferences(nextPreferences);
-    if (!result) {
-      setIsPreviewSettingsOpen(false);
-      return;
-    }
     setIsRefreshingPreviewSettings(true);
     setError("");
     try {
-      const payload = await refreshPreviewWithPreferences(result, nextPreferences);
+      const saveResponse = await fetch(`${API_BASE}/api/preview-column-preferences`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ preferences: nextPreferences }),
+      });
+      if (!saveResponse.ok) {
+        const payload = await saveResponse.json().catch(() => null);
+        throw new Error(payload?.detail ?? `保存预览默认设置失败：${saveResponse.status}`);
+      }
+      const savedPayload = (await saveResponse.json()) as PreviewColumnPreferencesPayload;
+      const savedPreferences = normalizePreviewColumnPreferences(savedPayload.preferences ?? nextPreferences);
+      setPreviewColumnPreferences(savedPreferences);
+      if (!result) {
+        setIsPreviewSettingsOpen(false);
+        return;
+      }
+      const payload = await refreshPreviewWithPreferences(result, savedPreferences);
       setResult(payload);
       setActivePreviewSheetName((current) => current || payload.summary.table_preview.sheet_name || "");
       setIsPreviewSettingsOpen(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "刷新预览失败");
+      setError(err instanceof Error ? err.message : "保存或刷新预览设置失败");
     } finally {
       setIsRefreshingPreviewSettings(false);
     }
@@ -7709,7 +7753,7 @@ function DaweibaApp() {
               </button>
               <button className="primary-button" type="button" disabled={isRefreshingPreviewSettings} onClick={savePreviewColumnPreferences}>
                 {isRefreshingPreviewSettings ? <Loader2 className="spin" size={17} /> : <Settings size={17} />}
-                {isRefreshingPreviewSettings ? "刷新中" : "保存设置"}
+                {isRefreshingPreviewSettings ? "保存中" : "保存为默认设置"}
               </button>
             </div>
           </div>
