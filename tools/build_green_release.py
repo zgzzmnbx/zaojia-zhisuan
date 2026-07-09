@@ -23,7 +23,7 @@ PYTHON_EMBED_URL = f"https://www.python.org/ftp/python/{PYTHON_EMBED_VERSION}/{P
 NODE_VERSION = "24.14.1"
 NODE_ZIP = f"node-v{NODE_VERSION}-win-x64.zip"
 NODE_URL = f"https://nodejs.org/dist/v{NODE_VERSION}/{NODE_ZIP}"
-PREVIEW_COLUMN_PREFERENCES_RELATIVE_PATH = Path("Codex-Temp/runtime/preview-column-preferences.json")
+PROJECT_DEFAULT_SETTINGS_RELATIVE_PATH = Path("config/project-default-settings.json")
 DEFAULT_PREVIEW_CELL_MAX_DISPLAY_CHARS = 8
 DEFAULT_CORE_PREVIEW_LABELS = [
     "要素1",
@@ -668,29 +668,69 @@ def copy_local_env(project_root: Path, release_root: Path) -> bool:
     return True
 
 
-def default_preview_column_preferences_payload() -> dict[str, object]:
+def default_project_settings_payload() -> dict[str, object]:
     return {
         "version": 1,
         "updated_at": date.today().isoformat(),
-        "preferences": {
+        "previewColumns": {
             "defaultLabels": DEFAULT_CORE_PREVIEW_LABELS,
             "sheetOverrides": {},
             "headerRows": {},
             "maxDisplayChars": DEFAULT_PREVIEW_CELL_MAX_DISPLAY_CHARS,
             "columnWidths": {},
         },
+        "inputMapping": {
+            "headerRow": 4,
+            "outputMatchReport": True,
+            "onlyMatchRowsWithValue": True,
+            "matchValueFilterField": "数量",
+            "mergeVerticalCells": True,
+            "mergeHorizontalCells": True,
+            "fieldPreferences": {
+                "要素1": ["要素1", "项目名称", "项目", "专业"],
+                "要素2": ["要素2", "工作内容", "作业内容", "内容"],
+                "要素3": ["要素3", "类别", "类别名称"],
+                "要素4": ["要素4", "比例尺", "规格", "方法"],
+                "要素5": ["要素5", "复杂程度", "等级"],
+                "单位": ["单位", "计量单位"],
+                "输出-价格列": ["单价匹配-测试", "基价测试列", "基价", "单价", "价格"],
+                "输出-实物工作费调整系数": ["实物工作费调整系数", "输出-实物工作费调整系数"],
+                "输出-技术工作费调整系数": ["技术工作费调整系数", "输出-技术工作费调整系数"],
+            },
+        },
+        "workloadCapture": {
+            "selectedFields": [
+                "数量(信息抓取)",
+                "实物工作费调整系数(信息抓取)",
+                "技术工作费调整系数(信息抓取)",
+                "委托方备注(信息抓取)",
+            ],
+            "writeMode": "conservative",
+            "onlyCaptureRowsWithValue": True,
+            "valueFilterField": "数量",
+            "source": {
+                "adjacentFallbackEnabled": True,
+                "elementSequenceEnabled": True,
+                "fieldPreferences": {},
+            },
+            "target": {
+                "adjacentFallbackEnabled": True,
+                "elementSequenceEnabled": False,
+                "fieldPreferences": {},
+            },
+        },
     }
 
 
-def copy_preview_column_preferences(project_root: Path, release_root: Path) -> bool:
-    source = project_root / PREVIEW_COLUMN_PREFERENCES_RELATIVE_PATH
-    target = release_root / PREVIEW_COLUMN_PREFERENCES_RELATIVE_PATH
+def copy_project_default_settings(project_root: Path, release_root: Path) -> bool:
+    source = project_root / PROJECT_DEFAULT_SETTINGS_RELATIVE_PATH
+    target = release_root / PROJECT_DEFAULT_SETTINGS_RELATIVE_PATH
     target.parent.mkdir(parents=True, exist_ok=True)
     if source.exists() and source.is_file():
         shutil.copy2(source, target)
         return True
     target.write_text(
-        json.dumps(default_preview_column_preferences_payload(), ensure_ascii=False, indent=2) + "\n",
+        json.dumps(default_project_settings_payload(), ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
     return False
@@ -732,8 +772,6 @@ def copy_runtime_assets(project_root: Path, release_root: Path) -> None:
         "05-经验池-预警数据/【经验池】-管勘智算-【codex】.xlsx",
         "05-经验池-预警数据/experience-field-preferences-【codex】.json",
         "05-经验池-预警数据/experience-warning-settings-【codex】.json",
-        "05-经验池-预警数据/workload-field-preferences-【codex】.json",
-        "05-经验池-预警数据/workload-target-field-preferences-【codex】.json",
     ):
         copy_file(project_root, release_root, relative)
 
@@ -750,11 +788,11 @@ def copy_runtime_assets(project_root: Path, release_root: Path) -> None:
     copy_glob(project_root, release_root, f"{rule_base}/01-原始资料", "计价格[2002]10号-工程勘察设计收费标准使用手册*.md")
     copy_glob(project_root, release_root, f"{rule_base}/01-原始资料", "财建[2009]17号-测绘生产成本费用定额*批注*.xlsx")
     copy_glob(project_root, release_root, f"{rule_base}/01-原始资料", "计价格[2002]10号-工程勘察设计收费标准使用手册*批注*.xlsx")
-    copied_preview_preferences = copy_preview_column_preferences(project_root, release_root)
-    if copied_preview_preferences:
-        print(f"copied={PREVIEW_COLUMN_PREFERENCES_RELATIVE_PATH.as_posix()}")
+    copied_project_defaults = copy_project_default_settings(project_root, release_root)
+    if copied_project_defaults:
+        print(f"copied={PROJECT_DEFAULT_SETTINGS_RELATIVE_PATH.as_posix()}")
     else:
-        print(f"generated={PREVIEW_COLUMN_PREFERENCES_RELATIVE_PATH.as_posix()}")
+        print(f"generated={PROJECT_DEFAULT_SETTINGS_RELATIVE_PATH.as_posix()}")
 
 
 def build_release(args: argparse.Namespace) -> tuple[Path, Path | None]:

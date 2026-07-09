@@ -92,6 +92,7 @@ from .paths import (
     DEFAULT_WORKLOAD_FIELD_PREFERENCES_PATH,
     DEFAULT_WORKLOAD_TARGET_FIELD_PREFERENCES_PATH,
     LEGACY_EXPERIENCE_POOL_PATH,
+    PROJECT_DEFAULT_SETTINGS_PATH,
     PROJECT_ROOT,
     RUNTIME_DIR,
 )
@@ -196,6 +197,7 @@ async def inspect_excel(
     file: UploadFile = File(...),
     header_row: int | None = Form(default=None),
     sheet_name: str | None = Form(default=None),
+    field_preferences: str | None = Form(default=None),
 ) -> dict[str, object]:
     if not file.filename or not file.filename.lower().endswith(".xlsx"):
         raise HTTPException(status_code=400, detail="请上传 .xlsx 文件")
@@ -208,14 +210,20 @@ async def inspect_excel(
 
     detected_row, headers = _read_headers(input_path, header_row=header_row, sheet_name=sheet_name)
     columns = _build_column_options(headers)
-    sheets = _inspect_candidate_sheets(input_path)
+    input_preferences = _parse_input_field_preferences_form(field_preferences)
+    sheets = _inspect_candidate_sheets(input_path, preferences=input_preferences)
     return {
         "header_row": detected_row,
         "headers": headers,
         "columns": columns,
-        "suggested_mapping": _suggest_column_mapping(headers, _load_input_field_preferences()),
+        "suggested_mapping": _suggest_column_mapping(headers, input_preferences),
         "sheets": sheets,
     }
+
+
+@app.get("/api/project-default-settings")
+async def get_project_default_settings() -> dict[str, object]:
+    return _project_default_settings_payload()
 
 
 @app.get("/api/input/field-preferences")
@@ -231,7 +239,6 @@ async def save_input_field_preferences(payload: dict[str, object] = Body(...)) -
     if not isinstance(raw_preferences, dict):
         raise HTTPException(status_code=400, detail="输入字段偏好必须是对象")
     preferences = _sanitize_input_field_preferences(raw_preferences)
-    _save_input_field_preferences(preferences)
     return _input_field_preferences_payload(preferences)
 
 
@@ -265,7 +272,6 @@ async def save_preview_column_preferences(payload: dict[str, object] = Body(...)
     if not isinstance(raw_preferences, dict):
         raise HTTPException(status_code=400, detail="预览列设置必须是对象")
     preferences = _sanitize_preview_column_preferences(raw_preferences)
-    _save_preview_column_preferences(preferences)
     return _preview_column_preferences_payload(preferences)
 
 
@@ -924,6 +930,9 @@ async def inspect_workload_capture_excel(
     role: str = Form(default="source"),
     header_row: int | None = Form(default=None),
     sheet_name: str | None = Form(default=None),
+    field_preferences: str | None = Form(default=None),
+    adjacent_fallback_enabled: str | None = Form(default=None),
+    element_sequence_enabled: str | None = Form(default=None),
 ) -> dict[str, object]:
     if not file.filename or not file.filename.lower().endswith(".xlsx"):
         raise HTTPException(status_code=400, detail="请上传 .xlsx 文件")
@@ -935,7 +944,15 @@ async def inspect_workload_capture_excel(
     input_path = job_dir / file.filename
     input_path.write_bytes(await file.read())
 
-    sheets = _inspect_workload_sheets(input_path, clean_role, header_row=header_row, sheet_name=sheet_name)
+    sheets = _inspect_workload_sheets(
+        input_path,
+        clean_role,
+        header_row=header_row,
+        sheet_name=sheet_name,
+        preferences=_parse_workload_field_preferences_form(field_preferences, clean_role),
+        adjacent_fallback_enabled=_sanitize_optional_bool_setting(adjacent_fallback_enabled),
+        element_sequence_enabled=_sanitize_optional_bool_setting(element_sequence_enabled),
+    )
     first = sheets[0] if sheets else {"header_row": 1, "headers": [], "columns": [], "suggested_mapping": {}}
     return {
         "header_row": first["header_row"],
@@ -951,6 +968,9 @@ async def inspect_current_workload_target(
     job_id: str = Form(...),
     header_row: int | None = Form(default=None),
     sheet_name: str | None = Form(default=None),
+    field_preferences: str | None = Form(default=None),
+    adjacent_fallback_enabled: str | None = Form(default=None),
+    element_sequence_enabled: str | None = Form(default=None),
 ) -> dict[str, object]:
     clean_job_id = str(job_id or "").strip()
     if not clean_job_id:
@@ -963,7 +983,15 @@ async def inspect_current_workload_target(
     if not excel_path or not excel_path.exists():
         raise HTTPException(status_code=404, detail="当前预览控制价表不存在，请先完成转换")
 
-    sheets = _inspect_workload_sheets(excel_path, "target", header_row=header_row, sheet_name=sheet_name)
+    sheets = _inspect_workload_sheets(
+        excel_path,
+        "target",
+        header_row=header_row,
+        sheet_name=sheet_name,
+        preferences=_parse_workload_field_preferences_form(field_preferences, "target"),
+        adjacent_fallback_enabled=_sanitize_optional_bool_setting(adjacent_fallback_enabled),
+        element_sequence_enabled=_sanitize_optional_bool_setting(element_sequence_enabled),
+    )
     first = sheets[0] if sheets else {"header_row": 1, "headers": [], "columns": [], "suggested_mapping": {}}
     return {
         "header_row": first["header_row"],
@@ -989,11 +1017,6 @@ async def save_workload_field_preferences(payload: dict[str, object] = Body(...)
     preferences = _sanitize_workload_field_preferences(raw_preferences)
     adjacent_fallback_enabled = _sanitize_bool_setting(payload.get("adjacent_fallback_enabled"), True)
     element_sequence_enabled = _sanitize_bool_setting(payload.get("element_sequence_enabled"), True)
-    _save_workload_field_preferences(
-        preferences,
-        adjacent_fallback_enabled=adjacent_fallback_enabled,
-        element_sequence_enabled=element_sequence_enabled,
-    )
     return _workload_field_preferences_payload(
         preferences,
         adjacent_fallback_enabled=adjacent_fallback_enabled,
@@ -1016,11 +1039,6 @@ async def save_workload_target_field_preferences(payload: dict[str, object] = Bo
     preferences = _sanitize_workload_target_field_preferences(raw_preferences)
     adjacent_fallback_enabled = _sanitize_bool_setting(payload.get("adjacent_fallback_enabled"), True)
     element_sequence_enabled = _sanitize_bool_setting(payload.get("element_sequence_enabled"), False)
-    _save_workload_target_field_preferences(
-        preferences,
-        adjacent_fallback_enabled=adjacent_fallback_enabled,
-        element_sequence_enabled=element_sequence_enabled,
-    )
     return _workload_target_field_preferences_payload(
         preferences,
         adjacent_fallback_enabled=adjacent_fallback_enabled,
@@ -2438,12 +2456,15 @@ def _read_headers(path: Path, header_row: int | None = None, sheet_name: str | N
     return detected_row, [str(value).strip() if value is not None else "" for value in row]
 
 
-def _inspect_candidate_sheets(path: Path) -> list[dict[str, object]]:
+def _inspect_candidate_sheets(
+    path: Path,
+    preferences: dict[str, list[str]] | None = None,
+) -> list[dict[str, object]]:
     workbook = load_workbook(path, read_only=True, data_only=True)
     try:
         sheet_names = [name for name in workbook.sheetnames if _is_candidate_sheet_name(name)]
-        preferences = _load_input_field_preferences()
-        return [_inspect_sheet(workbook[name], preferences) for name in sheet_names]
+        resolved_preferences = preferences if preferences is not None else _load_input_field_preferences()
+        return [_inspect_sheet(workbook[name], resolved_preferences) for name in sheet_names]
     finally:
         workbook.close()
 
@@ -2500,6 +2521,9 @@ def _inspect_workload_sheets(
     role: str,
     header_row: int | None = None,
     sheet_name: str | None = None,
+    preferences: dict[str, list[str]] | None = None,
+    adjacent_fallback_enabled: bool | None = None,
+    element_sequence_enabled: bool | None = None,
 ) -> list[dict[str, object]]:
     workbook = load_workbook(path, read_only=True, data_only=True)
     try:
@@ -2517,14 +2541,30 @@ def _inspect_workload_sheets(
             target_candidates = [name for name in names if _is_candidate_sheet_name(name)]
             default_enabled = set(target_candidates) if target_candidates else {names[0]} if names else set()
         return [
-            _inspect_workload_sheet(workbook[name], role=role, enabled=name in default_enabled, header_row=header_row)
+            _inspect_workload_sheet(
+                workbook[name],
+                role=role,
+                enabled=name in default_enabled,
+                header_row=header_row,
+                preferences=preferences,
+                adjacent_fallback_enabled=adjacent_fallback_enabled,
+                element_sequence_enabled=element_sequence_enabled,
+            )
             for name in names
         ]
     finally:
         workbook.close()
 
 
-def _inspect_workload_sheet(sheet: object, role: str, enabled: bool, header_row: int | None = None) -> dict[str, object]:
+def _inspect_workload_sheet(
+    sheet: object,
+    role: str,
+    enabled: bool,
+    header_row: int | None = None,
+    preferences: dict[str, list[str]] | None = None,
+    adjacent_fallback_enabled: bool | None = None,
+    element_sequence_enabled: bool | None = None,
+) -> dict[str, object]:
     detected_row = header_row or _detect_workload_header_row(sheet, role)
     row = next(
         sheet.iter_rows(
@@ -2536,6 +2576,15 @@ def _inspect_workload_sheet(sheet: object, role: str, enabled: bool, header_row:
         (),
     )
     headers = [str(value).strip() if value is not None else "" for value in row]
+    resolved_preferences = preferences if preferences is not None else (
+        _load_workload_field_preferences() if role == "source" else _load_workload_target_field_preferences()
+    )
+    resolved_adjacent_fallback = adjacent_fallback_enabled if adjacent_fallback_enabled is not None else (
+        _load_workload_adjacent_fallback_enabled() if role == "source" else _load_workload_target_adjacent_fallback_enabled()
+    )
+    resolved_element_sequence = element_sequence_enabled if element_sequence_enabled is not None else (
+        _load_workload_element_sequence_enabled() if role == "source" else _load_workload_target_element_sequence_enabled()
+    )
     return {
         "sheet_name": sheet.title,
         "enabled": enabled,
@@ -2545,9 +2594,9 @@ def _inspect_workload_sheet(sheet: object, role: str, enabled: bool, header_row:
         "suggested_mapping": suggest_workload_column_mapping(
             headers,
             role,
-            _load_workload_field_preferences() if role == "source" else _load_workload_target_field_preferences(),
-            _load_workload_adjacent_fallback_enabled() if role == "source" else _load_workload_target_adjacent_fallback_enabled(),
-            _load_workload_element_sequence_enabled() if role == "source" else _load_workload_target_element_sequence_enabled(),
+            resolved_preferences,
+            resolved_adjacent_fallback,
+            resolved_element_sequence,
         ),
     }
 
@@ -2607,6 +2656,94 @@ def _build_column_options(headers: list[str]) -> list[dict[str, str]]:
     return columns
 
 
+def _load_project_default_settings() -> dict[str, object]:
+    if not PROJECT_DEFAULT_SETTINGS_PATH.exists():
+        return {}
+    try:
+        raw = json.loads(PROJECT_DEFAULT_SETTINGS_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def _project_default_section(name: str) -> dict[str, object]:
+    section = _load_project_default_settings().get(name, {})
+    return section if isinstance(section, dict) else {}
+
+
+def _project_default_bool(section: dict[str, object], key: str, default: bool) -> bool:
+    return _sanitize_bool_setting(section.get(key), default)
+
+
+def _project_default_int(section: dict[str, object], key: str, default: int, min_value: int = 1, max_value: int = 999) -> int:
+    try:
+        value = int(float(str(section.get(key, default)).strip()))
+    except (TypeError, ValueError):
+        value = default
+    return max(min_value, min(max_value, value))
+
+
+def _project_input_mapping_defaults() -> dict[str, object]:
+    section = _project_default_section("inputMapping")
+    match_value_filter_field = _parse_warning_filter_field(
+        str(section.get("matchValueFilterField", DEFAULT_WARNING_FILTER_FIELD) or DEFAULT_WARNING_FILTER_FIELD)
+    )
+    return {
+        "headerRow": _project_default_int(section, "headerRow", 4),
+        "outputMatchReport": _project_default_bool(section, "outputMatchReport", True),
+        "onlyMatchRowsWithValue": _project_default_bool(section, "onlyMatchRowsWithValue", True),
+        "matchValueFilterField": match_value_filter_field,
+        "mergeVerticalCells": _project_default_bool(section, "mergeVerticalCells", True),
+        "mergeHorizontalCells": _project_default_bool(section, "mergeHorizontalCells", True),
+        "fieldPreferences": _default_input_field_preferences(),
+    }
+
+
+def _project_workload_capture_defaults() -> dict[str, object]:
+    section = _project_default_section("workloadCapture")
+    raw_selected_fields = section.get("selectedFields", DEFAULT_SELECTED_WORKLOAD_FIELDS)
+    if isinstance(raw_selected_fields, list):
+        selected_fields = [
+            str(field).strip()
+            for field in raw_selected_fields
+            if str(field).strip() in DEFAULT_SELECTED_WORKLOAD_FIELDS
+        ]
+    else:
+        selected_fields = []
+    write_mode = str(section.get("writeMode", WRITE_MODE_CONSERVATIVE) or WRITE_MODE_CONSERVATIVE)
+    if write_mode not in {WRITE_MODE_CONSERVATIVE, WRITE_MODE_OVERWRITE}:
+        write_mode = WRITE_MODE_CONSERVATIVE
+    value_filter_field = _parse_workload_filter_field(
+        str(section.get("valueFilterField", DEFAULT_WORKLOAD_FILTER_FIELD) or DEFAULT_WORKLOAD_FILTER_FIELD)
+    )
+    return {
+        "selectedFields": selected_fields or list(DEFAULT_SELECTED_WORKLOAD_FIELDS),
+        "writeMode": write_mode,
+        "onlyCaptureRowsWithValue": _project_default_bool(section, "onlyCaptureRowsWithValue", True),
+        "valueFilterField": value_filter_field,
+        "source": {
+            "adjacentFallbackEnabled": _load_workload_adjacent_fallback_enabled(),
+            "elementSequenceEnabled": _load_workload_element_sequence_enabled(),
+            "fieldPreferences": _default_workload_field_preferences(),
+        },
+        "target": {
+            "adjacentFallbackEnabled": _load_workload_target_adjacent_fallback_enabled(),
+            "elementSequenceEnabled": _load_workload_target_element_sequence_enabled(),
+            "fieldPreferences": _default_workload_target_field_preferences(),
+        },
+    }
+
+
+def _project_default_settings_payload() -> dict[str, object]:
+    return {
+        "version": int(_load_project_default_settings().get("version", 1) or 1),
+        "file_path": str(PROJECT_DEFAULT_SETTINGS_PATH),
+        "previewColumns": _default_preview_column_preferences(),
+        "inputMapping": _project_input_mapping_defaults(),
+        "workloadCapture": _project_workload_capture_defaults(),
+    }
+
+
 def _suggest_column_mapping(headers: list[str], preferences: dict[str, list[str]] | None = None) -> dict[str, str]:
     mapping: dict[str, str] = {}
     defaults = _default_input_field_preferences()
@@ -2634,7 +2771,7 @@ def _suggest_column_mapping(headers: list[str], preferences: dict[str, list[str]
     return mapping
 
 
-def _default_input_field_preferences() -> dict[str, list[str]]:
+def _builtin_input_field_preferences() -> dict[str, list[str]]:
     return {
         "要素1": ["要素1", "项目名称", "项目", "专业"],
         "要素2": ["要素2", "工作内容", "作业内容", "内容"],
@@ -2648,13 +2785,23 @@ def _default_input_field_preferences() -> dict[str, list[str]]:
     }
 
 
+def _default_input_field_preferences() -> dict[str, list[str]]:
+    defaults = _builtin_input_field_preferences()
+    section = _project_default_section("inputMapping")
+    raw_preferences = section.get("fieldPreferences", {})
+    if not isinstance(raw_preferences, dict):
+        return defaults
+    return {**defaults, **_sanitize_input_field_preferences(raw_preferences)}
+
+
 def _input_field_preferences_payload(preferences: dict[str, list[str]] | None = None) -> dict[str, object]:
     defaults = _default_input_field_preferences()
     return {
         "fields": INPUT_FIELD_PREFERENCE_FIELDS,
         "defaults": defaults,
         "preferences": preferences if preferences is not None else _load_input_field_preferences(),
-        "file_path": str(DEFAULT_INPUT_FIELD_PREFERENCES_PATH),
+        "mapping_defaults": _project_input_mapping_defaults(),
+        "file_path": str(PROJECT_DEFAULT_SETTINGS_PATH),
     }
 
 
@@ -2674,7 +2821,7 @@ def _ui_preferences_payload(preferences: dict[str, object] | None = None) -> dic
     }
 
 
-def _default_preview_column_preferences() -> dict[str, object]:
+def _builtin_preview_column_preferences() -> dict[str, object]:
     return {
         "defaultLabels": DEFAULT_CORE_PREVIEW_LABELS,
         "sheetOverrides": {},
@@ -2684,11 +2831,19 @@ def _default_preview_column_preferences() -> dict[str, object]:
     }
 
 
+def _default_preview_column_preferences() -> dict[str, object]:
+    defaults = _builtin_preview_column_preferences()
+    section = _project_default_section("previewColumns")
+    if not section:
+        return defaults
+    return _sanitize_preview_column_preferences(section, fallback=defaults)
+
+
 def _preview_column_preferences_payload(preferences: dict[str, object] | None = None) -> dict[str, object]:
     return {
         "defaults": _default_preview_column_preferences(),
         "preferences": preferences if preferences is not None else _load_preview_column_preferences(),
-        "file_path": str(DEFAULT_PREVIEW_COLUMN_PREFERENCES_PATH),
+        "file_path": str(PROJECT_DEFAULT_SETTINGS_PATH),
     }
 
 
@@ -2761,12 +2916,30 @@ def _experience_warning_settings_payload(settings: dict[str, float | bool | str]
     }
 
 
+def _default_workload_field_preferences() -> dict[str, list[str]]:
+    defaults = default_workload_field_preferences()
+    source = _project_default_section("workloadCapture").get("source", {})
+    raw_preferences = source.get("fieldPreferences", {}) if isinstance(source, dict) else {}
+    if not isinstance(raw_preferences, dict):
+        return defaults
+    return {**defaults, **_sanitize_workload_field_preferences(raw_preferences)}
+
+
+def _default_workload_target_field_preferences() -> dict[str, list[str]]:
+    defaults = default_workload_target_field_preferences()
+    target = _project_default_section("workloadCapture").get("target", {})
+    raw_preferences = target.get("fieldPreferences", {}) if isinstance(target, dict) else {}
+    if not isinstance(raw_preferences, dict):
+        return defaults
+    return {**defaults, **_sanitize_workload_target_field_preferences(raw_preferences)}
+
+
 def _workload_field_preferences_payload(
     preferences: dict[str, list[str]] | None = None,
     adjacent_fallback_enabled: bool | None = None,
     element_sequence_enabled: bool | None = None,
 ) -> dict[str, object]:
-    defaults = default_workload_field_preferences()
+    defaults = _default_workload_field_preferences()
     return {
         "fields": WORKLOAD_FIELD_PREFERENCE_FIELDS,
         "defaults": defaults,
@@ -2781,7 +2954,7 @@ def _workload_field_preferences_payload(
             if element_sequence_enabled is None
             else element_sequence_enabled
         ),
-        "file_path": str(DEFAULT_WORKLOAD_FIELD_PREFERENCES_PATH),
+        "file_path": str(PROJECT_DEFAULT_SETTINGS_PATH),
     }
 
 
@@ -2790,7 +2963,7 @@ def _workload_target_field_preferences_payload(
     adjacent_fallback_enabled: bool | None = None,
     element_sequence_enabled: bool | None = None,
 ) -> dict[str, object]:
-    defaults = default_workload_target_field_preferences()
+    defaults = _default_workload_target_field_preferences()
     return {
         "fields": WORKLOAD_TARGET_FIELD_PREFERENCE_FIELDS,
         "defaults": defaults,
@@ -2805,27 +2978,12 @@ def _workload_target_field_preferences_payload(
             if element_sequence_enabled is None
             else element_sequence_enabled
         ),
-        "file_path": str(DEFAULT_WORKLOAD_TARGET_FIELD_PREFERENCES_PATH),
+        "file_path": str(PROJECT_DEFAULT_SETTINGS_PATH),
     }
 
 
 def _load_input_field_preferences() -> dict[str, list[str]]:
-    defaults = _default_input_field_preferences()
-    if not DEFAULT_INPUT_FIELD_PREFERENCES_PATH.exists():
-        return {}
-    try:
-        raw = json.loads(DEFAULT_INPUT_FIELD_PREFERENCES_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-    if isinstance(raw, dict) and isinstance(raw.get("preferences"), dict):
-        raw = raw["preferences"]
-    if not isinstance(raw, dict):
-        return {}
-    return {
-        field: aliases
-        for field, aliases in _sanitize_input_field_preferences(raw).items()
-        if aliases != defaults.get(field, [])
-    }
+    return {}
 
 
 def _load_ui_preferences() -> dict[str, object]:
@@ -2844,18 +3002,7 @@ def _load_ui_preferences() -> dict[str, object]:
 
 
 def _load_preview_column_preferences() -> dict[str, object]:
-    defaults = _default_preview_column_preferences()
-    if not DEFAULT_PREVIEW_COLUMN_PREFERENCES_PATH.exists():
-        return defaults
-    try:
-        raw = json.loads(DEFAULT_PREVIEW_COLUMN_PREFERENCES_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return defaults
-    if isinstance(raw, dict) and isinstance(raw.get("preferences"), dict):
-        raw = raw["preferences"]
-    if not isinstance(raw, dict):
-        return defaults
-    return _sanitize_preview_column_preferences(raw)
+    return _default_preview_column_preferences()
 
 
 def _load_experience_field_preferences() -> dict[str, list[str]]:
@@ -2878,57 +3025,39 @@ def _load_experience_field_preferences() -> dict[str, list[str]]:
 
 
 def _load_workload_field_preferences() -> dict[str, list[str]]:
-    defaults = default_workload_field_preferences()
-    if not DEFAULT_WORKLOAD_FIELD_PREFERENCES_PATH.exists():
-        return {}
-    try:
-        raw = json.loads(DEFAULT_WORKLOAD_FIELD_PREFERENCES_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-    if isinstance(raw, dict) and isinstance(raw.get("preferences"), dict):
-        raw = raw["preferences"]
-    if not isinstance(raw, dict):
-        return {}
-    return {
-        field: aliases
-        for field, aliases in _sanitize_workload_field_preferences(raw).items()
-        if aliases != defaults.get(field, [])
-    }
+    return _default_workload_field_preferences()
 
 
 def _load_workload_adjacent_fallback_enabled() -> bool:
-    return _load_adjacent_fallback_enabled(DEFAULT_WORKLOAD_FIELD_PREFERENCES_PATH)
+    section = _project_default_section("workloadCapture").get("source", {})
+    if isinstance(section, dict):
+        return _sanitize_bool_setting(section.get("adjacentFallbackEnabled"), True)
+    return True
 
 
 def _load_workload_element_sequence_enabled() -> bool:
-    return _load_element_sequence_enabled(DEFAULT_WORKLOAD_FIELD_PREFERENCES_PATH, default=True)
+    section = _project_default_section("workloadCapture").get("source", {})
+    if isinstance(section, dict):
+        return _sanitize_bool_setting(section.get("elementSequenceEnabled"), True)
+    return True
 
 
 def _load_workload_target_field_preferences() -> dict[str, list[str]]:
-    defaults = default_workload_target_field_preferences()
-    if not DEFAULT_WORKLOAD_TARGET_FIELD_PREFERENCES_PATH.exists():
-        return {}
-    try:
-        raw = json.loads(DEFAULT_WORKLOAD_TARGET_FIELD_PREFERENCES_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-    if isinstance(raw, dict) and isinstance(raw.get("preferences"), dict):
-        raw = raw["preferences"]
-    if not isinstance(raw, dict):
-        return {}
-    return {
-        field: aliases
-        for field, aliases in _sanitize_workload_target_field_preferences(raw).items()
-        if aliases != defaults.get(field, [])
-    }
+    return _default_workload_target_field_preferences()
 
 
 def _load_workload_target_adjacent_fallback_enabled() -> bool:
-    return _load_adjacent_fallback_enabled(DEFAULT_WORKLOAD_TARGET_FIELD_PREFERENCES_PATH)
+    section = _project_default_section("workloadCapture").get("target", {})
+    if isinstance(section, dict):
+        return _sanitize_bool_setting(section.get("adjacentFallbackEnabled"), True)
+    return True
 
 
 def _load_workload_target_element_sequence_enabled() -> bool:
-    return _load_element_sequence_enabled(DEFAULT_WORKLOAD_TARGET_FIELD_PREFERENCES_PATH, default=False)
+    section = _project_default_section("workloadCapture").get("target", {})
+    if isinstance(section, dict):
+        return _sanitize_bool_setting(section.get("elementSequenceEnabled"), False)
+    return False
 
 
 def _load_adjacent_fallback_enabled(path: Path) -> bool:
@@ -3105,8 +3234,11 @@ def _sanitize_ui_preferences(raw_preferences: dict[object, object]) -> dict[str,
     }
 
 
-def _sanitize_preview_column_preferences(raw_preferences: dict[object, object]) -> dict[str, object]:
-    defaults = _default_preview_column_preferences()
+def _sanitize_preview_column_preferences(
+    raw_preferences: dict[object, object],
+    fallback: dict[str, object] | None = None,
+) -> dict[str, object]:
+    defaults = fallback or _builtin_preview_column_preferences()
     raw_default_labels = raw_preferences.get("defaultLabels", defaults["defaultLabels"])
     raw_sheet_overrides = raw_preferences.get("sheetOverrides", {})
     raw_header_rows = raw_preferences.get("headerRows", {})
@@ -3215,6 +3347,32 @@ def _sanitize_ui_style_values(raw_values: dict[object, object]) -> dict[str, flo
     return sanitized
 
 
+def _parse_json_form_object(raw_value: str | None, label: str) -> dict[object, object] | None:
+    if raw_value is None or not str(raw_value).strip():
+        return None
+    try:
+        parsed = json.loads(raw_value)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail=f"{label}必须是 JSON 对象") from exc
+    if not isinstance(parsed, dict):
+        raise HTTPException(status_code=400, detail=f"{label}必须是 JSON 对象")
+    return parsed
+
+
+def _parse_input_field_preferences_form(raw_value: str | None) -> dict[str, list[str]] | None:
+    parsed = _parse_json_form_object(raw_value, "输入字段偏好")
+    return None if parsed is None else _sanitize_input_field_preferences(parsed)
+
+
+def _parse_workload_field_preferences_form(raw_value: str | None, role: str) -> dict[str, list[str]] | None:
+    parsed = _parse_json_form_object(raw_value, "工作量字段偏好")
+    if parsed is None:
+        return None
+    if role == "target":
+        return _sanitize_workload_target_field_preferences(parsed)
+    return _sanitize_workload_field_preferences(parsed)
+
+
 def _sanitize_bool_setting(value: object, default: bool) -> bool:
     if value is None:
         return default
@@ -3227,6 +3385,12 @@ def _sanitize_bool_setting(value: object, default: bool) -> bool:
         if normalized in {"false", "0", "no", "off", "否", "关闭"}:
             return False
     return bool(value)
+
+
+def _sanitize_optional_bool_setting(value: object) -> bool | None:
+    if value is None:
+        return None
+    return _sanitize_bool_setting(value, False)
 
 
 def _sanitize_input_field_preferences(raw_preferences: dict[object, object]) -> dict[str, list[str]]:

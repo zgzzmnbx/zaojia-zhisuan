@@ -77,7 +77,7 @@ def test_ui_preferences_are_saved_and_loaded(tmp_path, monkeypatch):
     assert get_response.json()["preferences"]["text"]["hero.title"] == "管勘智算测试"
 
 
-def test_preview_column_preferences_are_saved_and_loaded(tmp_path, monkeypatch):
+def test_preview_column_preferences_post_returns_temporary_preferences_without_saving(tmp_path, monkeypatch):
     preferences_path = tmp_path / "preview-column-preferences.json"
     monkeypatch.setattr(main_module, "DEFAULT_PREVIEW_COLUMN_PREFERENCES_PATH", preferences_path)
     client = TestClient(app)
@@ -102,11 +102,11 @@ def test_preview_column_preferences_are_saved_and_loaded(tmp_path, monkeypatch):
     assert payload["preferences"]["headerRows"] == {"表2": 4, "过大": 999}
     assert payload["preferences"]["maxDisplayChars"] == 40
     assert payload["preferences"]["columnWidths"] == {"表2": {"#1": 90, "单价": 420}}
-    assert preferences_path.exists()
+    assert not preferences_path.exists()
 
     get_response = client.get("/api/preview-column-preferences")
     assert get_response.status_code == 200
-    assert get_response.json()["preferences"]["columnWidths"]["表2"]["单价"] == 420
+    assert get_response.json()["file_path"].replace("\\", "/").endswith("config/project-default-settings.json")
 
 
 def test_download_excel_can_hide_empty_core_sheet_rows_by_warning_filter_field(tmp_path, monkeypatch):
@@ -179,6 +179,7 @@ def test_input_field_preferences_affect_inspect_suggestions(tmp_path, monkeypatc
 
     assert save_response.status_code == 200
     assert save_response.json()["preferences"]["输出-价格列"] == ["金额列"]
+    assert not preference_path.exists()
 
     workbook_path = tmp_path / "input.xlsx"
     workbook = Workbook()
@@ -191,6 +192,7 @@ def test_input_field_preferences_affect_inspect_suggestions(tmp_path, monkeypatc
     with workbook_path.open("rb") as handle:
         inspect_response = client.post(
             "/api/inspect",
+            data={"field_preferences": json.dumps({"输出-价格列": ["金额列"]}, ensure_ascii=False)},
             files={"file": (workbook_path.name, handle, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
         )
 
@@ -830,7 +832,7 @@ def test_workload_capture_inspect_endpoint_detects_source_sheets(tmp_path):
     assert payload["sheets"][1]["enabled"] is False
 
 
-def test_workload_field_preferences_are_saved_and_used_for_inspect(tmp_path, monkeypatch):
+def test_workload_field_preferences_are_temporary_and_used_for_inspect(tmp_path, monkeypatch):
     preferences_path = tmp_path / "workload-field-preferences.json"
     monkeypatch.setattr(main_module, "DEFAULT_WORKLOAD_FIELD_PREFERENCES_PATH", preferences_path)
 
@@ -858,21 +860,33 @@ def test_workload_field_preferences_are_saved_and_used_for_inspect(tmp_path, mon
     )
 
     assert save_response.status_code == 200
-    assert preferences_path.exists()
+    assert not preferences_path.exists()
     assert save_response.json()["preferences"]["要素1"] == ["项目大类"]
     assert save_response.json()["adjacent_fallback_enabled"] is True
     assert save_response.json()["element_sequence_enabled"] is True
 
     get_response = client.get("/api/workload-capture/field-preferences")
     assert get_response.status_code == 200
-    assert get_response.json()["preferences"]["数量"] == ["工程数量"]
+    assert get_response.json()["file_path"].replace("\\", "/").endswith("config/project-default-settings.json")
     assert get_response.json()["adjacent_fallback_enabled"] is True
     assert get_response.json()["element_sequence_enabled"] is True
 
     with input_path.open("rb") as handle:
         inspect_response = client.post(
             "/api/workload-capture/inspect",
-            data={"role": "source"},
+            data={
+                "role": "source",
+                "field_preferences": json.dumps(
+                    {
+                        "要素1": ["项目大类"],
+                        "要素2": ["作业名称"],
+                        "单位": ["计量单位"],
+                        "数量": ["工程数量"],
+                        "委托方备注": ["甲方备注"],
+                    },
+                    ensure_ascii=False,
+                ),
+            },
             files={
                 "file": (
                     input_path.name,
@@ -905,21 +919,15 @@ def test_workload_adjacent_fallback_setting_can_be_disabled_for_inspect(tmp_path
     workbook.close()
 
     client = TestClient(app)
-    save_response = client.post(
-        "/api/workload-capture/field-preferences",
-        json={
-            "preferences": {},
-            "adjacent_fallback_enabled": False,
-            "element_sequence_enabled": False,
-        },
-    )
-    assert save_response.status_code == 200
-    assert save_response.json()["adjacent_fallback_enabled"] is False
 
     with input_path.open("rb") as handle:
         inspect_response = client.post(
             "/api/workload-capture/inspect",
-            data={"role": "source"},
+            data={
+                "role": "source",
+                "adjacent_fallback_enabled": "false",
+                "element_sequence_enabled": "false",
+            },
             files={
                 "file": (
                     input_path.name,
@@ -936,7 +944,7 @@ def test_workload_adjacent_fallback_setting_can_be_disabled_for_inspect(tmp_path
     assert mapping["要素3"] == "C"
 
 
-def test_workload_target_field_preferences_are_saved_and_used_for_inspect(tmp_path, monkeypatch):
+def test_workload_target_field_preferences_are_temporary_and_used_for_inspect(tmp_path, monkeypatch):
     preferences_path = tmp_path / "workload-target-field-preferences.json"
     monkeypatch.setattr(main_module, "DEFAULT_WORKLOAD_TARGET_FIELD_PREFERENCES_PATH", preferences_path)
 
@@ -962,21 +970,31 @@ def test_workload_target_field_preferences_are_saved_and_used_for_inspect(tmp_pa
     )
 
     assert save_response.status_code == 200
-    assert preferences_path.exists()
+    assert not preferences_path.exists()
     assert save_response.json()["preferences"]["实物工作费调整系数(信息抓取)"] == ["实物工作费调整系数-测试"]
     assert save_response.json()["adjacent_fallback_enabled"] is True
     assert save_response.json()["element_sequence_enabled"] is False
 
     get_response = client.get("/api/workload-capture/target-field-preferences")
     assert get_response.status_code == 200
-    assert get_response.json()["preferences"]["数量(信息抓取)"] == ["工程量-测试"]
+    assert get_response.json()["file_path"].replace("\\", "/").endswith("config/project-default-settings.json")
     assert get_response.json()["adjacent_fallback_enabled"] is True
     assert get_response.json()["element_sequence_enabled"] is False
 
     with input_path.open("rb") as handle:
         inspect_response = client.post(
             "/api/workload-capture/inspect",
-            data={"role": "target"},
+            data={
+                "role": "target",
+                "field_preferences": json.dumps(
+                    {
+                        "数量(信息抓取)": ["工程量-测试"],
+                        "实物工作费调整系数(信息抓取)": ["实物工作费调整系数-测试"],
+                        "抓取日志": ["抓取日志-测试"],
+                    },
+                    ensure_ascii=False,
+                ),
+            },
             files={
                 "file": (
                     input_path.name,

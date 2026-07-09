@@ -13,45 +13,49 @@ build_green_release = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(build_green_release)
 
 
-def test_copy_preview_column_preferences_uses_saved_project_default(tmp_path):
+def test_copy_project_default_settings_uses_project_json(tmp_path):
     project_root = tmp_path / "project"
     release_root = tmp_path / "release"
-    preference_path = project_root / build_green_release.PREVIEW_COLUMN_PREFERENCES_RELATIVE_PATH
-    preference_path.parent.mkdir(parents=True)
-    preference_path.write_text(
+    settings_path = project_root / build_green_release.PROJECT_DEFAULT_SETTINGS_RELATIVE_PATH
+    settings_path.parent.mkdir(parents=True)
+    settings_path.write_text(
         json.dumps(
             {
                 "version": 1,
-                "preferences": {
+                "previewColumns": {
                     "defaultLabels": ["项目", "单位"],
                     "sheetOverrides": {"表2": ["项目"]},
                     "headerRows": {"表2": 3},
                     "maxDisplayChars": 12,
                     "columnWidths": {"表2": {"项目": 180}},
                 },
+                "inputMapping": {"headerRow": 4, "fieldPreferences": {"要素1": ["项目"]}},
+                "workloadCapture": {"selectedFields": ["数量(信息抓取)"]},
             },
             ensure_ascii=False,
         ),
         encoding="utf-8",
     )
 
-    copied = build_green_release.copy_preview_column_preferences(project_root, release_root)
+    copied = build_green_release.copy_project_default_settings(project_root, release_root)
 
     assert copied is True
-    copied_payload = json.loads((release_root / build_green_release.PREVIEW_COLUMN_PREFERENCES_RELATIVE_PATH).read_text(encoding="utf-8"))
-    assert copied_payload["preferences"]["headerRows"] == {"表2": 3}
-    assert copied_payload["preferences"]["columnWidths"]["表2"]["项目"] == 180
+    copied_payload = json.loads((release_root / build_green_release.PROJECT_DEFAULT_SETTINGS_RELATIVE_PATH).read_text(encoding="utf-8"))
+    assert copied_payload["previewColumns"]["headerRows"] == {"表2": 3}
+    assert copied_payload["previewColumns"]["columnWidths"]["表2"]["项目"] == 180
+    assert copied_payload["inputMapping"]["headerRow"] == 4
 
 
-def test_copy_preview_column_preferences_generates_release_default_when_missing(tmp_path):
+def test_copy_project_default_settings_generates_release_default_when_missing(tmp_path):
     project_root = tmp_path / "project"
     release_root = tmp_path / "release"
     project_root.mkdir()
 
-    copied = build_green_release.copy_preview_column_preferences(project_root, release_root)
+    copied = build_green_release.copy_project_default_settings(project_root, release_root)
 
     assert copied is False
-    generated_payload = json.loads((release_root / build_green_release.PREVIEW_COLUMN_PREFERENCES_RELATIVE_PATH).read_text(encoding="utf-8"))
-    assert generated_payload["preferences"]["defaultLabels"][0] == "要素1"
-    assert generated_payload["preferences"]["maxDisplayChars"] == 8
-    assert generated_payload["preferences"]["headerRows"] == {}
+    generated_payload = json.loads((release_root / build_green_release.PROJECT_DEFAULT_SETTINGS_RELATIVE_PATH).read_text(encoding="utf-8"))
+    assert generated_payload["previewColumns"]["defaultLabels"][0] == "要素1"
+    assert generated_payload["previewColumns"]["maxDisplayChars"] == 8
+    assert generated_payload["inputMapping"]["headerRow"] == 4
+    assert generated_payload["workloadCapture"]["writeMode"] == "conservative"

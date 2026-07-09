@@ -510,6 +510,36 @@ type PreviewColumnPreferencesPayload = {
   file_path: string;
 };
 
+type ProjectDefaultSettingsPayload = {
+  file_path?: string;
+  previewColumns?: Partial<PreviewColumnPreferences>;
+  inputMapping?: {
+    headerRow?: number;
+    outputMatchReport?: boolean;
+    onlyMatchRowsWithValue?: boolean;
+    matchValueFilterField?: string;
+    mergeVerticalCells?: boolean;
+    mergeHorizontalCells?: boolean;
+    fieldPreferences?: Partial<Record<MappingField, string[]>>;
+  };
+  workloadCapture?: {
+    selectedFields?: string[];
+    writeMode?: string;
+    onlyCaptureRowsWithValue?: boolean;
+    valueFilterField?: string;
+    source?: {
+      adjacentFallbackEnabled?: boolean;
+      elementSequenceEnabled?: boolean;
+      fieldPreferences?: Partial<Record<WorkloadSourceField, string[]>>;
+    };
+    target?: {
+      adjacentFallbackEnabled?: boolean;
+      elementSequenceEnabled?: boolean;
+      fieldPreferences?: Partial<Record<WorkloadTargetField, string[]>>;
+    };
+  };
+};
+
 type RowAiContext = {
   sheetName: string;
   rowNumber: number;
@@ -685,6 +715,7 @@ type InputFieldPreferencesPayload = {
   fields: MappingField[];
   defaults: Partial<Record<MappingField, string[]>>;
   preferences: Partial<Record<MappingField, string[]>>;
+  mapping_defaults?: ProjectDefaultSettingsPayload["inputMapping"];
   file_path: string;
 };
 
@@ -979,7 +1010,6 @@ const EMPTY_WORKLOAD_TARGET_FIELD_PREFERENCES = WORKLOAD_TARGET_FIELDS.reduce(
   (mapping, field) => ({ ...mapping, [field]: [] }),
   {} as WorkloadTargetFieldPreferences,
 );
-const PREVIEW_COLUMN_PREFERENCES_STORAGE_KEY = "guankanzhisuan-preview-column-preferences";
 const DEFAULT_PREVIEW_CELL_MAX_DISPLAY_CHARS = 8;
 const MIN_PREVIEW_COLUMN_WIDTH_PX = 72;
 const MAX_PREVIEW_COLUMN_WIDTH_PX = 420;
@@ -1111,22 +1141,30 @@ function normalizePreviewColumnPreferences(raw?: Partial<PreviewColumnPreference
   return { defaultLabels, sheetOverrides, headerRows, maxDisplayChars, columnWidths };
 }
 
-function readInitialPreviewColumnPreferences() {
-  if (typeof window === "undefined") {
-    return normalizePreviewColumnPreferences();
-  }
-  try {
-    const raw = window.localStorage.getItem(PREVIEW_COLUMN_PREFERENCES_STORAGE_KEY);
-    if (!raw) return normalizePreviewColumnPreferences();
-    return normalizePreviewColumnPreferences(JSON.parse(raw) as Partial<PreviewColumnPreferences>);
-  } catch {
-    return normalizePreviewColumnPreferences();
-  }
+function normalizeWarningFilterFieldValue(value: unknown): WarningFilterField {
+  const field = String(value ?? "数量").trim();
+  return (WARNING_FILTER_FIELDS as readonly string[]).includes(field) ? field as WarningFilterField : "数量";
 }
 
-function hasStoredPreviewColumnPreferences() {
-  if (typeof window === "undefined") return false;
-  return Boolean(window.localStorage.getItem(PREVIEW_COLUMN_PREFERENCES_STORAGE_KEY));
+function normalizeWorkloadSourceFieldValue(value: unknown): WorkloadSourceField {
+  const field = String(value ?? "数量").trim();
+  return (WORKLOAD_SOURCE_FIELDS as readonly string[]).includes(field) ? field as WorkloadSourceField : "数量";
+}
+
+function normalizeWorkloadSelectedFields(values: unknown): string[] {
+  if (!Array.isArray(values)) return [...WORKLOAD_CAPTURE_FIELD_OPTIONS];
+  const selected = values
+    .map((value) => String(value).trim())
+    .filter((value) => (WORKLOAD_CAPTURE_FIELD_OPTIONS as readonly string[]).includes(value));
+  return selected.length > 0 ? Array.from(new Set(selected)) : [...WORKLOAD_CAPTURE_FIELD_OPTIONS];
+}
+
+function normalizeWorkloadWriteModeValue(value: unknown): "conservative" | "overwrite" {
+  return value === "overwrite" ? "overwrite" : "conservative";
+}
+
+function readInitialPreviewColumnPreferences() {
+  return normalizePreviewColumnPreferences();
 }
 
 function normalizeOutputRowFilterSettings(raw?: Partial<OutputRowFilterSettings>): OutputRowFilterSettings {
@@ -1347,7 +1385,7 @@ export function App() {
 function DaweibaApp() {
   const [file, setFile] = useState<File | null>(null);
   const [columns, setColumns] = useState<ColumnOption[]>([]);
-  const [headerRow, setHeaderRow] = useState(1);
+  const [headerRow, setHeaderRow] = useState(4);
   const [columnMapping, setColumnMapping] = useState<ColumnMapping>(EMPTY_MAPPING);
   const [sheetConfigs, setSheetConfigs] = useState<SheetMappingConfig[]>([]);
   const [activeSheetName, setActiveSheetName] = useState("");
@@ -1655,30 +1693,10 @@ function DaweibaApp() {
   }, []);
 
   useEffect(() => {
-    if (hasStoredPreviewColumnPreferences()) return;
-    let isCancelled = false;
-    async function loadPreviewColumnPreferences() {
-      try {
-        const response = await fetch(`${API_BASE}/api/preview-column-preferences`);
-        if (!response.ok) return;
-        const payload = (await response.json()) as PreviewColumnPreferencesPayload;
-        if (isCancelled) return;
-        setPreviewColumnPreferences(normalizePreviewColumnPreferences(payload.preferences ?? payload.defaults));
-      } catch {
-        // The built-in defaults are still usable if the backend is not ready yet.
-      }
-    }
-    void loadPreviewColumnPreferences();
-    return () => {
-      isCancelled = true;
-    };
+    void loadProjectDefaultSettings();
   }, []);
 
   useEffect(() => {
-    window.localStorage.setItem(
-      PREVIEW_COLUMN_PREFERENCES_STORAGE_KEY,
-      JSON.stringify(previewColumnPreferences),
-    );
     setPreviewDefaultLabelsDraft(preferenceText(previewColumnPreferences.defaultLabels));
   }, [previewColumnPreferences]);
 
@@ -2573,6 +2591,92 @@ function DaweibaApp() {
     selectFile(event.target.files?.[0] ?? null);
   }
 
+  function applyProjectDefaultSettings(payload: ProjectDefaultSettingsPayload) {
+    const previewDefaults = normalizePreviewColumnPreferences(payload.previewColumns);
+    setPreviewColumnPreferences(previewDefaults);
+    setPreviewDefaultLabelsDraft(preferenceText(previewDefaults.defaultLabels));
+
+    const inputMapping = payload.inputMapping ?? {};
+    const inputDefaults = normalizeInputFieldPreferences(inputMapping.fieldPreferences);
+    setHeaderRow(Math.max(1, Math.floor(Number(inputMapping.headerRow ?? 4) || 4)));
+    setOutputMatchReport(inputMapping.outputMatchReport ?? true);
+    setOnlyMatchRowsWithValue(inputMapping.onlyMatchRowsWithValue ?? true);
+    setMatchValueFilterField(normalizeWarningFilterFieldValue(inputMapping.matchValueFilterField));
+    setMergeVerticalCells(inputMapping.mergeVerticalCells ?? true);
+    setMergeHorizontalCells(inputMapping.mergeHorizontalCells ?? true);
+    setInputFieldDefaults(inputDefaults);
+    setInputFieldDraft(inputDefaults);
+    setInputFieldPreferencesPath(payload.file_path ?? "");
+
+    const workloadDefaults = payload.workloadCapture ?? {};
+    const sourceDefaults = workloadDefaults.source ?? {};
+    const targetDefaults = workloadDefaults.target ?? {};
+    const sourcePreferences = normalizeWorkloadFieldPreferences(sourceDefaults.fieldPreferences);
+    const targetPreferences = normalizeWorkloadTargetFieldPreferences(targetDefaults.fieldPreferences);
+    setSelectedWorkloadFields(normalizeWorkloadSelectedFields(workloadDefaults.selectedFields));
+    setWorkloadWriteMode(normalizeWorkloadWriteModeValue(workloadDefaults.writeMode));
+    setOnlyCaptureWorkloadRowsWithValue(workloadDefaults.onlyCaptureRowsWithValue ?? true);
+    setWorkloadValueFilterField(normalizeWorkloadSourceFieldValue(workloadDefaults.valueFilterField));
+    setWorkloadFieldDefaults(sourcePreferences);
+    setWorkloadFieldDraft(sourcePreferences);
+    setWorkloadAdjacentFallbackEnabled(sourceDefaults.adjacentFallbackEnabled ?? true);
+    setWorkloadElementSequenceEnabled(sourceDefaults.elementSequenceEnabled ?? true);
+    setWorkloadFieldPreferencesPath(payload.file_path ?? "");
+    setWorkloadTargetFieldDefaults(targetPreferences);
+    setWorkloadTargetFieldDraft(targetPreferences);
+    setWorkloadTargetAdjacentFallbackEnabled(targetDefaults.adjacentFallbackEnabled ?? true);
+    setWorkloadTargetElementSequenceEnabled(targetDefaults.elementSequenceEnabled ?? false);
+    setWorkloadTargetFieldPreferencesPath(payload.file_path ?? "");
+  }
+
+  async function loadProjectDefaultSettings() {
+    try {
+      const response = await fetch(`${API_BASE}/api/project-default-settings`);
+      if (!response.ok) return null;
+      const payload = (await response.json()) as ProjectDefaultSettingsPayload;
+      applyProjectDefaultSettings(payload);
+      return payload;
+    } catch {
+      // The built-in defaults remain usable if the backend is still starting.
+      return null;
+    }
+  }
+
+  async function restoreProjectDefaultSettings() {
+    setError("");
+    const payload = await loadProjectDefaultSettings();
+    const inputPreferences = normalizeInputFieldPreferences(payload?.inputMapping?.fieldPreferences);
+    const sourcePreferences = normalizeWorkloadFieldPreferences(payload?.workloadCapture?.source?.fieldPreferences);
+    const targetPreferences = normalizeWorkloadTargetFieldPreferences(payload?.workloadCapture?.target?.fieldPreferences);
+    if (file) {
+      const config = activeSheetConfig();
+      void inspectFile(file, config?.header_row ?? 4, config?.sheet_name, inputPreferences);
+    }
+    if (workloadFile) {
+      setWorkloadFieldDraft(sourcePreferences);
+      setWorkloadTargetFieldDraft(targetPreferences);
+      void inspectWorkloadFile(
+        workloadFile,
+        "source",
+        undefined,
+        undefined,
+        sourcePreferences,
+        payload?.workloadCapture?.source?.adjacentFallbackEnabled ?? true,
+        payload?.workloadCapture?.source?.elementSequenceEnabled ?? true,
+      );
+    }
+    if (result) {
+      void inspectCurrentWorkloadTarget(
+        result.job_id,
+        undefined,
+        undefined,
+        targetPreferences,
+        payload?.workloadCapture?.target?.adjacentFallbackEnabled ?? true,
+        payload?.workloadCapture?.target?.elementSequenceEnabled ?? false,
+      );
+    }
+  }
+
   async function loadInputFieldPreferences(openAfterLoad = false) {
     setIsLoadingInputFieldSettings(true);
     setError("");
@@ -2614,25 +2718,13 @@ function DaweibaApp() {
     setIsSavingInputFieldSettings(true);
     setError("");
     try {
-      const response = await fetch(`${API_BASE}/api/input/field-preferences`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ preferences: inputFieldDraft }),
-      });
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null);
-        throw new Error(payload?.detail ?? `保存输入字段设置失败：${response.status}`);
-      }
-      const payload = (await response.json()) as InputFieldPreferencesPayload;
-      setInputFieldDraft(normalizeInputFieldPreferences({ ...payload.defaults, ...payload.preferences }));
-      setInputFieldPreferencesPath(payload.file_path ?? "");
       setIsInputFieldSettingsOpen(false);
       if (file) {
         const config = activeSheetConfig();
-        void inspectFile(file, config?.header_row ?? headerRow, config?.sheet_name);
+        void inspectFile(file, config?.header_row ?? headerRow, config?.sheet_name, inputFieldDraft);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "保存输入字段设置失败");
+      setError(err instanceof Error ? err.message : "应用输入字段设置失败");
     } finally {
       setIsSavingInputFieldSettings(false);
     }
@@ -2973,28 +3065,41 @@ function DaweibaApp() {
     setIsRefreshingPreviewSettings(true);
     setError("");
     try {
-      const saveResponse = await fetch(`${API_BASE}/api/preview-column-preferences`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ preferences: nextPreferences }),
-      });
-      if (!saveResponse.ok) {
-        const payload = await saveResponse.json().catch(() => null);
-        throw new Error(payload?.detail ?? `保存预览默认设置失败：${saveResponse.status}`);
-      }
-      const savedPayload = (await saveResponse.json()) as PreviewColumnPreferencesPayload;
-      const savedPreferences = normalizePreviewColumnPreferences(savedPayload.preferences ?? nextPreferences);
-      setPreviewColumnPreferences(savedPreferences);
       if (!result) {
         setIsPreviewSettingsOpen(false);
         return;
       }
-      const payload = await refreshPreviewWithPreferences(result, savedPreferences);
+      const payload = await refreshPreviewWithPreferences(result, nextPreferences);
       setResult(payload);
       setActivePreviewSheetName((current) => current || payload.summary.table_preview.sheet_name || "");
       setIsPreviewSettingsOpen(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "保存或刷新预览设置失败");
+      setError(err instanceof Error ? err.message : "应用或刷新预览设置失败");
+    } finally {
+      setIsRefreshingPreviewSettings(false);
+    }
+  }
+
+  async function restorePreviewProjectDefaults() {
+    setIsRefreshingPreviewSettings(true);
+    setError("");
+    try {
+      const response = await fetch(`${API_BASE}/api/preview-column-preferences`);
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.detail ?? `读取项目默认预览设置失败：${response.status}`);
+      }
+      const payload = (await response.json()) as PreviewColumnPreferencesPayload;
+      const defaults = normalizePreviewColumnPreferences(payload.preferences ?? payload.defaults);
+      setPreviewColumnPreferences(defaults);
+      setPreviewDefaultLabelsDraft(preferenceText(defaults.defaultLabels));
+      if (result) {
+        const nextResult = await refreshPreviewWithPreferences(result, defaults);
+        setResult(nextResult);
+        setActivePreviewSheetName((current) => current || nextResult.summary.table_preview.sheet_name || "");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "恢复项目默认预览设置失败");
     } finally {
       setIsRefreshingPreviewSettings(false);
     }
@@ -3350,46 +3455,6 @@ function DaweibaApp() {
     setIsSavingWorkloadTargetFieldSettings(true);
     setError("");
     try {
-      const sourceResponse = await fetch(`${API_BASE}/api/workload-capture/field-preferences`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          preferences: workloadFieldDraft,
-          adjacent_fallback_enabled: workloadAdjacentFallbackEnabled,
-          element_sequence_enabled: workloadElementSequenceEnabled,
-        }),
-      });
-      if (!sourceResponse.ok) {
-        const payload = await sourceResponse.json().catch(() => null);
-        throw new Error(payload?.detail ?? `保存工作量字段设置失败：${sourceResponse.status}`);
-      }
-      const sourcePayload = (await sourceResponse.json()) as WorkloadFieldPreferencesPayload;
-      setWorkloadFieldDraft(normalizeWorkloadFieldPreferences({ ...sourcePayload.defaults, ...sourcePayload.preferences }));
-      setWorkloadAdjacentFallbackEnabled(sourcePayload.adjacent_fallback_enabled ?? true);
-      setWorkloadElementSequenceEnabled(sourcePayload.element_sequence_enabled ?? true);
-      setWorkloadFieldPreferencesPath(sourcePayload.file_path ?? "");
-
-      const targetResponse = await fetch(`${API_BASE}/api/workload-capture/target-field-preferences`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          preferences: workloadTargetFieldDraft,
-          adjacent_fallback_enabled: workloadTargetAdjacentFallbackEnabled,
-          element_sequence_enabled: workloadTargetElementSequenceEnabled,
-        }),
-      });
-      if (!targetResponse.ok) {
-        const payload = await targetResponse.json().catch(() => null);
-        throw new Error(payload?.detail ?? `保存控制价计算表字段设置失败：${targetResponse.status}`);
-      }
-      const targetPayload = (await targetResponse.json()) as WorkloadFieldPreferencesPayload;
-      setWorkloadTargetFieldDraft(
-        normalizeWorkloadTargetFieldPreferences({ ...targetPayload.defaults, ...targetPayload.preferences } as Partial<Record<WorkloadTargetField, string[]>>),
-      );
-      setWorkloadTargetAdjacentFallbackEnabled(targetPayload.adjacent_fallback_enabled ?? true);
-      setWorkloadTargetElementSequenceEnabled(targetPayload.element_sequence_enabled ?? false);
-      setWorkloadTargetFieldPreferencesPath(targetPayload.file_path ?? "");
-
       setIsWorkloadFieldSettingsOpen(false);
       if (workloadFile) {
         void inspectWorkloadFile(workloadFile, "source");
@@ -3398,7 +3463,7 @@ function DaweibaApp() {
         void inspectCurrentWorkloadTarget(result.job_id);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "保存工作量字段设置失败");
+      setError(err instanceof Error ? err.message : "应用工作量字段设置失败");
     } finally {
       setIsSavingWorkloadFieldSettings(false);
       setIsSavingWorkloadTargetFieldSettings(false);
@@ -3448,30 +3513,12 @@ function DaweibaApp() {
     setIsSavingWorkloadTargetFieldSettings(true);
     setError("");
     try {
-      const response = await fetch(`${API_BASE}/api/workload-capture/target-field-preferences`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          preferences: workloadTargetFieldDraft,
-          adjacent_fallback_enabled: workloadTargetAdjacentFallbackEnabled,
-          element_sequence_enabled: workloadTargetElementSequenceEnabled,
-        }),
-      });
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null);
-        throw new Error(payload?.detail ?? `保存控制价计算表字段设置失败：${response.status}`);
-      }
-      const payload = (await response.json()) as WorkloadFieldPreferencesPayload;
-      setWorkloadTargetFieldDraft(
-        normalizeWorkloadTargetFieldPreferences({ ...payload.defaults, ...payload.preferences } as Partial<Record<WorkloadTargetField, string[]>>),
-      );
-      setWorkloadTargetFieldPreferencesPath(payload.file_path ?? "");
       setIsWorkloadTargetFieldSettingsOpen(false);
       if (result) {
         void inspectCurrentWorkloadTarget(result.job_id);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "保存控制价计算表字段设置失败");
+      setError(err instanceof Error ? err.message : "应用控制价计算表字段设置失败");
     } finally {
       setIsSavingWorkloadTargetFieldSettings(false);
     }
@@ -3525,7 +3572,15 @@ function DaweibaApp() {
     });
   }
 
-  async function inspectWorkloadFile(nextFile: File, role: WorkloadRole, selectedHeaderRow?: number, selectedSheetName?: string) {
+  async function inspectWorkloadFile(
+    nextFile: File,
+    role: WorkloadRole,
+    selectedHeaderRow?: number,
+    selectedSheetName?: string,
+    fieldPreferencesOverride?: WorkloadFieldPreferences | WorkloadTargetFieldPreferences,
+    adjacentFallbackOverride?: boolean,
+    elementSequenceOverride?: boolean,
+  ) {
     setIsInspectingWorkload(true);
     const body = new FormData();
     body.append("file", nextFile);
@@ -3536,6 +3591,15 @@ function DaweibaApp() {
     if (selectedSheetName) {
       body.append("sheet_name", selectedSheetName);
     }
+    body.append("field_preferences", JSON.stringify(fieldPreferencesOverride ?? (role === "source" ? workloadFieldDraft : workloadTargetFieldDraft)));
+    body.append(
+      "adjacent_fallback_enabled",
+      String(adjacentFallbackOverride ?? (role === "source" ? workloadAdjacentFallbackEnabled : workloadTargetAdjacentFallbackEnabled)),
+    );
+    body.append(
+      "element_sequence_enabled",
+      String(elementSequenceOverride ?? (role === "source" ? workloadElementSequenceEnabled : workloadTargetElementSequenceEnabled)),
+    );
     try {
       const response = await fetch(`${API_BASE}/api/workload-capture/inspect`, {
         method: "POST",
@@ -3593,7 +3657,14 @@ function DaweibaApp() {
     }
   }
 
-  async function inspectCurrentWorkloadTarget(jobId: string, selectedHeaderRow?: number, selectedSheetName?: string) {
+  async function inspectCurrentWorkloadTarget(
+    jobId: string,
+    selectedHeaderRow?: number,
+    selectedSheetName?: string,
+    fieldPreferencesOverride?: WorkloadTargetFieldPreferences,
+    adjacentFallbackOverride?: boolean,
+    elementSequenceOverride?: boolean,
+  ) {
     setIsInspectingWorkload(true);
     const body = new FormData();
     body.append("job_id", jobId);
@@ -3603,6 +3674,9 @@ function DaweibaApp() {
     if (selectedSheetName) {
       body.append("sheet_name", selectedSheetName);
     }
+    body.append("field_preferences", JSON.stringify(fieldPreferencesOverride ?? workloadTargetFieldDraft));
+    body.append("adjacent_fallback_enabled", String(adjacentFallbackOverride ?? workloadTargetAdjacentFallbackEnabled));
+    body.append("element_sequence_enabled", String(elementSequenceOverride ?? workloadTargetElementSequenceEnabled));
     try {
       const response = await fetch(`${API_BASE}/api/workload-capture/inspect-current-target`, {
         method: "POST",
@@ -3805,7 +3879,12 @@ function DaweibaApp() {
     await inspectFile(nextFile);
   }
 
-  async function inspectFile(nextFile: File, selectedHeaderRow?: number, selectedSheetName?: string) {
+  async function inspectFile(
+    nextFile: File,
+    selectedHeaderRow?: number,
+    selectedSheetName?: string,
+    fieldPreferencesOverride?: InputFieldPreferences,
+  ) {
     setIsInspecting(true);
     const body = new FormData();
     body.append("file", nextFile);
@@ -3815,6 +3894,7 @@ function DaweibaApp() {
     if (selectedSheetName) {
       body.append("sheet_name", selectedSheetName);
     }
+    body.append("field_preferences", JSON.stringify(fieldPreferencesOverride ?? inputFieldDraft));
     try {
       const response = await fetch(`${API_BASE}/api/inspect`, {
         method: "POST",
@@ -7662,15 +7742,15 @@ function DaweibaApp() {
               ))}
             </div>
             {inputFieldPreferencesPath && (
-              <p className="settings-hint">保存位置：{inputFieldPreferencesPath}</p>
+              <p className="settings-hint">项目默认来源：{inputFieldPreferencesPath}</p>
             )}
             <div className="settings-action-row">
               <button className="ghost-button" type="button" onClick={resetInputFieldDraft}>
-                恢复默认
+                恢复项目默认
               </button>
               <button className="primary-button" type="button" disabled={isSavingInputFieldSettings} onClick={saveInputFieldPreferences}>
                 {isSavingInputFieldSettings ? <Loader2 className="spin" size={17} /> : <Settings size={17} />}
-                {file ? "保存并重新识别" : "保存设置"}
+                {file ? "应用临时设置并重新识别" : "应用临时设置"}
               </button>
             </div>
           </div>
@@ -7683,7 +7763,7 @@ function DaweibaApp() {
             <div className="modal-title">
               <span>
                 <strong>预览列设置</strong>
-                <small>默认列、表头行和列宽会保存为项目默认</small>
+                <small>默认列、表头行和列宽来自项目默认；本窗口修改只临时生效</small>
               </span>
               <button type="button" onClick={() => setIsPreviewSettingsOpen(false)}>关闭</button>
             </div>
@@ -7698,7 +7778,7 @@ function DaweibaApp() {
               </span>
               <span>
                 <strong>保存范围</strong>
-                <small>新用户和绿色版首次打开生效</small>
+                <small>项目默认由配置文件统一提供</small>
               </span>
             </div>
             <div className="preview-settings-section">
@@ -7725,7 +7805,7 @@ function DaweibaApp() {
                   <small>超出后自动换行，鼠标悬浮可看完整内容。</small>
                 </label>
               </div>
-              <p className="settings-hint">未单独设置 sheet 时，优先按这里的列名打开；如果没有保存过配置，就使用系统内置预设。</p>
+              <p className="settings-hint">未单独设置 sheet 时，优先按这里的列名打开；本次修改只影响当前页面，绿色版首开按项目默认配置生效。</p>
             </div>
             {previewSheets.length > 0 && (
               <div className="preview-settings-section">
@@ -7804,9 +7884,12 @@ function DaweibaApp() {
               <button className="ghost-button" type="button" onClick={() => setPreviewDefaultLabelsDraft(preferenceText(previewColumnPreferences.defaultLabels))}>
                 撤销默认列编辑
               </button>
+              <button className="ghost-button" type="button" disabled={isRefreshingPreviewSettings} onClick={restorePreviewProjectDefaults}>
+                恢复项目默认
+              </button>
               <button className="primary-button" type="button" disabled={isRefreshingPreviewSettings} onClick={savePreviewColumnPreferences}>
                 {isRefreshingPreviewSettings ? <Loader2 className="spin" size={17} /> : <Settings size={17} />}
-                {isRefreshingPreviewSettings ? "保存中" : "保存为默认设置"}
+                {isRefreshingPreviewSettings ? "应用中" : "应用临时设置"}
               </button>
             </div>
           </div>
@@ -8003,7 +8086,7 @@ function DaweibaApp() {
                 </label>
               </div>
               {workloadFieldPreferencesPath && (
-                <p className="settings-hint">工作量表保存位置：{workloadFieldPreferencesPath}</p>
+                <p className="settings-hint">项目默认来源：{workloadFieldPreferencesPath}</p>
               )}
             </div>
 
@@ -8038,20 +8121,13 @@ function DaweibaApp() {
                 ))}
               </div>
               {workloadTargetFieldPreferencesPath && (
-                <p className="settings-hint">控制价计算表保存位置：{workloadTargetFieldPreferencesPath}</p>
+                <p className="settings-hint">项目默认来源：{workloadTargetFieldPreferencesPath}</p>
               )}
             </div>
 
             <div className="settings-action-row">
-              <button className="ghost-button" type="button" onClick={() => {
-                resetWorkloadFieldDraft();
-                resetWorkloadTargetFieldDraft();
-                setWorkloadAdjacentFallbackEnabled(true);
-                setWorkloadTargetAdjacentFallbackEnabled(true);
-                setWorkloadElementSequenceEnabled(true);
-                setWorkloadTargetElementSequenceEnabled(false);
-              }}>
-                全部恢复默认
+              <button className="ghost-button" type="button" onClick={restoreProjectDefaultSettings}>
+                恢复当前项目默认
               </button>
               <button
                 className="primary-button"
@@ -8060,7 +8136,7 @@ function DaweibaApp() {
                 onClick={saveWorkloadFieldPreferences}
               >
                 {(isSavingWorkloadFieldSettings || isSavingWorkloadTargetFieldSettings) ? <Loader2 className="spin" size={17} /> : <Settings size={17} />}
-                {(workloadFile || result) ? "保存并重新识别" : "保存设置"}
+                {(workloadFile || result) ? "应用临时设置并重新识别" : "应用临时设置"}
               </button>
             </div>
           </div>

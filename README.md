@@ -92,7 +92,7 @@ python tools/check_prd_consistency.py --strict
 ### 填价结果预览与输出
 
 - 输出回填后的 Excel 和 Word 报告。
-- 预览支持多 sheet、表头行偏好、显示列偏好、隐藏指定列无值行、最大列宽、按 `sheet 名 + 列标题` 记忆手动列宽、公式兜底计算；预览列设置保存后会成为项目级默认设置，新用户首次打开也沿用同一套口径。
+- 预览支持多 sheet、表头行偏好、显示列偏好、隐藏指定列无值行、最大列宽、按 `sheet 名 + 列标题` 记忆手动列宽、公式兜底计算；表格预览、列映射和工作量抓取的项目默认值统一来自 `config/project-default-settings.json`，弹窗内修改只临时生效，新用户和绿色版首次打开沿用该项目默认口径。
 - 下载 Excel 与填价结果预览共用隐藏空行口径；第一列以 `合计` 开头的汇总行始终保留。
 - 结果预览支持人工修改输出 Excel 副本的普通值单元格；保存单元格时快速写入输出 Excel 和预览，必要时再手动点击“重算公式”刷新汇总公式和 Word 报告，并在 Excel 单元格和运行目录留存修改记录。
 - “开始转换”只生成待匹配预览，不自动跳页；右侧智算引导进入表格预览，预览窗口、智算按钮、快捷指令和输入“批量匹配”共用同一批量匹配动作。
@@ -241,8 +241,7 @@ backend/app/rules/physical_factor_overrides.csv
 05-经验池-预警数据/【经验池】-管勘智算-【codex】.xlsx
 05-经验池-预警数据/experience-warning-settings-【codex】.json
 05-经验池-预警数据/experience-field-preferences-【codex】.json
-05-经验池-预警数据/workload-field-preferences-【codex】.json
-05-经验池-预警数据/workload-target-field-preferences-【codex】.json
+config/project-default-settings.json
 03-【匹配规则】-勘察测绘知识库-匹配规则提炼/【术语归并】术语归并与匹配放宽规则表.xlsx
 ```
 
