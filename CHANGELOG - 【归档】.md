@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## v5.5.1 - 2026-07-09
+
+- 升级版本号到 `v5.5.1`：同步根目录 npm 包、前端 npm 包、后端版本、Tauri 配置、Cargo 元数据、README 和当前版本计划。
+- 新增集中项目默认配置：`config/project-default-settings.json` 统一承载表格预览、列映射设置和工作量抓取列选择默认值，新用户、清空浏览器缓存和 Windows 绿色版首次打开都从该文件读取默认口径。
+- 调整表格预览 / 列映射 / 工作量抓取设置：弹窗内修改只作为当前页面临时设置生效，不再写入浏览器 localStorage 或旧的用户偏好 JSON；弹窗提供“恢复项目默认”入口。
+- 修正预览列设置保存时遗漏拖拽列宽的问题，保存默认设置后继续保留按 `sheet 名 + 列标题` 记忆的列宽。
+- 绿色版打包会复制集中项目默认配置；若项目缺少该配置，则自动生成内置兜底配置，确保目标电脑首次打开也能生效。
+- 新增 `tools/build_green_release.py`，生成 Windows 绿色版：后端 `8000`、前端 Vite `5174` 双服务启动，不使用桌面壳，也不以后端静态 `web/` 作为主入口。
+- 绿色版随包携带 `runtime/python/`、`runtime/python-libs/`、`runtime/node/` 和 `frontend/node_modules/`，目标 Windows 电脑无需预装 Python、Node 或 npm。
+- 新增 `docs/绿色版说明.md`，同步更新 README 和运行入口 PRD，明确当前对外交付只保留传统开发版和 Windows 绿色版两类入口；旧静态评委版不再作为当前交付物。
+- Tauri 桌面壳保留为开发调试和未来桌面化资产，但不进入当前 Windows 绿色版；相关说明和构建脚本改为复用绿色版目录，不再引用旧评委版构建脚本。
+- 新增当前 Tauri 桌面 exe 输出口径：`tools/build_tauri_release.py` 会生成 `造价智算-Tauri桌面版-日期-版本` 目录和 zip，随包携带 Python / Python 依赖 / `frontend/dist`，不携带 Node / npm / Rust / Cargo。
+- 修正 Tauri 桌面版停止机制：停止入口改为 `停止造价智算-Tauri桌面版.bat` 调用 PowerShell 清理 PID 文件和当前包后端进程，降低中文路径和批处理转义问题。
+- 绿色版和 Tauri 桌面版打包时复制项目根目录现有 `.env.local`，用于目标电脑直接使用问问智算；API Key 仍不写入源码和代码存档。
+- 保持稳定边界：本次只改启动、打包和文档说明，不修改基价 / 单价匹配、调整系数规则、经验池预警、工作量抓取、Word 报告或大模型“只解释、不裁决”的业务边界。
+
 ## v5.5.0 - 2026-07-07
 
 - 升级版本号到 `v5.5.0`：同步根目录 npm 包、前端 npm 包、后端版本、Tauri 配置、Cargo 元数据、README 和当前版本计划。

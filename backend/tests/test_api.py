@@ -42,7 +42,7 @@ def test_health_endpoint():
 
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
-    assert response.json()["version"] == "v5.5.3"
+    assert response.json()["version"] == "v5.5.4"
 
 
 def test_project_default_settings_include_zhisuan_window():
@@ -55,6 +55,7 @@ def test_project_default_settings_include_zhisuan_window():
     assert payload["zhisuanWindow"]["dockWidth"] == 400
     assert payload["zhisuanWindow"]["welcomeMessage"]
     assert payload["zhisuanWindow"]["quickSettings"]["autoHide"] is True
+    assert payload["zhisuanWindow"]["quickSettings"]["customPrompts"] == ["@知识库："]
 
 
 def test_ui_preferences_are_saved_and_loaded(tmp_path, monkeypatch):

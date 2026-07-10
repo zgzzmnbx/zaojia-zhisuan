@@ -135,7 +135,9 @@
         "download-excel",
         "download-word"
       ],
-      "customPrompts": [],
+      "customPrompts": [
+        "@知识库："
+      ],
       "autoHide": true,
       "version": 2
     },

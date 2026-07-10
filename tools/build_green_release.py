@@ -700,7 +700,7 @@ def default_project_settings_payload() -> dict[str, object]:
                     "download-excel",
                     "download-word",
                 ],
-                "customPrompts": [],
+                "customPrompts": ["@知识库："],
                 "autoHide": True,
                 "version": 2,
             },
