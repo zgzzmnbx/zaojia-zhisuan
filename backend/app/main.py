@@ -99,7 +99,7 @@ from .paths import (
 from .report import append_risk_report, write_report
 
 
-APP_VERSION = "v5.5.2"
+APP_VERSION = "v5.5.3"
 OUTPUT_FILE_PREFIX = "【输出】"
 TEMP_FILE_PREFIX = "【临时】"
 PROCESS_STATE_FILENAME = "process-state.json"
@@ -2734,11 +2734,27 @@ def _project_workload_capture_defaults() -> dict[str, object]:
     }
 
 
+def _project_zhisuan_window_defaults() -> dict[str, object]:
+    section = _project_default_section("zhisuanWindow")
+    quick_settings = section.get("quickSettings", {})
+    dock_visibility = section.get("dockVisibility", {})
+    return {
+        "chatHeight": _project_default_int(section, "chatHeight", 430, 300, 720),
+        "dockWidth": _project_default_int(section, "dockWidth", 400, 300, 560),
+        "useViewportHeight": _project_default_bool(section, "useViewportHeight", False),
+        "quickSettings": quick_settings if isinstance(quick_settings, dict) else {},
+        "dockVisibility": dock_visibility if isinstance(dock_visibility, dict) else {},
+        "welcomeMessage": str(section.get("welcomeMessage", "") or "").strip(),
+        "dockStyle": str(section.get("dockStyle", "") or "").strip(),
+    }
+
+
 def _project_default_settings_payload() -> dict[str, object]:
     return {
         "version": int(_load_project_default_settings().get("version", 1) or 1),
         "file_path": str(PROJECT_DEFAULT_SETTINGS_PATH),
         "previewColumns": _default_preview_column_preferences(),
+        "zhisuanWindow": _project_zhisuan_window_defaults(),
         "inputMapping": _project_input_mapping_defaults(),
         "workloadCapture": _project_workload_capture_defaults(),
     }

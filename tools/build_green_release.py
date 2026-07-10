@@ -670,16 +670,53 @@ def copy_local_env(project_root: Path, release_root: Path) -> bool:
 
 def default_project_settings_payload() -> dict[str, object]:
     return {
-        "version": 1,
+        "version": 2,
         "updated_at": date.today().isoformat(),
+        "_说明": [
+            "这是造价智算的项目默认设置文件，可以手动修改。",
+            "JSON 标准不支持 // 或 /* */ 注释；需要说明时请使用以下划线开头的说明字段。",
+            "程序只读取 previewColumns、zhisuanWindow、inputMapping、workloadCapture 内的有效配置项，未知说明字段会被忽略。",
+            "修改后请保持 JSON 格式合法；如果格式错误，程序会回退到代码内置默认值。",
+        ],
         "previewColumns": {
+            "_说明": "表格预览默认设置：控制默认显示列、各 sheet 表头行、单元格最大显示字符数和手动列宽。",
             "defaultLabels": DEFAULT_CORE_PREVIEW_LABELS,
             "sheetOverrides": {},
             "headerRows": {},
             "maxDisplayChars": DEFAULT_PREVIEW_CELL_MAX_DISPLAY_CHARS,
             "columnWidths": {},
         },
+        "zhisuanWindow": {
+            "_说明": "问问智算窗口的项目默认设置：聊天区、右侧 Dock、欢迎语、显示项和快捷指令都统一从这里读取；设置页内调整只在当前会话生效。",
+            "chatHeight": 430,
+            "dockWidth": 400,
+            "useViewportHeight": False,
+            "quickSettings": {
+                "_说明": "enabledIds 控制启用的内置快捷指令；customPrompts 是逐行显示的自定义快捷指令；autoHide 控制快捷指令是否默认收起。",
+                "enabledIds": [
+                    "batch-match",
+                    "experience-warning",
+                    "risk-report",
+                    "download-excel",
+                    "download-word",
+                ],
+                "customPrompts": [],
+                "autoHide": True,
+                "version": 2,
+            },
+            "dockVisibility": {
+                "rowReview": False,
+                "conclusion": False,
+                "review": False,
+                "warning": False,
+                "ruleNotice": False,
+                "debugInfo": False,
+            },
+            "welcomeMessage": "你好，我是智算。你把 Excel 拖进来，我负责盯住字段、转换、预警、报告和每一行复核。价格还是由结构化规则裁决，我只做解释、总结和提醒。",
+            "dockStyle": "default",
+        },
         "inputMapping": {
+            "_说明": "主填价模块的列映射默认设置。",
             "headerRow": 4,
             "outputMatchReport": True,
             "onlyMatchRowsWithValue": True,
@@ -699,6 +736,7 @@ def default_project_settings_payload() -> dict[str, object]:
             },
         },
         "workloadCapture": {
+            "_说明": "工作量抓取模块的默认设置。",
             "selectedFields": [
                 "数量(信息抓取)",
                 "实物工作费调整系数(信息抓取)",

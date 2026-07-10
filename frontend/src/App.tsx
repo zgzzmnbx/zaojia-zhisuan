@@ -36,7 +36,7 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.5.2";
+const APP_VERSION = "v5.5.3";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const KNOWLEDGE_QA_ENTRY_COUNT = 3922;
 const KNOWLEDGE_QA_SOURCE_COUNT = 17;
@@ -123,16 +123,9 @@ const REQUIRED_MAPPING_FIELDS = ["要素1", "单位", "输出-价格列"] as con
 const ELEMENT_FIELDS = ["要素1", "要素2", "要素3", "要素4", "要素5"] as const;
 const EMPTY_ELEMENT_COLUMN = "空元素列";
 const OUTPUT_ROW_FILTER_STORAGE_KEY = "guankanzhisuan-output-row-filter-settings";
-const ZHISUAN_CHAT_HEIGHT_STORAGE_KEY = "guankanzhisuan-zhisuan-chat-height";
-const ZHISUAN_DOCK_WIDTH_STORAGE_KEY = "guankanzhisuan-zhisuan-dock-width";
-const ZHISUAN_DOCK_VIEWPORT_HEIGHT_STORAGE_KEY = "guankanzhisuan-zhisuan-dock-viewport-height";
-const ZHISUAN_QUICK_SETTINGS_STORAGE_KEY = "guankanzhisuan-zhisuan-quick-settings";
-const ZHISUAN_DOCK_VISIBILITY_STORAGE_KEY = "guankanzhisuan-zhisuan-dock-visibility";
-const ZHISUAN_WELCOME_STORAGE_KEY = "guankanzhisuan-zhisuan-welcome-message";
-const ZHISUAN_DOCK_STYLE_STORAGE_KEY = "guankanzhisuan-zhisuan-dock-style";
 const WELCOME_SCREEN_HIDDEN_STORAGE_KEY = "guankanzhisuan-welcome-screen-hidden";
 const WELCOME_SCREEN_VERSION_STORAGE_KEY = "guankanzhisuan-welcome-screen-version";
-const WELCOME_SCREEN_VERSION = "brand-v5.5.2";
+const WELCOME_SCREEN_VERSION = "brand-v5.5.3";
 const ZHISUAN_QUICK_SETTINGS_VERSION = 2;
 const LEFT_COLUMN_COLLAPSED_STORAGE_KEY = "guankanzhisuan-left-column-collapsed";
 type MappingField = (typeof MAPPING_FIELDS)[number];
@@ -380,13 +373,25 @@ type ZhisuanQuickSettings = {
 type ZhisuanDockStyle = "default" | "analysis" | "companion";
 type ZhisuanDockVisibilityKey = "rowReview" | "conclusion" | "review" | "warning" | "ruleNotice" | "debugInfo";
 type ZhisuanDockVisibilitySettings = Record<ZhisuanDockVisibilityKey, boolean>;
+type ZhisuanWindowSettings = {
+  chatHeight: number;
+  dockWidth: number;
+  useViewportHeight: boolean;
+  quickSettings: ZhisuanQuickSettings;
+  dockVisibility: ZhisuanDockVisibilitySettings;
+  welcomeMessage: string;
+  dockStyle: ZhisuanDockStyle;
+};
+type ZhisuanWindowSettingsPayload = Partial<Omit<ZhisuanWindowSettings, "quickSettings" | "dockVisibility">> & {
+  quickSettings?: Partial<ZhisuanQuickSettings>;
+  dockVisibility?: Partial<ZhisuanDockVisibilitySettings>;
+};
 
 const ZHISUAN_WELCOME_MESSAGE =
   "你好，我是智算。你把 Excel 拖进来，我负责盯住字段、转换、预警、报告和每一行复核。价格还是由结构化规则裁决，我只做解释、总结和提醒。";
 const ZHISUAN_WORD_REPORT_ACTION = "[[ZHISUAN_WORD_REPORT_ACTION]]";
 const ZHISUAN_PREVIEW_ACTION = "[[ZHISUAN_PREVIEW_ACTION]]";
 const ZHISUAN_BATCH_MATCH_ACTION = "[[ZHISUAN_BATCH_MATCH_ACTION]]";
-const ZHISUAN_WELCOME_MESSAGE_FILE = `${import.meta.env.BASE_URL}zhisuan-welcome-message.txt`;
 
 const ZHISUAN_BUILTIN_QUICK_ITEMS: ZhisuanQuickItem[] = [
   { id: "batch-match", label: "批量匹配", prompt: "批量匹配", kind: "command", command: "batch-match" },
@@ -438,6 +443,15 @@ const ZHISUAN_DOCK_STYLE_OPTIONS: Array<{ id: ZhisuanDockStyle; name: string; de
   { id: "analysis", name: "智算分析台", description: "更像专业审查面板" },
   { id: "companion", name: "随行光带", description: "更像贴身 AI 助手" },
 ];
+const DEFAULT_ZHISUAN_WINDOW_SETTINGS: ZhisuanWindowSettings = {
+  chatHeight: 430,
+  dockWidth: 400,
+  useViewportHeight: false,
+  quickSettings: DEFAULT_ZHISUAN_QUICK_SETTINGS,
+  dockVisibility: DEFAULT_ZHISUAN_DOCK_VISIBILITY_SETTINGS,
+  welcomeMessage: ZHISUAN_WELCOME_MESSAGE,
+  dockStyle: "default",
+};
 const ZHISUAN_AVATAR_STATE_LABELS: Record<ZhisuanAvatarState, string> = {
   idle: "待命",
   listening: "听取输入",
@@ -513,6 +527,7 @@ type PreviewColumnPreferencesPayload = {
 type ProjectDefaultSettingsPayload = {
   file_path?: string;
   previewColumns?: Partial<PreviewColumnPreferences>;
+  zhisuanWindow?: ZhisuanWindowSettingsPayload;
   inputMapping?: {
     headerRow?: number;
     outputMatchReport?: boolean;
@@ -1192,30 +1207,21 @@ function readInitialOutputRowFilterSettings() {
 }
 
 function clampZhisuanChatHeight(value: unknown) {
+  if (value === null || value === undefined || String(value).trim() === "") {
+    return DEFAULT_ZHISUAN_WINDOW_SETTINGS.chatHeight;
+  }
   const numericValue = Number(value);
-  if (!Number.isFinite(numericValue)) return 430;
+  if (!Number.isFinite(numericValue)) return DEFAULT_ZHISUAN_WINDOW_SETTINGS.chatHeight;
   return Math.max(300, Math.min(720, Math.round(numericValue)));
 }
 
 function clampZhisuanDockWidth(value: unknown) {
+  if (value === null || value === undefined || String(value).trim() === "") {
+    return DEFAULT_ZHISUAN_WINDOW_SETTINGS.dockWidth;
+  }
   const numericValue = Number(value);
-  if (!Number.isFinite(numericValue)) return 360;
+  if (!Number.isFinite(numericValue)) return DEFAULT_ZHISUAN_WINDOW_SETTINGS.dockWidth;
   return Math.max(300, Math.min(560, Math.round(numericValue)));
-}
-
-function readInitialZhisuanChatHeight() {
-  if (typeof window === "undefined") return 430;
-  return clampZhisuanChatHeight(window.localStorage.getItem(ZHISUAN_CHAT_HEIGHT_STORAGE_KEY));
-}
-
-function readInitialZhisuanDockWidth() {
-  if (typeof window === "undefined") return 360;
-  return clampZhisuanDockWidth(window.localStorage.getItem(ZHISUAN_DOCK_WIDTH_STORAGE_KEY));
-}
-
-function readInitialZhisuanDockViewportHeight() {
-  if (typeof window === "undefined") return false;
-  return window.localStorage.getItem(ZHISUAN_DOCK_VIEWPORT_HEIGHT_STORAGE_KEY) === "1";
 }
 
 function normalizeZhisuanQuickSettings(raw?: Partial<ZhisuanQuickSettings>): ZhisuanQuickSettings {
@@ -1246,17 +1252,6 @@ function normalizeZhisuanQuickSettings(raw?: Partial<ZhisuanQuickSettings>): Zhi
   };
 }
 
-function readInitialZhisuanQuickSettings() {
-  if (typeof window === "undefined") return DEFAULT_ZHISUAN_QUICK_SETTINGS;
-  try {
-    const raw = window.localStorage.getItem(ZHISUAN_QUICK_SETTINGS_STORAGE_KEY);
-    if (!raw) return DEFAULT_ZHISUAN_QUICK_SETTINGS;
-    return normalizeZhisuanQuickSettings(JSON.parse(raw) as Partial<ZhisuanQuickSettings>);
-  } catch {
-    return DEFAULT_ZHISUAN_QUICK_SETTINGS;
-  }
-}
-
 function normalizeZhisuanDockVisibilitySettings(raw?: Partial<ZhisuanDockVisibilitySettings>): ZhisuanDockVisibilitySettings {
   return {
     rowReview: Boolean(raw?.rowReview),
@@ -1268,46 +1263,21 @@ function normalizeZhisuanDockVisibilitySettings(raw?: Partial<ZhisuanDockVisibil
   };
 }
 
-function readInitialZhisuanDockVisibilitySettings() {
-  if (typeof window === "undefined") return DEFAULT_ZHISUAN_DOCK_VISIBILITY_SETTINGS;
-  try {
-    const raw = window.localStorage.getItem(ZHISUAN_DOCK_VISIBILITY_STORAGE_KEY);
-    if (!raw) return DEFAULT_ZHISUAN_DOCK_VISIBILITY_SETTINGS;
-    return normalizeZhisuanDockVisibilitySettings(JSON.parse(raw) as Partial<ZhisuanDockVisibilitySettings>);
-  } catch {
-    return DEFAULT_ZHISUAN_DOCK_VISIBILITY_SETTINGS;
-  }
-}
-
-function readStoredZhisuanWelcomeMessage() {
-  if (typeof window === "undefined") return "";
-  const storedMessage = window.localStorage.getItem(ZHISUAN_WELCOME_STORAGE_KEY);
-  const cleaned = storedMessage?.replace(/\r/g, "").trim();
-  return cleaned || "";
-}
-
-function readInitialZhisuanWelcomeMessage() {
-  return readStoredZhisuanWelcomeMessage() || ZHISUAN_WELCOME_MESSAGE;
-}
-
-function hasStoredZhisuanWelcomeMessage() {
-  return Boolean(readStoredZhisuanWelcomeMessage());
-}
-
-async function fetchZhisuanWelcomeMessageFromFile() {
-  try {
-    const response = await fetch(ZHISUAN_WELCOME_MESSAGE_FILE, { cache: "no-store" });
-    if (!response.ok) return "";
-    return (await response.text()).replace(/\r/g, "").trim();
-  } catch {
-    return "";
-  }
-}
-
-function readInitialZhisuanDockStyle(): ZhisuanDockStyle {
-  if (typeof window === "undefined") return "default";
-  const value = window.localStorage.getItem(ZHISUAN_DOCK_STYLE_STORAGE_KEY);
+function normalizeZhisuanDockStyle(value: unknown): ZhisuanDockStyle {
   return value === "analysis" || value === "companion" ? value : "default";
+}
+
+function normalizeZhisuanWindowSettings(raw?: ZhisuanWindowSettingsPayload): ZhisuanWindowSettings {
+  const welcomeMessage = String(raw?.welcomeMessage ?? "").replace(/\r/g, "").trim();
+  return {
+    chatHeight: clampZhisuanChatHeight(raw?.chatHeight),
+    dockWidth: clampZhisuanDockWidth(raw?.dockWidth),
+    useViewportHeight: raw?.useViewportHeight ?? DEFAULT_ZHISUAN_WINDOW_SETTINGS.useViewportHeight,
+    quickSettings: normalizeZhisuanQuickSettings(raw?.quickSettings),
+    dockVisibility: normalizeZhisuanDockVisibilitySettings(raw?.dockVisibility),
+    welcomeMessage: welcomeMessage || DEFAULT_ZHISUAN_WINDOW_SETTINGS.welcomeMessage,
+    dockStyle: normalizeZhisuanDockStyle(raw?.dockStyle),
+  };
 }
 
 function readInitialWelcomeScreenVisible() {
@@ -1461,18 +1431,19 @@ function DaweibaApp() {
   const [isChatInputFocused, setIsChatInputFocused] = useState(false);
   const [avatarSuccessUntil, setAvatarSuccessUntil] = useState(0);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const [zhisuanChatHeight, setZhisuanChatHeight] = useState(readInitialZhisuanChatHeight);
-  const [zhisuanChatHeightDraft, setZhisuanChatHeightDraft] = useState(() => String(readInitialZhisuanChatHeight()));
-  const [zhisuanDockWidth, setZhisuanDockWidth] = useState(readInitialZhisuanDockWidth);
-  const [zhisuanDockWidthDraft, setZhisuanDockWidthDraft] = useState(() => String(readInitialZhisuanDockWidth()));
-  const [useZhisuanDockViewportHeight, setUseZhisuanDockViewportHeight] = useState(readInitialZhisuanDockViewportHeight);
-  const [zhisuanQuickSettings, setZhisuanQuickSettings] = useState<ZhisuanQuickSettings>(readInitialZhisuanQuickSettings);
-  const [zhisuanDockVisibility, setZhisuanDockVisibility] = useState<ZhisuanDockVisibilitySettings>(readInitialZhisuanDockVisibilitySettings);
-  const [customQuickCommandDraft, setCustomQuickCommandDraft] = useState(() => preferenceText(readInitialZhisuanQuickSettings().customPrompts));
-  const [zhisuanWelcomeMessage, setZhisuanWelcomeMessage] = useState(readInitialZhisuanWelcomeMessage);
-  const [zhisuanWelcomeDraft, setZhisuanWelcomeDraft] = useState(readInitialZhisuanWelcomeMessage);
-  const [isZhisuanWelcomeLoaded, setIsZhisuanWelcomeLoaded] = useState(hasStoredZhisuanWelcomeMessage);
-  const [zhisuanDockStyle, setZhisuanDockStyle] = useState<ZhisuanDockStyle>(readInitialZhisuanDockStyle);
+  const [zhisuanWindowDefaults, setZhisuanWindowDefaults] = useState<ZhisuanWindowSettings>(normalizeZhisuanWindowSettings);
+  const [zhisuanChatHeight, setZhisuanChatHeight] = useState(DEFAULT_ZHISUAN_WINDOW_SETTINGS.chatHeight);
+  const [zhisuanChatHeightDraft, setZhisuanChatHeightDraft] = useState(String(DEFAULT_ZHISUAN_WINDOW_SETTINGS.chatHeight));
+  const [zhisuanDockWidth, setZhisuanDockWidth] = useState(DEFAULT_ZHISUAN_WINDOW_SETTINGS.dockWidth);
+  const [zhisuanDockWidthDraft, setZhisuanDockWidthDraft] = useState(String(DEFAULT_ZHISUAN_WINDOW_SETTINGS.dockWidth));
+  const [useZhisuanDockViewportHeight, setUseZhisuanDockViewportHeight] = useState(DEFAULT_ZHISUAN_WINDOW_SETTINGS.useViewportHeight);
+  const [zhisuanQuickSettings, setZhisuanQuickSettings] = useState<ZhisuanQuickSettings>(DEFAULT_ZHISUAN_WINDOW_SETTINGS.quickSettings);
+  const [zhisuanDockVisibility, setZhisuanDockVisibility] = useState<ZhisuanDockVisibilitySettings>(DEFAULT_ZHISUAN_WINDOW_SETTINGS.dockVisibility);
+  const [customQuickCommandDraft, setCustomQuickCommandDraft] = useState(() => preferenceText(DEFAULT_ZHISUAN_WINDOW_SETTINGS.quickSettings.customPrompts));
+  const [zhisuanWelcomeMessage, setZhisuanWelcomeMessage] = useState(DEFAULT_ZHISUAN_WINDOW_SETTINGS.welcomeMessage);
+  const [zhisuanWelcomeDraft, setZhisuanWelcomeDraft] = useState(DEFAULT_ZHISUAN_WINDOW_SETTINGS.welcomeMessage);
+  const [isZhisuanWelcomeLoaded, setIsZhisuanWelcomeLoaded] = useState(false);
+  const [zhisuanDockStyle, setZhisuanDockStyle] = useState<ZhisuanDockStyle>(DEFAULT_ZHISUAN_WINDOW_SETTINGS.dockStyle);
   const [llmDebugHistory, setLlmDebugHistory] = useState<LlmDebugRecord[]>([]);
   const [experienceFile, setExperienceFile] = useState<File | null>(null);
   const [selectedExperienceFields, setSelectedExperienceFields] = useState<string[]>([...EXPERIENCE_FIELD_OPTIONS]);
@@ -1607,27 +1578,6 @@ function DaweibaApp() {
   }, [isLeftColumnCollapsed]);
 
   useEffect(() => {
-    if (hasStoredZhisuanWelcomeMessage()) {
-      setIsZhisuanWelcomeLoaded(true);
-      return undefined;
-    }
-    let cancelled = false;
-    fetchZhisuanWelcomeMessageFromFile()
-      .then((fileMessage) => {
-        if (cancelled) return;
-        const nextMessage = fileMessage || ZHISUAN_WELCOME_MESSAGE;
-        setZhisuanWelcomeMessage(nextMessage);
-        setZhisuanWelcomeDraft(nextMessage);
-      })
-      .finally(() => {
-        if (!cancelled) setIsZhisuanWelcomeLoaded(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
     if (!isZhisuanWelcomeLoaded) return;
     if (didWelcomeRef.current) return;
     didWelcomeRef.current = true;
@@ -1706,28 +1656,6 @@ function DaweibaApp() {
       JSON.stringify(outputRowFilterSettings),
     );
   }, [outputRowFilterSettings]);
-
-  useEffect(() => {
-    window.localStorage.setItem(
-      ZHISUAN_QUICK_SETTINGS_STORAGE_KEY,
-      JSON.stringify(zhisuanQuickSettings),
-    );
-  }, [zhisuanQuickSettings]);
-
-  useEffect(() => {
-    window.localStorage.setItem(
-      ZHISUAN_DOCK_VISIBILITY_STORAGE_KEY,
-      JSON.stringify(zhisuanDockVisibility),
-    );
-  }, [zhisuanDockVisibility]);
-
-  useEffect(() => {
-    window.localStorage.setItem(ZHISUAN_DOCK_STYLE_STORAGE_KEY, zhisuanDockStyle);
-  }, [zhisuanDockStyle]);
-
-  useEffect(() => {
-    window.localStorage.setItem(ZHISUAN_DOCK_VIEWPORT_HEIGHT_STORAGE_KEY, useZhisuanDockViewportHeight ? "1" : "0");
-  }, [useZhisuanDockViewportHeight]);
 
   useEffect(() => {
     if (!isProcessing) return undefined;
@@ -2543,26 +2471,22 @@ function DaweibaApp() {
     const nextHeight = clampZhisuanChatHeight(zhisuanChatHeightDraft);
     setZhisuanChatHeight(nextHeight);
     setZhisuanChatHeightDraft(String(nextHeight));
-    window.localStorage.setItem(ZHISUAN_CHAT_HEIGHT_STORAGE_KEY, String(nextHeight));
   }
 
   function saveZhisuanDockWidthSetting() {
     const nextWidth = clampZhisuanDockWidth(zhisuanDockWidthDraft);
     setZhisuanDockWidth(nextWidth);
     setZhisuanDockWidthDraft(String(nextWidth));
-    window.localStorage.setItem(ZHISUAN_DOCK_WIDTH_STORAGE_KEY, String(nextWidth));
   }
 
   function saveZhisuanWelcomeMessage() {
-    const nextMessage = zhisuanWelcomeDraft.replace(/\r/g, "").trim() || ZHISUAN_WELCOME_MESSAGE;
+    const nextMessage = zhisuanWelcomeDraft.replace(/\r/g, "").trim() || zhisuanWindowDefaults.welcomeMessage;
     setZhisuanWelcomeDraft(nextMessage);
     setZhisuanWelcomeMessage(nextMessage);
-    window.localStorage.setItem(ZHISUAN_WELCOME_STORAGE_KEY, nextMessage);
   }
 
-  async function resetZhisuanWelcomeMessage() {
-    window.localStorage.removeItem(ZHISUAN_WELCOME_STORAGE_KEY);
-    const nextMessage = (await fetchZhisuanWelcomeMessageFromFile()) || ZHISUAN_WELCOME_MESSAGE;
+  function resetZhisuanWelcomeMessage() {
+    const nextMessage = zhisuanWindowDefaults.welcomeMessage;
     setZhisuanWelcomeDraft(nextMessage);
     setZhisuanWelcomeMessage(nextMessage);
   }
@@ -2579,8 +2503,9 @@ function DaweibaApp() {
   }
 
   function resetZhisuanQuickSettings() {
-    setZhisuanQuickSettings(DEFAULT_ZHISUAN_QUICK_SETTINGS);
-    setCustomQuickCommandDraft("");
+    const nextSettings = zhisuanWindowDefaults.quickSettings;
+    setZhisuanQuickSettings(nextSettings);
+    setCustomQuickCommandDraft(preferenceText(nextSettings.customPrompts));
   }
 
   function allowsEmptyElement(field: MappingField) {
@@ -2591,7 +2516,29 @@ function DaweibaApp() {
     selectFile(event.target.files?.[0] ?? null);
   }
 
+  function applyZhisuanWindowSettings(raw?: ZhisuanWindowSettingsPayload) {
+    const defaults = normalizeZhisuanWindowSettings(raw);
+    setZhisuanWindowDefaults(defaults);
+    setZhisuanChatHeight(defaults.chatHeight);
+    setZhisuanChatHeightDraft(String(defaults.chatHeight));
+    setZhisuanDockWidth(defaults.dockWidth);
+    setZhisuanDockWidthDraft(String(defaults.dockWidth));
+    setUseZhisuanDockViewportHeight(defaults.useViewportHeight);
+    setZhisuanQuickSettings(defaults.quickSettings);
+    setCustomQuickCommandDraft(preferenceText(defaults.quickSettings.customPrompts));
+    setZhisuanDockVisibility(defaults.dockVisibility);
+    setZhisuanWelcomeMessage(defaults.welcomeMessage);
+    setZhisuanWelcomeDraft(defaults.welcomeMessage);
+    setZhisuanDockStyle(defaults.dockStyle);
+    if (!defaults.dockVisibility.debugInfo) setIsLlmDebugOpen(false);
+  }
+
+  function restoreZhisuanWindowProjectDefaults() {
+    applyZhisuanWindowSettings(zhisuanWindowDefaults);
+  }
+
   function applyProjectDefaultSettings(payload: ProjectDefaultSettingsPayload) {
+    applyZhisuanWindowSettings(payload.zhisuanWindow);
     const previewDefaults = normalizePreviewColumnPreferences(payload.previewColumns);
     setPreviewColumnPreferences(previewDefaults);
     setPreviewDefaultLabelsDraft(preferenceText(previewDefaults.defaultLabels));
@@ -2639,6 +2586,8 @@ function DaweibaApp() {
     } catch {
       // The built-in defaults remain usable if the backend is still starting.
       return null;
+    } finally {
+      setIsZhisuanWelcomeLoaded(true);
     }
   }
 
@@ -8434,7 +8383,10 @@ function DaweibaApp() {
               </label>
               <div className="settings-action-row compact">
                 <button className="ghost-button" type="button" onClick={resetZhisuanWelcomeMessage}>
-                  恢复默认欢迎语
+                  恢复项目默认欢迎语
+                </button>
+                <button className="ghost-button" type="button" onClick={restoreZhisuanWindowProjectDefaults}>
+                  恢复项目默认
                 </button>
                 <button className="primary-button" type="button" onClick={() => {
                   saveZhisuanChatHeightSetting();
@@ -8442,10 +8394,10 @@ function DaweibaApp() {
                   saveZhisuanWelcomeMessage();
                 }}>
                   <Settings size={17} />
-                  保存智算窗口设置
+                  应用当前会话设置
                 </button>
               </div>
-              <p className="settings-hint">聊天区高度、横向宽度、纵向高度偏好、欢迎语、智算外观风格和显示项保存在浏览器本地；横向宽度默认 360px；纵向高度跟随窗口默认关闭；显示项默认全部关闭；两版新外观默认不启用，只改变右侧智算 Dock 的外在表现，不改变功能逻辑；项目默认欢迎语位于 `frontend/public/zhisuan-welcome-message.txt`，设置页保存的个人欢迎语会优先生效。</p>
+              <p className="settings-hint">聊天区高度、横向宽度、纵向高度偏好、欢迎语、智算外观风格和显示项统一来自项目默认配置；本页调整仅在当前会话生效，不写入浏览器本地。横向宽度默认 400px；纵向高度跟随窗口默认关闭；显示项默认全部关闭；两版新外观默认不启用，只改变右侧智算 Dock 的外在表现，不改变功能逻辑。</p>
             </div>
             <div className="settings-subsection zhisuan-quick-settings">
               <span className="settings-subsection-title">问问智算快捷指令</span>
@@ -8472,14 +8424,14 @@ function DaweibaApp() {
               </label>
               <div className="settings-action-row compact">
                 <button className="ghost-button" type="button" onClick={resetZhisuanQuickSettings}>
-                  恢复默认快捷指令
+                  恢复项目默认快捷指令
                 </button>
                 <button className="primary-button" type="button" onClick={saveCustomZhisuanQuickCommands}>
                   <Settings size={17} />
                   保存自定义快捷指令
                 </button>
               </div>
-              <p className="settings-hint">内置指令开关会自动保存并按原逻辑触发；自定义指令按行保存，点击后只填入“问问智算”输入框，由用户按 Enter 或点击发送确认。</p>
+              <p className="settings-hint">内置指令开关和自定义指令只在当前会话生效；自定义指令按行应用，点击后只填入“问问智算”输入框，由用户按 Enter 或点击发送确认。</p>
             </div>
           </div>
         </div>

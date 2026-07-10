@@ -8086,7 +8086,7 @@ tbody tr:hover .row-ai-cell {
 .shell.layout-daweiba .daweiba-layout-shell {
   --db-shell-top-gap: 0px;
   --db-layout-left-width: 300px;
-  --db-layout-ai-width: clamp(360px, var(--zhisuan-dock-width, 380px), 420px);
+  --db-layout-ai-width: clamp(360px, var(--zhisuan-dock-width, 400px), 420px);
   display: grid;
   grid-template-columns: var(--db-layout-left-width) minmax(0, 1fr) var(--db-layout-ai-width);
   gap: 18px;

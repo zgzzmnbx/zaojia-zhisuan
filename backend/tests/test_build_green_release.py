@@ -29,6 +29,7 @@ def test_copy_project_default_settings_uses_project_json(tmp_path):
                     "maxDisplayChars": 12,
                     "columnWidths": {"表2": {"项目": 180}},
                 },
+                "zhisuanWindow": {"dockWidth": 400, "welcomeMessage": "项目欢迎语"},
                 "inputMapping": {"headerRow": 4, "fieldPreferences": {"要素1": ["项目"]}},
                 "workloadCapture": {"selectedFields": ["数量(信息抓取)"]},
             },
@@ -43,6 +44,8 @@ def test_copy_project_default_settings_uses_project_json(tmp_path):
     copied_payload = json.loads((release_root / build_green_release.PROJECT_DEFAULT_SETTINGS_RELATIVE_PATH).read_text(encoding="utf-8"))
     assert copied_payload["previewColumns"]["headerRows"] == {"表2": 3}
     assert copied_payload["previewColumns"]["columnWidths"]["表2"]["项目"] == 180
+    assert copied_payload["zhisuanWindow"]["dockWidth"] == 400
+    assert copied_payload["zhisuanWindow"]["welcomeMessage"] == "项目欢迎语"
     assert copied_payload["inputMapping"]["headerRow"] == 4
 
 
@@ -57,5 +60,7 @@ def test_copy_project_default_settings_generates_release_default_when_missing(tm
     generated_payload = json.loads((release_root / build_green_release.PROJECT_DEFAULT_SETTINGS_RELATIVE_PATH).read_text(encoding="utf-8"))
     assert generated_payload["previewColumns"]["defaultLabels"][0] == "要素1"
     assert generated_payload["previewColumns"]["maxDisplayChars"] == 8
+    assert generated_payload["zhisuanWindow"]["dockWidth"] == 400
+    assert generated_payload["zhisuanWindow"]["_说明"]
     assert generated_payload["inputMapping"]["headerRow"] == 4
     assert generated_payload["workloadCapture"]["writeMode"] == "conservative"
