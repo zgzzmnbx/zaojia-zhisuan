@@ -1,14 +1,21 @@
 {
   "name": "guankanzhisuan-frontend",
-  "version": "5.6.1",
+  "version": "5.7.0",
   "private": true,
   "type": "module",
   "scripts": {
+    "postinstall": "node scripts/sync-file-viewer-assets.mjs",
+    "predev": "node scripts/sync-file-viewer-assets.mjs",
+    "prebuild": "node scripts/sync-file-viewer-assets.mjs",
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "sync:file-viewer-assets": "node scripts/sync-file-viewer-assets.mjs",
+    "test:report-preview": "node --test tests/wordReportPreviewUtils.test.ts"
   },
   "dependencies": {
+    "@file-viewer/react": "2.1.25",
+    "@file-viewer/renderer-word": "2.1.25",
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "@vitejs/plugin-react": "latest",

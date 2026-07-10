@@ -94,14 +94,14 @@ flowchart LR
 
 | 状态 | 需求 | 说明 | 验收口径 |
 | --- | --- | --- | --- |
-| [待开发] | 在现有 Word 报告页接入真实 DOCX 预览 | 用实际文件预览替换当前由摘要字段拼出的模拟报告页；保留下载、风险清单和右侧智算 | 左侧菜单名称和顺序不变；页面内能看到本次实际生成 Word 的正文和表格，不再把摘要卡当成 Word 预览 |
-| [待开发] | 复用当前报告下载接口获取文件 | 通过 `/api/download/{job_id}/report` 获取二进制，使用 `summary.output_report` 或响应文件名构造带 `.docx` 扩展名的 `File` | 不向前端暴露磁盘路径；不存在时显示明确空态 / 错误；下载 Word 原功能继续可用 |
-| [待开发] | 按需接入 File Viewer Word renderer | 使用 `@file-viewer/react` + `@file-viewer/renderer-word`，`rendererMode: 'replace'`，显式注入 `wordRenderer`；组件只在进入 Word 报告页且报告存在时加载 | 不安装全格式 `react-full` / `preset-all`；首页和结果预览不因 Word renderer 阻塞；React / TypeScript 构建通过 |
-| [待开发] | 本地化 DOCX Worker 与依赖资产 | 同源提供 `vendor/docx/docx.worker.js`、`vendor/docx/jszip.min.js` 等实际所需资产，并使用稳定的相对 / 根路径配置 | 断开公网后，开发版、绿色版和 Tauri 桌面版均能读取报告；控制台无 Worker / JSZip 404，静态资源请求不回落为 SPA HTML |
-| [待开发] | 报告版本刷新与陈旧状态治理 | job 切换、手动重算、风险报告写回后使当前预览失效；取消旧请求并重新获取当前报告，避免缓存旧 DOCX | 新任务不会显示上一个任务报告；刷新后能看到最新写回内容；重复切换不串任务、不永久转圈 |
-| [待开发] | 完整加载、错误和下载兜底 | 对 HTTP 错误、空文件、格式识别失败、renderer 异常和离线资产缺失分别转成用户可理解提示 | 任一预览失败不影响 Excel / Word 下载、风险清单、填价和预警；用户始终可重试或直接下载 Word |
-| [待开发] | 预览器资源与生命周期管理 | 使用 `AbortController` 取消过期获取；如创建 object URL，切换任务和卸载时必须 `URL.revokeObjectURL`；避免重复挂载 controller | 连续切换模块、连续刷新和切换任务无明显内存持续增长，无重复事件、过期内容覆盖和控制台未处理异常 |
-| [待开发] | 响应式成果工作区与基础可访问性 | 预览容器有稳定高度，桌面宽度优先铺满；按钮有禁用态、焦点态和可读标签；状态不能只靠颜色 | 1366px、宽屏显示器和 Tauri 窗口下可滚动、无遮挡；左 / 右侧栏折叠后自然扩宽；键盘可聚焦顶部操作 |
+| [已完成] | 在现有 Word 报告页接入真实 DOCX 预览 | 用实际文件预览替换当前由摘要字段拼出的模拟报告页；保留下载、风险清单和右侧智算 | 左侧菜单名称和顺序不变；页面内能看到本次实际生成 Word 的正文和表格，不再把摘要卡当成 Word 预览 |
+| [已完成] | 复用当前报告下载接口获取文件 | 通过 `/api/download/{job_id}/report` 获取二进制，使用 `summary.output_report` 或响应文件名构造带 `.docx` 扩展名的 `File` | 不向前端暴露磁盘路径；不存在时显示明确空态 / 错误；下载 Word 原功能继续可用 |
+| [已完成] | 按需接入 File Viewer Word renderer | 使用 `@file-viewer/react` + `@file-viewer/renderer-word`，`rendererMode: 'replace'`，显式注入 `wordRenderer`；组件只在进入 Word 报告页且报告存在时加载 | 不安装全格式 `react-full` / `preset-all`；首页和结果预览不因 Word renderer 阻塞；React / TypeScript 构建通过 |
+| [已完成] | 本地化 DOCX Worker 与依赖资产 | 同源提供 `vendor/docx/docx.worker.js`、`vendor/docx/jszip.min.js` 等实际所需资产，并使用稳定的相对 / 根路径配置 | 断开公网后，开发版、绿色版和 Tauri 桌面版均能读取报告；控制台无 Worker / JSZip 404，静态资源请求不回落为 SPA HTML |
+| [已完成] | 报告版本刷新与陈旧状态治理 | job 切换、手动重算、风险报告写回后使当前预览失效；取消旧请求并重新获取当前报告，避免缓存旧 DOCX | 新任务不会显示上一个任务报告；刷新后能看到最新写回内容；重复切换不串任务、不永久转圈 |
+| [已完成] | 完整加载、错误和下载兜底 | 对 HTTP 错误、空文件、格式识别失败、renderer 异常和离线资产缺失分别转成用户可理解提示 | 任一预览失败不影响 Excel / Word 下载、风险清单、填价和预警；用户始终可重试或直接下载 Word |
+| [已完成] | 预览器资源与生命周期管理 | 使用 `AbortController` 取消过期获取；如创建 object URL，切换任务和卸载时必须 `URL.revokeObjectURL`；避免重复挂载 controller | 连续切换模块、连续刷新和切换任务无明显内存持续增长，无重复事件、过期内容覆盖和控制台未处理异常 |
+| [已完成] | 响应式成果工作区与基础可访问性 | 预览容器有稳定高度，桌面宽度优先铺满；按钮有禁用态、焦点态和可读标签；状态不能只靠颜色 | 1366px、宽屏显示器和 Tauri 窗口下可滚动、无遮挡；左 / 右侧栏折叠后自然扩宽；键盘可聚焦顶部操作 |
 | [暂缓] | 网页内编辑 Word、批注和多人协同 | 本期只做只读预览和下载，修改仍通过现有 Excel 人工修改、重算和报告生成链路完成 | 页面不出现伪编辑入口，不把浏览器预览宣称为 Word 排版编辑器 |
 
 ## 技术方案

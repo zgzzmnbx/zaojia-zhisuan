@@ -6692,27 +6692,11 @@ tbody tr:hover .row-ai-cell {
   font-size: 20px;
 }
 
-.shell.layout-daweiba .daweiba-report-grid {
-  display: grid;
-  grid-template-columns: minmax(320px, 0.38fr) minmax(520px, 1fr);
-  gap: 16px;
-  margin-top: 16px;
-}
-
-.shell.layout-daweiba .daweiba-report-actions,
-.shell.layout-daweiba .daweiba-report-preview,
 .shell.layout-daweiba .daweiba-knowledge-card,
 .shell.layout-daweiba .daweiba-module-empty {
   border: 1px solid var(--db-border);
   border-radius: 12px;
   background: var(--db-surface-tint);
-}
-
-.shell.layout-daweiba .daweiba-report-actions {
-  display: grid;
-  align-content: start;
-  gap: 14px;
-  padding: 14px;
 }
 
 .shell.layout-daweiba .daweiba-report-status,
@@ -6746,73 +6730,6 @@ tbody tr:hover .row-ai-cell {
   color: var(--db-text-muted);
   font-size: 13px;
   line-height: 1.55;
-}
-
-.shell.layout-daweiba .daweiba-report-metrics {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.shell.layout-daweiba .daweiba-report-preview {
-  overflow: hidden;
-}
-
-.shell.layout-daweiba .daweiba-report-page {
-  display: grid;
-  gap: 14px;
-  padding: 20px;
-  background: #ffffff;
-}
-
-.shell.layout-daweiba .daweiba-report-page h3 {
-  margin: 0;
-  color: var(--db-text-strong);
-  font-size: 24px;
-}
-
-.shell.layout-daweiba .daweiba-report-page p {
-  margin: 0;
-  color: var(--db-text);
-}
-
-.shell.layout-daweiba .daweiba-report-page dl {
-  display: grid;
-  gap: 10px;
-  margin: 0;
-}
-
-.shell.layout-daweiba .daweiba-report-page dl div {
-  display: grid;
-  grid-template-columns: 150px minmax(0, 1fr);
-  gap: 12px;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--db-border-soft);
-}
-
-.shell.layout-daweiba .daweiba-report-page dt {
-  color: var(--db-text-muted);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.shell.layout-daweiba .daweiba-report-page dd {
-  margin: 0;
-  color: var(--db-text);
-  font-size: 13px;
-}
-
-.shell.layout-daweiba .daweiba-report-review {
-  display: grid;
-  gap: 8px;
-  padding: 12px;
-  border-radius: 10px;
-  background: var(--db-primary-soft);
-  color: var(--db-text);
-}
-
-.shell.layout-daweiba .daweiba-report-review span {
-  font-size: 13px;
 }
 
 .shell.layout-daweiba .daweiba-module-empty {
@@ -7460,6 +7377,353 @@ tbody tr:hover .row-ai-cell {
 
 .shell.layout-daweiba .daweiba-fill-system-card {
   min-height: 84px;
+}
+
+/* v5.7.0: real, local-only DOCX report preview workspace. */
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-report > .daweiba-report-module {
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.shell.layout-daweiba .daweiba-report-module .daweiba-module-surface {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.shell.layout-daweiba .daweiba-report-module .daweiba-module-head {
+  padding: 12px 16px;
+}
+
+.shell.layout-daweiba .daweiba-report-workspace {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.shell.layout-daweiba .daweiba-report-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--db-border);
+  background: #ffffff;
+}
+
+.shell.layout-daweiba .daweiba-report-status {
+  flex: 1 1 220px;
+  min-width: 0;
+  padding: 0;
+  align-items: center;
+}
+
+.shell.layout-daweiba .daweiba-report-status div {
+  min-width: 0;
+}
+
+.shell.layout-daweiba .daweiba-report-status span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell.layout-daweiba .daweiba-report-toolbar-actions {
+  flex: 0 1 auto;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
+}
+
+.shell.layout-daweiba .daweiba-report-toolbar-actions .download-button {
+  min-height: 31px;
+  padding: 0 10px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.shell.layout-daweiba .daweiba-report-toolbar-actions .download-button:focus-visible,
+.shell.layout-daweiba .word-report-preview-state-actions .download-button:focus-visible,
+.shell.layout-daweiba .daweiba-report-sync-notice button:focus-visible {
+  outline: 2px solid var(--db-primary);
+  outline-offset: 2px;
+}
+
+.shell.layout-daweiba .daweiba-report-meta {
+  display: flex;
+  flex: 1 0 100%;
+  flex-wrap: wrap;
+  gap: 7px 16px;
+  color: var(--db-text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.shell.layout-daweiba .daweiba-report-meta span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.shell.layout-daweiba .daweiba-report-meta b {
+  color: var(--db-text-strong);
+  font-size: 13px;
+}
+
+.shell.layout-daweiba .daweiba-report-meta .is-warn b {
+  color: #b42318;
+}
+
+.shell.layout-daweiba .daweiba-report-sync-notice {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 14px;
+  border-bottom: 1px solid #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 12px;
+}
+
+.shell.layout-daweiba .daweiba-report-sync-notice svg {
+  flex: 0 0 auto;
+}
+
+.shell.layout-daweiba .daweiba-report-sync-notice span {
+  flex: 1 1 auto;
+  color: inherit;
+}
+
+.shell.layout-daweiba .daweiba-report-sync-notice button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 29px;
+  padding: 0 10px;
+  border: 1px solid #f59e0b;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #92400e;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.shell.layout-daweiba .daweiba-report-risk-panel {
+  flex: 0 0 auto;
+  max-height: 190px;
+  padding: 0 14px 10px;
+  overflow: auto;
+  border-bottom: 1px solid var(--db-border);
+  background: #ffffff;
+}
+
+.shell.layout-daweiba .daweiba-report-risk-panel summary {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 9px 0;
+  background: #ffffff;
+  color: var(--db-text-strong);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.shell.layout-daweiba .daweiba-report-risk-panel .risk-card-list {
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 8px;
+}
+
+.shell.layout-daweiba .daweiba-report-preview {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: #eef2f7;
+}
+
+.shell.layout-daweiba .daweiba-report-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 38px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--db-border);
+  background: #f8fafc;
+}
+
+.shell.layout-daweiba .daweiba-report-preview-head > div {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.shell.layout-daweiba .daweiba-report-preview-head strong {
+  color: var(--db-text-strong);
+  font-size: 12px;
+}
+
+.shell.layout-daweiba .daweiba-report-preview-head > span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--db-text-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell.layout-daweiba .daweiba-report-preview-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #94a3b8;
+}
+
+.shell.layout-daweiba .daweiba-report-preview-dot.is-loading {
+  background: #2563eb;
+}
+
+.shell.layout-daweiba .daweiba-report-preview-dot.is-ready {
+  background: rgb(117, 188, 146);
+}
+
+.shell.layout-daweiba .daweiba-report-preview-dot.is-error {
+  background: #b42318;
+}
+
+.shell.layout-daweiba .word-report-preview-canvas {
+  --file-viewer-bg: #eef2f7;
+  --file-viewer-text: #334155;
+  --file-viewer-toolbar-bg: #ffffff;
+  --file-viewer-button-color: #334155;
+  --file-viewer-button-radius: 6px;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #eef2f7;
+}
+
+.shell.layout-daweiba .word-report-file-viewer {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.shell.layout-daweiba .word-report-preview-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  padding: 24px;
+  background: rgba(248, 250, 252, 0.94);
+  color: var(--db-text-muted);
+  text-align: center;
+}
+
+.shell.layout-daweiba .word-report-preview-loading svg {
+  color: var(--db-primary);
+}
+
+.shell.layout-daweiba .word-report-preview-loading strong {
+  color: var(--db-text-strong);
+  font-size: 14px;
+}
+
+.shell.layout-daweiba .word-report-preview-loading span {
+  max-width: 440px;
+  color: var(--db-text-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.shell.layout-daweiba .word-report-preview-state {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  padding: 28px;
+  color: var(--db-text-muted);
+  text-align: center;
+}
+
+.shell.layout-daweiba .word-report-preview-state > svg {
+  color: var(--db-primary);
+}
+
+.shell.layout-daweiba .word-report-preview-state.is-error > svg {
+  color: #b42318;
+}
+
+.shell.layout-daweiba .word-report-preview-state strong {
+  color: var(--db-text-strong);
+  font-size: 15px;
+}
+
+.shell.layout-daweiba .word-report-preview-state p {
+  max-width: 520px;
+  margin: 0;
+  color: var(--db-text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.shell.layout-daweiba .word-report-preview-state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.shell.layout-daweiba .daweiba-report-preview-note {
+  margin: 0;
+  padding: 7px 12px;
+  border-top: 1px solid var(--db-border);
+  background: #ffffff;
+  color: var(--db-text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+  text-align: center;
+}
+
+@media (max-width: 900px) {
+  .shell.layout-daweiba .daweiba-report-toolbar-actions {
+    flex: 1 0 100%;
+    justify-content: flex-start;
+  }
+
+  .shell.layout-daweiba .daweiba-report-sync-notice {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
 }
 
 .shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .brief-panel #daweiba-output.download-row {

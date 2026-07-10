@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { DaweibaLayoutV2 } from "./DaweibaLayoutV2";
 import ZhisuanAvatar, { type ZhisuanAvatarState } from "./components/ZhisuanAvatar";
+import WordReportPreview, { type WordReportPreviewStatus } from "./components/report/WordReportPreview";
 
 const DEFAULT_API_BASE = import.meta.env.DEV ? "http://127.0.0.1:8000" : "";
 const API_BASE = import.meta.env.VITE_API_BASE ?? DEFAULT_API_BASE;
@@ -36,7 +37,7 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.6.1";
+const APP_VERSION = "v5.7.0";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const KNOWLEDGE_QA_ENTRY_COUNT = 3922;
 const KNOWLEDGE_QA_SOURCE_COUNT = 17;
@@ -125,7 +126,7 @@ const EMPTY_ELEMENT_COLUMN = "空元素列";
 const OUTPUT_ROW_FILTER_STORAGE_KEY = "guankanzhisuan-output-row-filter-settings";
 const WELCOME_SCREEN_HIDDEN_STORAGE_KEY = "guankanzhisuan-welcome-screen-hidden";
 const WELCOME_SCREEN_VERSION_STORAGE_KEY = "guankanzhisuan-welcome-screen-version";
-const WELCOME_SCREEN_VERSION = "brand-v5.6.1";
+const WELCOME_SCREEN_VERSION = "brand-v5.7.0";
 const ZHISUAN_QUICK_SETTINGS_VERSION = 2;
 const LEFT_COLUMN_COLLAPSED_STORAGE_KEY = "guankanzhisuan-left-column-collapsed";
 type MappingField = (typeof MAPPING_FIELDS)[number];
@@ -1440,6 +1441,9 @@ function DaweibaApp() {
   const [savingPreviewCellKey, setSavingPreviewCellKey] = useState("");
   const [isRecalculatingPreview, setIsRecalculatingPreview] = useState(false);
   const [previewManualEditMessage, setPreviewManualEditMessage] = useState("");
+  const [reportPreviewRevision, setReportPreviewRevision] = useState(0);
+  const [reportPreviewUpdateMessage, setReportPreviewUpdateMessage] = useState("");
+  const [reportPreviewStatus, setReportPreviewStatus] = useState<WordReportPreviewStatus>("idle");
   const [outputRowFilterSettings, setOutputRowFilterSettings] = useState<OutputRowFilterSettings>(readInitialOutputRowFilterSettings);
   const [pendingPreviewJump, setPendingPreviewJump] = useState<PreviewJumpTarget | null>(null);
   const [focusedPreviewJump, setFocusedPreviewJump] = useState<PreviewJumpTarget | null>(null);
@@ -1574,6 +1578,21 @@ function DaweibaApp() {
   const previewFocusTimeoutRef = useRef<number | null>(null);
   const cancelPreviewEditRef = useRef(false);
   const committingPreviewEditRef = useRef(false);
+  const activeResultJobIdRef = useRef<string | null>(null);
+  const processRequestSequenceRef = useRef(0);
+
+  useEffect(() => {
+    activeResultJobIdRef.current = result?.job_id ?? null;
+    setReportPreviewRevision(0);
+    setReportPreviewUpdateMessage("");
+    setReportPreviewStatus("idle");
+  }, [result?.job_id]);
+
+  useEffect(() => {
+    if (reportPreviewStatus === "ready") {
+      setReportPreviewUpdateMessage("");
+    }
+  }, [reportPreviewStatus]);
 
   useEffect(() => {
     if (!isRunningWorkloadCapture) return;
@@ -1836,7 +1855,13 @@ function DaweibaApp() {
   );
   const warningSummary = result?.summary.warning_summary;
   const warningDetails = result?.summary.warning_details ?? [];
-  const canDownloadOutputs = Boolean(result?.downloads.excel && result?.downloads.report && !isBatchMatchPending);
+  const hasCurrentReport = Boolean(
+    result?.downloads.report
+    && result.summary.output_report
+    && !isBatchMatchPending,
+  );
+  const canDownloadOutputs = Boolean(result?.downloads.excel && hasCurrentReport);
+  const reportDownloadHref = hasCurrentReport && result ? `${API_BASE}${result.downloads.report}` : "";
   const visibleWarnings = showAllWarnings ? warningDetails : warningDetails.slice(0, 6);
   const visibleWorkloadIssueLogs = useMemo(
     () => {
@@ -2254,6 +2279,28 @@ function DaweibaApp() {
     ].join("\n");
   }
 
+  function isCurrentResultJob(jobId: string) {
+    return activeResultJobIdRef.current === jobId;
+  }
+
+  function setResultForCurrentJob(jobId: string, payload: ProcessResult) {
+    if (!isCurrentResultJob(jobId)) return false;
+    setResult(payload);
+    return true;
+  }
+
+  function markReportPreviewUpdated(jobId: string, message: string) {
+    if (!isCurrentResultJob(jobId)) return;
+    setReportPreviewUpdateMessage(message);
+    setReportPreviewRevision((current) => current + 1);
+  }
+
+  function refreshCurrentReportPreview() {
+    if (!hasCurrentReport) return;
+    setReportPreviewUpdateMessage("正在重新读取当前任务的最新 Word 报告…");
+    setReportPreviewRevision((current) => current + 1);
+  }
+
   function openDownload(url: string, label: string) {
     window.open(url, "_blank", "noopener,noreferrer");
     appendZhisuanMessage(`${label}已经准备好，我已触发下载。文件仍然来自系统原始输出，不经过大模型改写。`, "command");
@@ -2406,12 +2453,12 @@ function DaweibaApp() {
       return;
     }
     if (command === "download-word") {
-      if (!result) {
-        appendZhisuanMessage("Word 报告还没生成。先完成转换，我再帮你触发下载。", "command");
+      if (!reportDownloadHref) {
+        appendZhisuanMessage("Word 报告还没生成。请先完成批量匹配，我再帮你触发下载。", "command");
         return;
       }
       appendZhisuanMessage("收到，正在导出 Word 报告。这个动作等同于点击左侧“下载 Word”。", "command");
-      openDownload(`${API_BASE}${result.downloads.report}`, "Word 报告");
+      openDownload(reportDownloadHref, "Word 报告");
     }
   }
 
@@ -3030,14 +3077,16 @@ function DaweibaApp() {
 
   async function refreshActivePreviewSettingsSheet() {
     if (!result) return;
+    const requestJobId = result.job_id;
     const currentSheetKey = previewSheetKey(activePreviewSettingsSheet);
     setIsRefreshingPreviewSettings(true);
     setError("");
     try {
       const payload = await refreshPreviewWithPreferences(result, previewColumnPreferences);
-      setResult(payload);
+      if (!setResultForCurrentJob(requestJobId, payload)) return;
       setActivePreviewSettingsSheetName(currentSheetKey);
     } catch (err) {
+      if (!isCurrentResultJob(requestJobId)) return;
       setError(err instanceof Error ? err.message : "刷新预览列名失败");
     } finally {
       setIsRefreshingPreviewSettings(false);
@@ -3074,6 +3123,7 @@ function DaweibaApp() {
 
   async function commitPreviewCellEdit(edit: PreviewCellEditState | null, value: string) {
     if (!edit || !result || committingPreviewEditRef.current) return;
+    const requestJobId = result.job_id;
     if (value === edit.originalValue) {
       setEditingPreviewCell((current) => (
         current
@@ -3094,7 +3144,7 @@ function DaweibaApp() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          job_id: result.job_id,
+          job_id: requestJobId,
           sheet_name: edit.sheetName,
           row_number: edit.rowNumber,
           column_number: edit.columnNumber,
@@ -3108,7 +3158,7 @@ function DaweibaApp() {
         throw new Error(payload?.detail ?? `保存人工修改失败：${response.status}`);
       }
       const payload = (await response.json()) as PreviewCellUpdateResult;
-      setResult(payload);
+      if (!setResultForCurrentJob(requestJobId, payload)) return;
       setActivePreviewSheetName(edit.sheetName);
       setPreviewManualEditMessage(`已保存人工修改：${payload.manual_edit.column_letter}${payload.manual_edit.row_number}；如影响汇总，请点“重算公式”。`);
       setEditingPreviewCell((current) => (
@@ -3120,6 +3170,7 @@ function DaweibaApp() {
           : current
       ));
     } catch (err) {
+      if (!isCurrentResultJob(requestJobId)) return;
       setError(err instanceof Error ? err.message : "保存人工修改失败");
     } finally {
       setSavingPreviewCellKey("");
@@ -3149,6 +3200,7 @@ function DaweibaApp() {
 
   async function recalculatePreviewWorkbook() {
     if (!result || isRecalculatingPreview) return;
+    const requestJobId = result.job_id;
     setIsRecalculatingPreview(true);
     setError("");
     try {
@@ -3156,7 +3208,7 @@ function DaweibaApp() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          job_id: result.job_id,
+          job_id: requestJobId,
           header_rows: buildPreviewHeaderRows(previewColumnPreferences),
         }),
       });
@@ -3165,13 +3217,15 @@ function DaweibaApp() {
         throw new Error(payload?.detail ?? `重算公式失败：${response.status}`);
       }
       const payload = (await response.json()) as ProcessResult & { formula_recalculated?: boolean };
-      setResult(payload);
+      if (!setResultForCurrentJob(requestJobId, payload)) return;
       setPreviewManualEditMessage(
         payload.formula_recalculated === false
           ? "已刷新预览和报告；本机未完成 Excel 公式缓存刷新，已尽量使用程序侧公式结果。"
           : "已重算公式并刷新 Word 报告。",
       );
+      markReportPreviewUpdated(requestJobId, "公式和 Word 报告已重算，正在刷新真实预览…");
     } catch (err) {
+      if (!isCurrentResultJob(requestJobId)) return;
       setError(err instanceof Error ? err.message : "重算公式失败");
     } finally {
       setIsRecalculatingPreview(false);
@@ -3194,8 +3248,9 @@ function DaweibaApp() {
         setIsPreviewSettingsOpen(false);
         return;
       }
+      const requestJobId = result.job_id;
       const payload = await refreshPreviewWithPreferences(result, nextPreferences);
-      setResult(payload);
+      if (!setResultForCurrentJob(requestJobId, payload)) return;
       setActivePreviewSheetName((current) => current || payload.summary.table_preview.sheet_name || "");
       setIsPreviewSettingsOpen(false);
     } catch (err) {
@@ -3219,8 +3274,9 @@ function DaweibaApp() {
       setPreviewColumnPreferences(defaults);
       setPreviewDefaultLabelsDraft(preferenceText(defaults.defaultLabels));
       if (result) {
+        const requestJobId = result.job_id;
         const nextResult = await refreshPreviewWithPreferences(result, defaults);
-        setResult(nextResult);
+        if (!setResultForCurrentJob(requestJobId, nextResult)) return;
         setActivePreviewSheetName((current) => current || nextResult.summary.table_preview.sheet_name || "");
       }
     } catch (err) {
@@ -3847,9 +3903,11 @@ function DaweibaApp() {
       setError("请先完成控制价计算表转换并选择工作量表格");
       return;
     }
+    const requestJobId = result.job_id;
     let targetConfigsForRun = workloadTargetConfigs;
     if (targetConfigsForRun.length === 0) {
-      targetConfigsForRun = await inspectCurrentWorkloadTarget(result.job_id) ?? [];
+      targetConfigsForRun = await inspectCurrentWorkloadTarget(requestJobId) ?? [];
+      if (!isCurrentResultJob(requestJobId)) return;
     }
     const sourceEnabled = workloadSourceConfigs.filter((config) => config.enabled);
     const targetEnabled = targetConfigsForRun.filter((config) => config.enabled);
@@ -3900,7 +3958,7 @@ function DaweibaApp() {
     );
     const body = new FormData();
     body.append("workload_file", workloadFile);
-    body.append("job_id", result.job_id);
+    body.append("job_id", requestJobId);
     body.append("selected_fields", JSON.stringify(selectedFieldsForRun));
     body.append("only_capture_rows_with_value", String(onlyCaptureWorkloadRowsWithValue));
     body.append("value_filter_field", workloadValueFilterField);
@@ -3937,9 +3995,9 @@ function DaweibaApp() {
         throw new Error(payload?.detail ?? `工作量抓取失败：${response.status}`);
       }
       const payload = (await response.json()) as WorkloadApplyToCurrentResult;
+      if (!setResultForCurrentJob(requestJobId, payload)) return;
       setWorkloadProgressPercent(100);
       setWorkloadProgressText("抓取完成，已刷新表格预览。");
-      setResult(payload);
       setActivePreviewSheetName(payload.summary.table_preview?.sheet_name ?? "");
       setWorkloadCaptureResult({
         job_id: payload.job_id,
@@ -3953,8 +4011,10 @@ function DaweibaApp() {
         `工作量抓取完成：写入 ${payload.workload_summary.filled_rows} 行，覆盖 ${payload.workload_summary.overwritten_rows ?? 0} 行，保守跳过 ${payload.workload_summary.skipped_existing_rows ?? 0} 行，预警 ${payload.workload_summary.warning_rows} 行。5 秒后我会自动跳到表格预览；你点击任意位置可以取消自动跳转。`,
         "command",
       );
+      markReportPreviewUpdated(requestJobId, "工作量抓取已写入并更新 Word 报告，正在刷新真实预览…");
       setWorkloadPreviewCountdown(5);
     } catch (err) {
+      if (!isCurrentResultJob(requestJobId)) return;
       appendZhisuanMessage(
         `工作量抓取失败：${err instanceof Error ? err.message : "未知错误"}。我没有继续自动跳转，请检查列映射或源表数据后重试。`,
         "system",
@@ -3966,6 +4026,10 @@ function DaweibaApp() {
   }
 
   async function selectFile(nextFile: File | null) {
+    processRequestSequenceRef.current += 1;
+    activeResultJobIdRef.current = null;
+    setIsProcessing(false);
+    setIsDemoLoading(false);
     setError("");
     setResult(null);
     setActivePreviewSheetName("");
@@ -4133,6 +4197,8 @@ function DaweibaApp() {
       return;
     }
 
+    const requestId = ++processRequestSequenceRef.current;
+    activeResultJobIdRef.current = null;
     setIsProcessing(true);
     setProgressPercent(1);
     setError("");
@@ -4202,6 +4268,8 @@ function DaweibaApp() {
           setError(refreshError instanceof Error ? refreshError.message : "自动刷新预览失败，请在预览设置中点一次保存");
         }
       }
+      if (requestId !== processRequestSequenceRef.current) return;
+      activeResultJobIdRef.current = finalPayload.job_id;
       setResult(finalPayload);
       setProgressPercent(100);
       appendZhisuanMessage(summarizeResultForZhisuan(finalPayload));
@@ -4211,6 +4279,7 @@ function DaweibaApp() {
         stage: "待匹配预览已生成",
       });
     } catch (err) {
+      if (requestId !== processRequestSequenceRef.current) return;
       const messageText = err instanceof Error ? err.message : "处理失败";
       setError(messageText);
       setProgressPercent(0);
@@ -4220,19 +4289,22 @@ function DaweibaApp() {
         error: messageText,
       });
     } finally {
-      setIsProcessing(false);
+      if (requestId === processRequestSequenceRef.current) {
+        setIsProcessing(false);
+      }
     }
   }
 
   async function runBatchMatch() {
     if (!result || result.summary.matching_status !== "pending" || isBatchMatching) return;
+    const requestJobId = result.job_id;
     setIsBatchMatching(true);
     setError("");
     setPreviewManualEditMessage("");
     appendZhisuanMessage("开始批量匹配。我会按二维知识库、标准规则和第二层经验提示依次填写基价 / 单价、实物工作费调整系数和技术工作费调整系数。", "system");
     void sendCollaborationNotification("task_started", {
       task_name: file?.name ?? "当前造价任务",
-      job_id: result.job_id,
+      job_id: requestJobId,
       stage: "批量匹配",
     });
     try {
@@ -4240,7 +4312,7 @@ function DaweibaApp() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          job_id: result.job_id,
+          job_id: requestJobId,
           header_rows: buildPreviewHeaderRows(previewColumnPreferences),
         }),
       });
@@ -4249,8 +4321,9 @@ function DaweibaApp() {
         throw new Error(payload?.detail ?? `批量匹配失败：${response.status}`);
       }
       const payload = (await response.json()) as ProcessResult;
-      setResult(payload);
+      if (!setResultForCurrentJob(requestJobId, payload)) return;
       setActivePreviewSheetName((current) => current || previewSheetLabel(previewSheetsFromTablePreview(payload.summary.table_preview)[0] ?? activePreview, 0));
+      markReportPreviewUpdated(requestJobId, "批量匹配已完成并生成 Word 报告，正在加载真实预览…");
       appendZhisuanMessage(summarizeResultForZhisuan(payload), "command");
       void sendCollaborationNotification("task_completed", {
         task_name: file?.name ?? "当前造价任务",
@@ -4263,12 +4336,13 @@ function DaweibaApp() {
         },
       });
     } catch (err) {
+      if (!isCurrentResultJob(requestJobId)) return;
       const messageText = err instanceof Error ? err.message : "批量匹配失败";
       setError(messageText);
       appendZhisuanMessage(`批量匹配失败：${messageText}。我没有继续生成新的匹配结果，请检查列映射或输入表后重试。`, "system");
       void sendCollaborationNotification("task_failed", {
         task_name: file?.name ?? "当前造价任务",
-        job_id: result.job_id,
+        job_id: requestJobId,
         error: messageText,
       });
     } finally {
@@ -4277,6 +4351,7 @@ function DaweibaApp() {
   }
 
   async function loadDemoSample() {
+    const requestId = ++processRequestSequenceRef.current;
     setIsDemoLoading(true);
     setError("");
     setRiskReport("");
@@ -4296,16 +4371,21 @@ function DaweibaApp() {
       if (hasPreviewHeaderRowOverrides(payloadPreviewSheets, previewColumnPreferences)) {
         finalPayload = await refreshPreviewWithPreferences(payload, previewColumnPreferences);
       }
+      if (requestId !== processRequestSequenceRef.current) return;
+      activeResultJobIdRef.current = finalPayload.job_id;
       setResult(finalPayload);
       setIsDemoMode(true);
       setActiveDaweibaModule("preview");
       appendZhisuanMessage(`演示样例已加载：${payload.sample_file ?? "预置样例"}。可以继续运行经验池预警、查看风险清单、下载 Excel/Word。`, "command");
     } catch (err) {
+      if (requestId !== processRequestSequenceRef.current) return;
       const messageText = err instanceof Error ? err.message : "加载演示样例失败";
       setError(messageText);
       appendZhisuanMessage(`演示样例加载失败：${messageText}`, "system");
     } finally {
-      setIsDemoLoading(false);
+      if (requestId === processRequestSequenceRef.current) {
+        setIsDemoLoading(false);
+      }
     }
   }
 
@@ -4424,6 +4504,7 @@ function DaweibaApp() {
 
   async function confirmFillAssist() {
     if (!result || !fillAssistDialog) return;
+    const requestJobId = result.job_id;
     const candidate = fillAssistDialog.candidates.find((item) => item.id === fillAssistDialog.selectedCandidateId);
     if (!candidate) {
       setFillAssistDialog((current) => current ? { ...current, error: "请选择一个候选" } : current);
@@ -4435,7 +4516,7 @@ function DaweibaApp() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          job_id: result.job_id,
+          job_id: requestJobId,
           sheet_name: fillAssistDialog.context.sheet_name,
           row_number: fillAssistDialog.context.excel_row,
           column_number: fillAssistDialog.context.target_column,
@@ -4449,11 +4530,12 @@ function DaweibaApp() {
         throw new Error(payload?.detail ?? `辅助填价确认失败：${response.status}`);
       }
       const payload = (await response.json()) as PreviewCellUpdateResult;
-      setResult(payload);
+      if (!setResultForCurrentJob(requestJobId, payload)) return;
       setPreviewManualEditMessage(`已通过辅助填价写入：${payload.manual_edit.column_letter}${payload.manual_edit.row_number}；如影响汇总，请点“重算公式”。`);
       setFillAssistDialog(null);
       appendZhisuanMessage(`已采用辅助填价候选：${candidate.source_label}，写入 ${candidate.value}。`, "command");
     } catch (err) {
+      if (!isCurrentResultJob(requestJobId)) return;
       setFillAssistDialog((current) => current ? {
         ...current,
         isConfirming: false,
@@ -4475,18 +4557,20 @@ function DaweibaApp() {
       appendZhisuanMessage("经验池预警需要基于已填写的价格和系数运行。当前还在待匹配预览阶段，请先点击“批量匹配”。", fromZhisuan ? "command" : "system");
       return;
     }
+    const requestJobId = result.job_id;
     setIsRunningWarnings(true);
     setWarningProgress({ ...EMPTY_WARNING_PROGRESS, status: "running" });
     setError("");
     const body = new FormData();
-    body.append("job_id", result.job_id);
+    body.append("job_id", requestJobId);
     body.append("preview_header_rows", JSON.stringify(buildPreviewHeaderRows(previewColumnPreferences)));
     const pollProgress = async () => {
-      const response = await fetch(`${API_BASE}/api/experience-warnings/progress/${result.job_id}`);
+      const response = await fetch(`${API_BASE}/api/experience-warnings/progress/${requestJobId}`);
       if (!response.ok) {
         return;
       }
       const payload = (await response.json()) as WarningProgress;
+      if (!isCurrentResultJob(requestJobId)) return;
       setWarningProgress({
         ...EMPTY_WARNING_PROGRESS,
         ...payload,
@@ -4507,7 +4591,7 @@ function DaweibaApp() {
         throw new Error(payload?.detail ?? `经验池预警分析失败：${response.status}`);
       }
       const payload = (await response.json()) as ProcessResult;
-      setResult(payload);
+      if (!setResultForCurrentJob(requestJobId, payload)) return;
       setShowAllWarnings(false);
       setActivePreviewSheetName((current) => current || payload.summary.table_preview.sheet_name || "");
       const finalSummary = payload.summary.warning_summary;
@@ -4525,7 +4609,9 @@ function DaweibaApp() {
         ].join("\n\n"),
         fromZhisuan ? "command" : "system",
       );
+      markReportPreviewUpdated(requestJobId, "经验池预警结果已写入 Word 报告，正在刷新真实预览…");
     } catch (err) {
+      if (!isCurrentResultJob(requestJobId)) return;
       const messageText = err instanceof Error ? err.message : "经验池预警分析失败";
       setWarningProgress((current) => ({
         ...current,
@@ -4555,10 +4641,11 @@ function DaweibaApp() {
       appendZhisuanMessage("风险报告需要正式匹配结果。当前只是待匹配预览，请先点“批量匹配”，完成填价后我再输出报告。", fromZhisuan ? "command" : "system");
       return;
     }
+    const requestJobId = result.job_id;
     setIsGeneratingRisk(true);
     setError("");
     const body = new FormData();
-    body.append("job_id", result.job_id);
+    body.append("job_id", requestJobId);
     body.append("provider", llmSettings.provider);
     body.append("model", llmSettings.model);
     body.append("base_url", llmSettings.baseUrl);
@@ -4579,7 +4666,9 @@ function DaweibaApp() {
         throw new Error(payload?.detail ?? `风险报告生成失败：${response.status}`);
       }
       const payload = (await response.json()) as { risk_report: string; debug?: LlmDebugInfo };
+      if (!isCurrentResultJob(requestJobId)) return;
       setRiskReport(payload.risk_report);
+      markReportPreviewUpdated(requestJobId, "风险报告已写入 Word，正在刷新真实预览…");
       recordLlmDebug("风险报告", payload.debug);
       replaceZhisuanMessage(thinking, `风险报告已生成，也会照常写入 Word 报告。\n\n${payload.risk_report}`, "model");
       appendZhisuanMessage(
@@ -4588,6 +4677,7 @@ function DaweibaApp() {
         { typing: false },
       );
     } catch (err) {
+      if (!isCurrentResultJob(requestJobId)) return;
       const messageText = err instanceof Error ? err.message : "风险报告生成失败";
       setError(messageText);
       replaceZhisuanMessage(thinking, `智算辅助暂不可用：${messageText}。转换、Excel 下载和 Word 基础报告仍照常可用。`, fromZhisuan ? "command" : "model");
@@ -5341,7 +5431,6 @@ function DaweibaApp() {
   }
 
   function renderZhisuanWordReportActions() {
-    const reportHref = result?.downloads.report ? `${API_BASE}${result.downloads.report}` : "";
     return (
       <div className="zhisuan-action-row" key="word-report-actions">
         <button
@@ -5358,11 +5447,11 @@ function DaweibaApp() {
         <button
           className="zhisuan-action-button secondary"
           type="button"
-          disabled={!reportHref}
+          disabled={!reportDownloadHref}
           onClick={(event) => {
             event.stopPropagation();
-            if (reportHref) {
-              openDownload(reportHref, "Word 报告");
+            if (reportDownloadHref) {
+              openDownload(reportDownloadHref, "Word 报告");
             }
           }}
         >
@@ -5748,7 +5837,7 @@ function DaweibaApp() {
     {
       id: "report",
       name: "Word 报告",
-      detail: result ? "可下载报告" : "等待转换",
+      detail: hasCurrentReport ? "可预览与下载" : isBatchMatchPending ? "等待批量匹配" : "等待转换",
       icon: <FileText size={16} />,
     },
     {
@@ -7330,114 +7419,150 @@ function DaweibaApp() {
               </div>
             </div>
             {result ? (
-              <div className="daweiba-report-grid">
-                <div className="daweiba-report-actions">
+              <div className="daweiba-report-workspace">
+                <div className="daweiba-report-toolbar">
                   <div className="daweiba-report-status">
                     <FileText size={24} />
                     <div>
-                      <strong>Word 报告已生成</strong>
-                      <span>{result.summary.report_text}</span>
+                      <strong>
+                        {isBatchMatchPending
+                          ? "Word 报告尚未生成"
+                          : reportPreviewStatus === "loading"
+                            ? reportPreviewUpdateMessage ? "报告已更新，正在刷新" : "正在读取真实 Word 报告"
+                            : reportPreviewStatus === "ready"
+                              ? "真实 Word 报告已就绪"
+                              : reportPreviewStatus === "error"
+                                ? "报告预览失败，下载仍可用"
+                                : "Word 报告已生成"}
+                      </strong>
+                      <span title={result.summary.output_report || result.summary.report_text}>
+                        {result.summary.output_report || result.summary.report_text}
+                      </span>
                     </div>
                   </div>
-                  <div className="download-row compact" data-ui-key="download-row" style={uiStyle("download-row")}>
-                    <a className={`download-button ${!canDownloadOutputs ? "is-disabled" : ""}`} href={canDownloadOutputs ? excelDownloadHref : "#"} aria-disabled={!canDownloadOutputs}>
+                  <div className="daweiba-report-toolbar-actions download-row compact" data-ui-key="download-row" style={uiStyle("download-row")}>
+                    <a
+                      className={`download-button ${!canDownloadOutputs ? "is-disabled" : ""}`}
+                      href={canDownloadOutputs ? excelDownloadHref : "#"}
+                      aria-disabled={!canDownloadOutputs}
+                      tabIndex={canDownloadOutputs ? 0 : -1}
+                      onClick={(event) => { if (!canDownloadOutputs) event.preventDefault(); }}
+                    >
                       <Download size={16} />
                       下载 Excel
                     </a>
-                    <a className={`download-button secondary ${!canDownloadOutputs ? "is-disabled" : ""}`} href={canDownloadOutputs ? `${API_BASE}${result.downloads.report}` : "#"} aria-disabled={!canDownloadOutputs}>
+                    <a
+                      className={`download-button secondary ${!reportDownloadHref ? "is-disabled" : ""}`}
+                      href={reportDownloadHref || "#"}
+                      aria-disabled={!reportDownloadHref}
+                      tabIndex={reportDownloadHref ? 0 : -1}
+                      onClick={(event) => { if (!reportDownloadHref) event.preventDefault(); }}
+                    >
                       <Download size={16} />
                       下载 Word
                     </a>
+                    <button
+                      className="download-button secondary"
+                      type="button"
+                      disabled={!hasCurrentReport || reportPreviewStatus === "loading"}
+                      aria-label="刷新当前真实 Word 报告预览"
+                      onClick={refreshCurrentReportPreview}
+                    >
+                      {reportPreviewStatus === "loading" ? <Loader2 className="spin" size={16} /> : <RefreshCw size={16} />}
+                      刷新预览
+                    </button>
                     <button className="download-button secondary" type="button" disabled={isRiskSummaryLoading || isBatchMatchPending} onClick={loadRiskSummary}>
                       {isRiskSummaryLoading ? <Loader2 className="spin" size={16} /> : <ShieldCheck size={16} />}
                       风险清单
                     </button>
                   </div>
-                  <div className="daweiba-report-metrics">
-                    <Metric label="输入行数" value={result.summary.total_data_rows} />
-                    <Metric label="转换成功" value={result.summary.filled_rows} />
-                    <Metric label="待复核" value={result.summary.review_rows} tone={result.summary.review_rows ? "warn" : "ok"} />
-                    <Metric label="预警" value={warningSummary?.executed ? warningSummary.warning_rows : "未运行"} />
+                  <div className="daweiba-report-meta" aria-label="当前报告摘要">
+                    <span><b>{result.summary.total_data_rows}</b> 输入行</span>
+                    <span><b>{result.summary.filled_rows}</b> 已填价</span>
+                    <span className={result.summary.review_rows ? "is-warn" : ""}><b>{result.summary.review_rows}</b> 待复核</span>
+                    <span><b>{warningSummary?.executed ? warningSummary.warning_rows : "未运行"}</b> 预警</span>
                   </div>
                 </div>
+
+                {result.needs_recalculate && (
+                  <div className="daweiba-report-sync-notice" role="status">
+                    <AlertTriangle size={16} />
+                    <span>人工修改已保存，但尚未点击“重算公式”；当前 Word 报告可能还未同步最新金额。</span>
+                    <button type="button" disabled={isRecalculatingPreview} onClick={recalculatePreviewWorkbook}>
+                      {isRecalculatingPreview ? <Loader2 className="spin" size={15} /> : <RefreshCw size={15} />}
+                      重算并更新报告
+                    </button>
+                  </div>
+                )}
+
+                {riskSummary && (
+                  <details className="daweiba-report-risk-panel" open>
+                    <summary>结构化风险清单 · {riskSummary.summary.total} 项</summary>
+                    <div className="risk-card-list">
+                      {riskSummary.items.slice(0, 6).map((item) => (
+                        <button
+                          className={`risk-card severity-${item.severity}`}
+                          type="button"
+                          key={item.id}
+                          onClick={() => {
+                            if (item.sheet_name && item.excel_row) {
+                              jumpToWarningPreview({
+                                sheet_name: item.sheet_name,
+                                excel_row: Number(item.excel_row),
+                                metric: item.metric || "",
+                                current_value: 0,
+                                experience_values: [],
+                                experience_min: 0,
+                                experience_max: 0,
+                                sample_count: 0,
+                                severity: item.severity,
+                                message: item.message,
+                                source_rows: [],
+                              });
+                            }
+                          }}
+                        >
+                          <span>{item.severity_label ?? item.severity} · {item.risk_type}</span>
+                          <b>{item.title}</b>
+                          <small>{item.message}</small>
+                        </button>
+                      ))}
+                    </div>
+                  </details>
+                )}
+
                 <div className="daweiba-report-preview">
-                  <div className="window-bar">
-                    <span className="traffic" aria-hidden="true">
-                      <i />
-                      <i />
-                      <i />
-                    </span>
-                    <span>报告预览</span>
+                  <div className="daweiba-report-preview-head">
+                    <div>
+                      <span className={`daweiba-report-preview-dot is-${reportPreviewStatus}`} aria-hidden="true" />
+                      <strong>真实 DOCX 只读预览</strong>
+                    </div>
+                    <span>{result.summary.output_report || "等待报告生成"}</span>
                   </div>
-                  <div className="daweiba-report-page">
-                    <h3>{APP_NAME}结果报告</h3>
-                    <p>{result.summary.report_text}</p>
-                    <dl>
-                      <div>
-                        <dt>输出 Excel</dt>
-                        <dd>{result.summary.output_excel}</dd>
-                      </div>
-                      <div>
-                        <dt>价格列</dt>
-                        <dd>{result.summary.price_column}</dd>
-                      </div>
-                      <div>
-                        <dt>实物工作费调整系数</dt>
-                        <dd>一层 {result.summary.physical_matched_rows} · 经验 {result.summary.physical_experience_rows} · 复核 {result.summary.physical_review_rows}</dd>
-                      </div>
-                      <div>
-                        <dt>技术工作费调整系数</dt>
-                        <dd>一层 {result.summary.technical_matched_rows} · 经验 {result.summary.technical_experience_rows} · 复核 {result.summary.technical_review_rows}</dd>
-                      </div>
-                    </dl>
-                    {result.summary.review_details.length > 0 && (
-                      <div className="daweiba-report-review">
-                        <strong>优先复核</strong>
-                        {result.summary.review_details.slice(0, 5).map((row) => (
-                          <span key={row.excel_row}>第 {row.excel_row} 行：{row.message}</span>
-                        ))}
-                      </div>
-                    )}
-                    {riskSummary && (
-                      <div className="risk-card-list">
-                        <strong>结构化风险清单 · {riskSummary.summary.total} 项</strong>
-                        {riskSummary.items.slice(0, 6).map((item) => (
-                          <button
-                            className={`risk-card severity-${item.severity}`}
-                            type="button"
-                            key={item.id}
-                            onClick={() => {
-                              if (item.sheet_name && item.excel_row) {
-                                jumpToWarningPreview({
-                                  sheet_name: item.sheet_name,
-                                  excel_row: Number(item.excel_row),
-                                  metric: item.metric || "",
-                                  current_value: 0,
-                                  experience_values: [],
-                                  experience_min: 0,
-                                  experience_max: 0,
-                                  sample_count: 0,
-                                  severity: item.severity,
-                                  message: item.message,
-                                  source_rows: [],
-                                });
-                              }
-                            }}
-                          >
-                            <span>{item.severity_label ?? item.severity} · {item.risk_type}</span>
-                            <b>{item.title}</b>
-                            <small>{item.message}</small>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                  {activeDaweibaModule === "report" && (
+                    <WordReportPreview
+                      enabled
+                      isAvailable={hasCurrentReport}
+                      jobId={result.job_id}
+                      reportUrl={reportDownloadHref}
+                      reportFilename={result.summary.output_report}
+                      revisionKey={reportPreviewRevision}
+                      updateMessage={reportPreviewUpdateMessage}
+                      unavailableMessage={isBatchMatchPending
+                        ? "当前只是待批量匹配预览。请先执行“批量匹配”，完成后系统会生成真实 Word 报告。"
+                        : "当前任务尚无可读取的 Word 报告，请返回结果预览重算或重新生成。"}
+                      downloadUrl={reportDownloadHref}
+                      onReturnToPreview={() => setActiveDaweibaModule("preview")}
+                      onStatusChange={setReportPreviewStatus}
+                    />
+                  )}
+                  <p className="daweiba-report-preview-note">网页预览用于快速核对，正式排版以下载后的 Word 文件为准。</p>
                 </div>
               </div>
             ) : (
               <div className="daweiba-module-empty">
                 <FileText size={34} />
-                <p>完成填价转换后，这里会显示报告摘要、下载按钮和可核验预览。</p>
+                <p>完成批量匹配后，这里会读取当前任务实际生成的 DOCX，并保留 Excel / Word 下载与失败兜底。</p>
                 <button className="primary-button" type="button" onClick={() => setActiveDaweibaModule("fill")}>
                   返回填价工作台
                 </button>
