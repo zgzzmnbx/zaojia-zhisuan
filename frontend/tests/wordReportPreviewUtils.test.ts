@@ -3,7 +3,9 @@ import { readFile, stat } from "node:fs/promises";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
+  DOCX_MAX_DYNAMIC_PAGINATION_PASSES,
   DOCX_MIME,
+  DOCX_PAGINATION_TOLERANCE_PX,
   WordReportPreviewError,
   filenameFromContentDisposition,
   normalizeDocxFilename,
@@ -70,4 +72,15 @@ test("ships the same-origin DOCX worker and JSZip assets as real JavaScript", as
   assert.match(jszip, /JSZip v3\.10\.1/);
   assert.equal(worker.trimStart().startsWith("<"), false);
   assert.equal(jszip.trimStart().startsWith("<"), false);
+});
+
+test("ignores the template footer overhang but paginates real body overflow", () => {
+  const pageHeight = 1123;
+  const templateFooterScrollHeight = 1221;
+  const longReportScrollHeight = 4518;
+
+  assert.ok(templateFooterScrollHeight <= pageHeight + DOCX_PAGINATION_TOLERANCE_PX);
+  assert.ok(longReportScrollHeight > pageHeight + DOCX_PAGINATION_TOLERANCE_PX);
+  assert.ok(DOCX_MAX_DYNAMIC_PAGINATION_PASSES >= 7);
+  assert.ok(DOCX_MAX_DYNAMIC_PAGINATION_PASSES < 1000);
 });

@@ -94,7 +94,7 @@ flowchart LR
 
 | 状态 | 需求 | 说明 | 验收口径 |
 | --- | --- | --- | --- |
-| [已完成] | 在现有 Word 报告页接入真实 DOCX 预览 | 用实际文件预览替换当前由摘要字段拼出的模拟报告页；保留下载、风险清单和右侧智算 | 左侧菜单名称和顺序不变；页面内能看到本次实际生成 Word 的正文和表格，不再把摘要卡当成 Word 预览 |
+| [已完成] | 在现有 Word 报告页接入真实 DOCX 预览 | 用实际文件预览替换当前由摘要字段拼出的模拟报告页；保留下载、风险清单和右侧智算 | 左侧菜单名称和顺序不变；页面内能看到本次实际生成 Word 的正文和表格；长风险正文能自动续页并完整显示，不再把摘要卡或前 3 个结构页当成完整 Word 预览 |
 | [已完成] | 复用当前报告下载接口获取文件 | 通过 `/api/download/{job_id}/report` 获取二进制，使用 `summary.output_report` 或响应文件名构造带 `.docx` 扩展名的 `File` | 不向前端暴露磁盘路径；不存在时显示明确空态 / 错误；下载 Word 原功能继续可用 |
 | [已完成] | 按需接入 File Viewer Word renderer | 使用 `@file-viewer/react` + `@file-viewer/renderer-word`，`rendererMode: 'replace'`，显式注入 `wordRenderer`；组件只在进入 Word 报告页且报告存在时加载 | 不安装全格式 `react-full` / `preset-all`；首页和结果预览不因 Word renderer 阻塞；React / TypeScript 构建通过 |
 | [已完成] | 本地化 DOCX Worker 与依赖资产 | 同源提供 `vendor/docx/docx.worker.js`、`vendor/docx/jszip.min.js` 等实际所需资产，并使用稳定的相对 / 根路径配置 | 断开公网后，开发版、绿色版和 Tauri 桌面版均能读取报告；控制台无 Worker / JSZip 404，静态资源请求不回落为 SPA HTML |

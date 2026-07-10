@@ -16,6 +16,8 @@ import type {
 } from "@file-viewer/react";
 import { AlertTriangle, Download, FileText, Loader2, PanelTop, RefreshCw } from "lucide-react";
 import {
+  DOCX_MAX_DYNAMIC_PAGINATION_PASSES,
+  DOCX_PAGINATION_TOLERANCE_PX,
   WordReportPreviewError,
   responseToDocxFile,
   wordReportPreviewErrorMessage,
@@ -124,11 +126,12 @@ function ViewerHost({ resource, onError, onStateChange }: ViewerHostProps) {
           visualPagination: true,
           renderPageBatchSize: 2,
           renderYieldEveryMs: 16,
-          // The formal template stores page-number text boxes in each saved page.
-          // Dynamic overflow pagination mistakes those floating boxes for body
-          // overflow and can manufacture hundreds of blank continuation pages.
-          // Keep the DOCX/Word-saved page breaks, but do not paginate them again.
-          maxDynamicPaginationPasses: 0,
+          // The template's floating page-number box increases scrollHeight by
+          // about 98px even when a page is otherwise complete. Ignore that
+          // known decoration overhang, but keep bounded dynamic pagination for
+          // risk text and other body content that genuinely needs later pages.
+          paginationTolerance: DOCX_PAGINATION_TOLERANCE_PX,
+          maxDynamicPaginationPasses: DOCX_MAX_DYNAMIC_PAGINATION_PASSES,
           strictWordCompatibility: true,
           awaitLayout: true,
           darkMode: false,

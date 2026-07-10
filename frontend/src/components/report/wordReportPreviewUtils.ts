@@ -1,4 +1,6 @@
 export const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+export const DOCX_PAGINATION_TOLERANCE_PX = 120;
+export const DOCX_MAX_DYNAMIC_PAGINATION_PASSES = 100;
 
 export type WordReportPreviewErrorCode =
   | "http"
