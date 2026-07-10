@@ -102,4 +102,5 @@
 - 现有规则资产里，`backend/app/fill_engine.py` 与 `backend/tests/test_matching.py` 已明确验证上述合并单元格默认口径；前端列映射面板文案也按同一口径提示用户。当前未发现与该默认口径冲突的项目规则文件；`merge_vertical_cells` / `merge_horizontal_cells` 只属于主填价流程的显式开关，不得被其他模块偷换成不同默认行为。
 - 知识库问答索引缓存为 `Codex-Temp/runtime/knowledge-qa-index-【codex】.json`，只作运行缓存；检索接口 `/api/knowledge/search` 不调用大模型，问答接口 `/api/knowledge/ask` 才会在有证据时调用 DeepSeek。
 - Windows 绿色版只负责在目标电脑启动本地后端和本地前端服务，并打开默认浏览器；不得把业务逻辑迁移到启动脚本里。
+- 云端发布包包含中文目录和文件名时，必须使用 UTF-8 保真的 `tar.gz` 在 Linux 服务器解压；不要直接使用 Windows `Compress-Archive` 生成的 ZIP 交给 Linux `unzip`，否则中文路径可能乱码，导致正式二维知识库、报告模板和规则文件报“文件不存在”。
 - 统信 UOS 兼容性准备当前只是未来迁移预案，不是日常开发主线；`python tools/check_platform_compat.py` 只在统信/Linux 相关修改、路径/启动/打包规则调整或明确要求兼容性复核时手动运行，不挂入平时启动、`npm run build`、`python -m pytest backend/tests -v`、代码存档或 Windows 绿色版默认流程，避免拖慢当前 Windows 开发。
