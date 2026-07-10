@@ -9568,6 +9568,389 @@ tbody tr:hover .row-ai-cell {
   background: #cbd5e1;
 }
 
+/* v5.6.0 intelligent collaboration: first-layer Feishu webhook notifier */
+.shell.layout-daweiba .daweiba-workspace-frame > .daweiba-collaboration-module {
+  display: none;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-collaboration > .daweiba-collaboration-module {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: 14px;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 20px;
+  overflow: hidden;
+  border: 1px solid var(--db-border);
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 20px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--db-border-soft);
+}
+
+.shell.layout-daweiba .daweiba-collaboration-head > p {
+  max-width: 560px;
+  margin: 0;
+  color: var(--db-text-muted);
+  font-size: 13px;
+  line-height: 1.55;
+  text-align: right;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-status .ghost-button {
+  min-height: 30px;
+  margin-left: auto;
+  padding: 0 10px;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--db-border);
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-badge.is-success {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-badge.is-warning {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-badge.is-error {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.65fr);
+  gap: 14px;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 3px;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-settings,
+.shell.layout-daweiba .daweiba-collaboration-rules,
+.shell.layout-daweiba .daweiba-collaboration-history {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--db-border);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-history {
+  grid-column: 1 / -1;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-section-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 16px;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-section-title h3 {
+  margin: 0;
+  color: var(--db-text-strong);
+  font-size: 15px;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-section-title p {
+  margin: 5px 0 0;
+  color: var(--db-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--db-text);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-switch input,
+.shell.layout-daweiba .daweiba-collaboration-rule input {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  accent-color: var(--db-primary);
+}
+
+.shell.layout-daweiba .daweiba-collaboration-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-form-grid label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-form-grid label.is-wide {
+  grid-column: 1 / -1;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-form-grid label > span {
+  color: var(--db-text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-form-grid input {
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--db-border);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--db-text-strong);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+  box-shadow: none;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-form-grid input:focus {
+  border-color: #94a3b8;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-form-grid small {
+  color: var(--db-text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-actions .primary-button,
+.shell.layout-daweiba .daweiba-collaboration-actions .ghost-button {
+  min-height: 34px;
+  padding: 0 12px;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-actions .ghost-button.is-danger {
+  color: #b91c1c;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-feedback {
+  margin: 0;
+  color: var(--db-primary);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-security-note {
+  display: flex;
+  align-items: start;
+  gap: 8px;
+  margin: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--db-border-soft);
+  color: var(--db-text-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-security-note svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--db-primary);
+}
+
+.shell.layout-daweiba .daweiba-collaboration-rule-list {
+  display: grid;
+  gap: 0;
+  border-top: 1px solid var(--db-border-soft);
+}
+
+.shell.layout-daweiba .daweiba-collaboration-rule {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--db-border-soft);
+}
+
+.shell.layout-daweiba .daweiba-collaboration-rule > span {
+  display: grid;
+  gap: 4px;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-rule strong {
+  color: var(--db-text-strong);
+  font-size: 13px;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-rule small {
+  color: var(--db-text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-history-table {
+  min-width: 640px;
+  overflow: hidden;
+  border: 1px solid var(--db-border-soft);
+  border-radius: 6px;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-history-table > div {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.9fr) minmax(90px, 0.55fr) 70px minmax(180px, 1.4fr);
+  gap: 10px;
+  min-height: 34px;
+  align-items: center;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--db-border-soft);
+  color: var(--db-text);
+  font-size: 12px;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-history-table > div:last-child {
+  border-bottom: 0;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-history-table > div.is-header {
+  background: #f8fafc;
+  color: var(--db-text-muted);
+  font-weight: 600;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-history-table span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-history-table span.is-success {
+  color: #15803d;
+  font-weight: 600;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-history-table span.is-error {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-empty {
+  margin: 0;
+  padding: 18px;
+  border: 1px dashed var(--db-border);
+  border-radius: 6px;
+  color: var(--db-text-muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-boundary {
+  display: flex;
+  align-items: start;
+  gap: 9px;
+  padding: 11px 12px;
+  border: 1px solid #fde68a;
+  border-radius: 6px;
+  background: #fffbeb;
+  color: #78350f;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-boundary svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-boundary p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+@media (max-width: 1450px) {
+  .shell.layout-daweiba .daweiba-collaboration-head {
+    display: grid;
+    align-items: start;
+  }
+
+  .shell.layout-daweiba .daweiba-collaboration-head > p {
+    max-width: none;
+    text-align: left;
+  }
+
+  .shell.layout-daweiba .daweiba-collaboration-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .shell.layout-daweiba .daweiba-collaboration-history {
+    grid-column: auto;
+    overflow-x: auto;
+  }
+}
+
+@media (max-width: 900px) {
+  .shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-collaboration > .daweiba-collaboration-module {
+    padding: 14px;
+  }
+
+  .shell.layout-daweiba .daweiba-collaboration-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .shell.layout-daweiba .daweiba-collaboration-form-grid label.is-wide {
+    grid-column: auto;
+  }
+}
+
 .shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .brief-panel {
   grid-template-rows: auto minmax(86px, auto) auto auto auto;
   gap: 8px;

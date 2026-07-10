@@ -36,7 +36,7 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.5.4";
+const APP_VERSION = "v5.6.0";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const KNOWLEDGE_QA_ENTRY_COUNT = 3922;
 const KNOWLEDGE_QA_SOURCE_COUNT = 17;
@@ -125,12 +125,12 @@ const EMPTY_ELEMENT_COLUMN = "空元素列";
 const OUTPUT_ROW_FILTER_STORAGE_KEY = "guankanzhisuan-output-row-filter-settings";
 const WELCOME_SCREEN_HIDDEN_STORAGE_KEY = "guankanzhisuan-welcome-screen-hidden";
 const WELCOME_SCREEN_VERSION_STORAGE_KEY = "guankanzhisuan-welcome-screen-version";
-const WELCOME_SCREEN_VERSION = "brand-v5.5.4";
+const WELCOME_SCREEN_VERSION = "brand-v5.6.0";
 const ZHISUAN_QUICK_SETTINGS_VERSION = 2;
 const LEFT_COLUMN_COLLAPSED_STORAGE_KEY = "guankanzhisuan-left-column-collapsed";
 type MappingField = (typeof MAPPING_FIELDS)[number];
 type ColumnMapping = Record<MappingField, string>;
-type DaweibaModuleId = "fill" | "preview" | "experience" | "workload" | "report" | "knowledge";
+type DaweibaModuleId = "fill" | "preview" | "experience" | "workload" | "report" | "knowledge" | "collaboration";
 
 const UI_TUNER_TARGETS = [
   { id: "hero", name: "主标题区域" },
@@ -305,6 +305,50 @@ type ProcessResult = {
   };
   manual_edits?: ManualEditRecord[];
   needs_recalculate?: boolean;
+};
+
+type FeishuNotificationType = "task_started" | "progress" | "task_completed" | "task_failed";
+type FeishuNotificationSwitches = Record<FeishuNotificationType, boolean>;
+type FeishuDeliveryRecord = {
+  timestamp: string;
+  notification_type: FeishuNotificationType | "test";
+  success: boolean;
+  http_status?: number | null;
+  business_code?: number | string | null;
+  job_id?: string;
+  error?: string;
+};
+type FeishuWebhookStatus = {
+  configured: boolean;
+  enabled: boolean;
+  security_enabled: boolean;
+  app_url: string;
+  notifications: FeishuNotificationSwitches;
+  last_delivery?: FeishuDeliveryRecord | null;
+};
+
+const DEFAULT_FEISHU_NOTIFICATION_SWITCHES: FeishuNotificationSwitches = {
+  task_started: true,
+  progress: true,
+  task_completed: true,
+  task_failed: true,
+};
+
+const FEISHU_NOTIFICATION_LABELS: Record<FeishuDeliveryRecord["notification_type"], string> = {
+  test: "测试",
+  task_started: "任务开始",
+  progress: "任务进度",
+  task_completed: "任务完成",
+  task_failed: "任务失败",
+};
+
+const EMPTY_FEISHU_WEBHOOK_STATUS: FeishuWebhookStatus = {
+  configured: false,
+  enabled: false,
+  security_enabled: false,
+  app_url: "",
+  notifications: DEFAULT_FEISHU_NOTIFICATION_SWITCHES,
+  last_delivery: null,
 };
 
 type PreviewCellUpdateResult = ProcessResult & {
@@ -1406,6 +1450,17 @@ function DaweibaApp() {
   const [isRowAiLoading, setIsRowAiLoading] = useState(false);
   const [rowAiDetailPrompt, setRowAiDetailPrompt] = useState<RowAiContext | null>(null);
   const [activeDaweibaModule, setActiveDaweibaModule] = useState<DaweibaModuleId>("fill");
+  const [feishuWebhookStatus, setFeishuWebhookStatus] = useState<FeishuWebhookStatus>(EMPTY_FEISHU_WEBHOOK_STATUS);
+  const [feishuWebhookHistory, setFeishuWebhookHistory] = useState<FeishuDeliveryRecord[]>([]);
+  const [feishuWebhookDraft, setFeishuWebhookDraft] = useState("");
+  const [feishuSecretDraft, setFeishuSecretDraft] = useState("");
+  const [feishuAppUrlDraft, setFeishuAppUrlDraft] = useState("");
+  const [feishuEnabledDraft, setFeishuEnabledDraft] = useState(false);
+  const [feishuNotificationDraft, setFeishuNotificationDraft] = useState<FeishuNotificationSwitches>(DEFAULT_FEISHU_NOTIFICATION_SWITCHES);
+  const [isLoadingFeishuWebhook, setIsLoadingFeishuWebhook] = useState(false);
+  const [isSavingFeishuWebhook, setIsSavingFeishuWebhook] = useState(false);
+  const [isTestingFeishuWebhook, setIsTestingFeishuWebhook] = useState(false);
+  const [feishuWebhookFeedback, setFeishuWebhookFeedback] = useState("");
   const [isLeftColumnCollapsed, setIsLeftColumnCollapsed] = useState(readInitialLeftColumnCollapsed);
   const [isWelcomeScreenVisible, setIsWelcomeScreenVisible] = useState(readInitialWelcomeScreenVisible);
   const [hideWelcomeNextTime, setHideWelcomeNextTime] = useState(false);
@@ -1645,6 +1700,11 @@ function DaweibaApp() {
   useEffect(() => {
     void loadProjectDefaultSettings();
   }, []);
+
+  useEffect(() => {
+    if (activeDaweibaModule !== "collaboration") return;
+    void loadFeishuWebhookData();
+  }, [activeDaweibaModule]);
 
   useEffect(() => {
     setPreviewDefaultLabelsDraft(preferenceText(previewColumnPreferences.defaultLabels));
@@ -2588,6 +2648,122 @@ function DaweibaApp() {
       return null;
     } finally {
       setIsZhisuanWelcomeLoaded(true);
+    }
+  }
+
+  function applyFeishuWebhookStatus(payload: FeishuWebhookStatus) {
+    const notifications = {
+      ...DEFAULT_FEISHU_NOTIFICATION_SWITCHES,
+      ...(payload.notifications ?? {}),
+    };
+    const normalized = { ...EMPTY_FEISHU_WEBHOOK_STATUS, ...payload, notifications };
+    setFeishuWebhookStatus(normalized);
+    setFeishuEnabledDraft(normalized.enabled);
+    setFeishuNotificationDraft(notifications);
+    setFeishuAppUrlDraft(normalized.app_url ?? "");
+  }
+
+  async function loadFeishuWebhookData() {
+    setIsLoadingFeishuWebhook(true);
+    try {
+      const [statusResponse, historyResponse] = await Promise.all([
+        fetch(`${API_BASE}/api/collaboration/feishu-webhook/status`),
+        fetch(`${API_BASE}/api/collaboration/feishu-webhook/history?limit=30`),
+      ]);
+      if (!statusResponse.ok) throw new Error(`读取连接状态失败：${statusResponse.status}`);
+      const statusPayload = (await statusResponse.json()) as FeishuWebhookStatus;
+      const historyPayload = historyResponse.ok
+        ? await historyResponse.json() as { items?: FeishuDeliveryRecord[] }
+        : { items: [] };
+      applyFeishuWebhookStatus(statusPayload);
+      setFeishuWebhookHistory(Array.isArray(historyPayload.items) ? historyPayload.items : []);
+    } catch (err) {
+      setFeishuWebhookFeedback(err instanceof Error ? err.message : "读取飞书 Webhook 状态失败");
+    } finally {
+      setIsLoadingFeishuWebhook(false);
+    }
+  }
+
+  async function saveFeishuWebhookSettings() {
+    setIsSavingFeishuWebhook(true);
+    setFeishuWebhookFeedback("");
+    const payload: Record<string, unknown> = {
+      enabled: feishuEnabledDraft,
+      app_url: feishuAppUrlDraft.trim(),
+      notifications: feishuNotificationDraft,
+    };
+    if (feishuWebhookDraft.trim()) payload.webhook_url = feishuWebhookDraft.trim();
+    if (feishuSecretDraft.trim()) payload.secret = feishuSecretDraft.trim();
+    try {
+      const response = await fetch(`${API_BASE}/api/collaboration/feishu-webhook/settings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        const errorPayload = await response.json().catch(() => null);
+        throw new Error(errorPayload?.detail ?? `保存失败：${response.status}`);
+      }
+      applyFeishuWebhookStatus(await response.json() as FeishuWebhookStatus);
+      setFeishuWebhookDraft("");
+      setFeishuSecretDraft("");
+      setFeishuWebhookFeedback("设置已保存。地址和签名密钥不会回显到前端。");
+    } catch (err) {
+      setFeishuWebhookFeedback(err instanceof Error ? err.message : "保存飞书 Webhook 设置失败");
+    } finally {
+      setIsSavingFeishuWebhook(false);
+    }
+  }
+
+  async function clearFeishuWebhookSettings() {
+    if (!window.confirm("确定清空本机保存的飞书 Webhook 地址和签名密钥吗？")) return;
+    setIsSavingFeishuWebhook(true);
+    setFeishuWebhookFeedback("");
+    try {
+      const response = await fetch(`${API_BASE}/api/collaboration/feishu-webhook/settings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clear_credentials: true }),
+      });
+      if (!response.ok) throw new Error(`清空失败：${response.status}`);
+      applyFeishuWebhookStatus(await response.json() as FeishuWebhookStatus);
+      setFeishuWebhookDraft("");
+      setFeishuSecretDraft("");
+      setFeishuWebhookFeedback("Webhook 地址和签名密钥已从本机运行配置中清除。");
+    } catch (err) {
+      setFeishuWebhookFeedback(err instanceof Error ? err.message : "清空飞书 Webhook 设置失败");
+    } finally {
+      setIsSavingFeishuWebhook(false);
+    }
+  }
+
+  async function testFeishuWebhookConnection() {
+    setIsTestingFeishuWebhook(true);
+    setFeishuWebhookFeedback("");
+    try {
+      const response = await fetch(`${API_BASE}/api/collaboration/feishu-webhook/test`, { method: "POST" });
+      if (!response.ok) {
+        const errorPayload = await response.json().catch(() => null);
+        throw new Error(errorPayload?.detail ?? `测试发送失败：${response.status}`);
+      }
+      setFeishuWebhookFeedback("测试消息发送成功，请到配置的飞书群中核对。");
+    } catch (err) {
+      setFeishuWebhookFeedback(err instanceof Error ? err.message : "飞书 Webhook 测试发送失败");
+    } finally {
+      setIsTestingFeishuWebhook(false);
+      await loadFeishuWebhookData();
+    }
+  }
+
+  async function sendCollaborationNotification(notificationType: FeishuNotificationType, context: Record<string, unknown>) {
+    try {
+      await fetch(`${API_BASE}/api/collaboration/feishu-webhook/notify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notification_type: notificationType, context }),
+      });
+    } catch {
+      // Webhook notifications are best-effort and never change the professional workflow result.
     }
   }
 
@@ -4001,6 +4177,10 @@ function DaweibaApp() {
     body.append("only_match_rows_with_value", String(onlyMatchRowsWithValue));
     body.append("match_value_filter_field", matchValueFilterField);
     body.append("defer_matching", "true");
+    void sendCollaborationNotification("task_started", {
+      task_name: file.name,
+      stage: "读取输入并生成待匹配预览",
+    });
 
     try {
       appendZhisuanMessage("我先读取表格、列映射和候选 sheet，生成待匹配预览；价格和两个系数先不批量写入。", "system");
@@ -4025,11 +4205,20 @@ function DaweibaApp() {
       setResult(finalPayload);
       setProgressPercent(100);
       appendZhisuanMessage(summarizeResultForZhisuan(finalPayload));
+      void sendCollaborationNotification("progress", {
+        task_name: file.name,
+        job_id: finalPayload.job_id,
+        stage: "待匹配预览已生成",
+      });
     } catch (err) {
       const messageText = err instanceof Error ? err.message : "处理失败";
       setError(messageText);
       setProgressPercent(0);
       appendZhisuanMessage(`转换失败：${messageText}。主流程已经停下，我没有改动任何输出文件。`);
+      void sendCollaborationNotification("task_failed", {
+        task_name: file.name,
+        error: messageText,
+      });
     } finally {
       setIsProcessing(false);
     }
@@ -4041,6 +4230,11 @@ function DaweibaApp() {
     setError("");
     setPreviewManualEditMessage("");
     appendZhisuanMessage("开始批量匹配。我会按二维知识库、标准规则和第二层经验提示依次填写基价 / 单价、实物工作费调整系数和技术工作费调整系数。", "system");
+    void sendCollaborationNotification("task_started", {
+      task_name: file?.name ?? "当前造价任务",
+      job_id: result.job_id,
+      stage: "批量匹配",
+    });
     try {
       const response = await fetch(`${API_BASE}/api/process/batch-match`, {
         method: "POST",
@@ -4058,10 +4252,25 @@ function DaweibaApp() {
       setResult(payload);
       setActivePreviewSheetName((current) => current || previewSheetLabel(previewSheetsFromTablePreview(payload.summary.table_preview)[0] ?? activePreview, 0));
       appendZhisuanMessage(summarizeResultForZhisuan(payload), "command");
+      void sendCollaborationNotification("task_completed", {
+        task_name: file?.name ?? "当前造价任务",
+        job_id: payload.job_id,
+        summary: {
+          total_data_rows: payload.summary.total_data_rows,
+          matched_rows: payload.summary.matched_rows,
+          review_rows: payload.summary.review_rows,
+          warning_rows: payload.summary.warning_summary?.warning_rows ?? 0,
+        },
+      });
     } catch (err) {
       const messageText = err instanceof Error ? err.message : "批量匹配失败";
       setError(messageText);
       appendZhisuanMessage(`批量匹配失败：${messageText}。我没有继续生成新的匹配结果，请检查列映射或输入表后重试。`, "system");
+      void sendCollaborationNotification("task_failed", {
+        task_name: file?.name ?? "当前造价任务",
+        job_id: result.job_id,
+        error: messageText,
+      });
     } finally {
       setIsBatchMatching(false);
     }
@@ -5548,6 +5757,12 @@ function DaweibaApp() {
       detail: FORCE_KNOWLEDGE_PREFIXES.join(" / "),
       icon: <Database size={16} />,
     },
+    {
+      id: "collaboration",
+      name: "智能协同",
+      detail: feishuWebhookStatus.enabled ? "Webhook 已启用" : feishuWebhookStatus.configured ? "已配置未启用" : "第一层 · 待配置",
+      icon: <Send size={16} />,
+    },
   ] satisfies Array<{
     id: DaweibaModuleId;
     name: string;
@@ -5556,6 +5771,14 @@ function DaweibaApp() {
   }>;
   const activeDaweibaModuleMeta =
     daweibaModules.find((item) => item.id === activeDaweibaModule) ?? daweibaModules[0];
+  const latestFeishuDelivery = feishuWebhookHistory[0] ?? feishuWebhookStatus.last_delivery ?? null;
+  const feishuConnectionLabel = isTestingFeishuWebhook
+    ? "发送中"
+    : !feishuWebhookStatus.configured
+      ? "未配置"
+      : feishuWebhookStatus.enabled
+        ? "已启用"
+        : "已配置未启用";
 
   return (
     <main
@@ -5748,6 +5971,14 @@ function DaweibaApp() {
                 onClick={openDaweibaKnowledge}
               >
                 <Bot size={18} />
+              </button>
+              <button
+                className={`daweiba-icon-link ${activeDaweibaModule === "collaboration" ? "is-active" : ""}`}
+                type="button"
+                title="智能协同"
+                onClick={() => setActiveDaweibaModule("collaboration")}
+              >
+                <Send size={18} />
               </button>
               <button className="daweiba-icon-link" type="button" title="页面设置" onClick={() => setIsPageSettingsOpen(true)}>
                 <Settings size={18} />
@@ -7264,6 +7495,173 @@ function DaweibaApp() {
                 查看表格结果
               </button>
             </div>
+          </div>
+        </section>
+
+        <section className="daweiba-collaboration-module" aria-label="智能协同第一层 Webhook 简单机器人">
+          <div className="daweiba-collaboration-head">
+            <div className="daweiba-module-head">
+              <span><Send size={18} /></span>
+              <div>
+                <p>智能协同</p>
+                <h2>第一层 · Webhook 简单机器人</h2>
+              </div>
+            </div>
+            <p>向指定飞书群单向推送任务通知；专业匹配、Excel、Word 和风险处理仍只在造价智算内完成。</p>
+          </div>
+
+          <div className="daweiba-collaboration-status" aria-label="飞书连接状态">
+            <span className={`daweiba-collaboration-badge ${feishuWebhookStatus.enabled ? "is-success" : feishuWebhookStatus.configured ? "is-idle" : "is-muted"}`}>
+              连接 · {feishuConnectionLabel}
+            </span>
+            <span className={`daweiba-collaboration-badge ${feishuWebhookStatus.security_enabled ? "is-success" : "is-warning"}`}>
+              签名 · {feishuWebhookStatus.security_enabled ? "已配置" : "未配置"}
+            </span>
+            <span className={`daweiba-collaboration-badge ${latestFeishuDelivery?.success ? "is-success" : latestFeishuDelivery ? "is-error" : "is-muted"}`}>
+              最近发送 · {latestFeishuDelivery ? latestFeishuDelivery.success ? "成功" : "失败" : "暂无记录"}
+            </span>
+            <button className="ghost-button" type="button" disabled={isLoadingFeishuWebhook} onClick={() => void loadFeishuWebhookData()}>
+              <RefreshCw size={15} className={isLoadingFeishuWebhook ? "spin" : ""} />
+              刷新
+            </button>
+          </div>
+
+          <div className="daweiba-collaboration-body">
+            <section className="daweiba-collaboration-settings" aria-label="Webhook 设置">
+              <div className="daweiba-collaboration-section-title">
+                <div>
+                  <h3>Webhook 设置</h3>
+                  <p>凭证只保存在后端运行目录，保存后不会再次回显完整值。</p>
+                </div>
+                <label className="daweiba-collaboration-switch">
+                  <input
+                    type="checkbox"
+                    checked={feishuEnabledDraft}
+                    onChange={(event) => setFeishuEnabledDraft(event.target.checked)}
+                  />
+                  <span>启用通知</span>
+                </label>
+              </div>
+
+              <div className="daweiba-collaboration-form-grid">
+                <label>
+                  <span>飞书群机器人 Webhook 地址</span>
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    value={feishuWebhookDraft}
+                    placeholder={feishuWebhookStatus.configured ? "已安全保存；留空表示保留原地址" : "https://open.feishu.cn/open-apis/bot/v2/hook/..."}
+                    onChange={(event) => setFeishuWebhookDraft(event.target.value)}
+                  />
+                </label>
+                <label>
+                  <span>签名密钥</span>
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    value={feishuSecretDraft}
+                    placeholder={feishuWebhookStatus.security_enabled ? "已安全保存；留空表示保留原密钥" : "建议在飞书端启用签名校验后填写"}
+                    onChange={(event) => setFeishuSecretDraft(event.target.value)}
+                  />
+                </label>
+                <label className="is-wide">
+                  <span>进入造价智算 URL（可选）</span>
+                  <input
+                    type="url"
+                    value={feishuAppUrlDraft}
+                    placeholder="例如：http://127.0.0.1:5174/"
+                    onChange={(event) => setFeishuAppUrlDraft(event.target.value)}
+                  />
+                  <small>仅用于完成卡片的跳转按钮，不接收卡片回调，也不会直接修改业务数据。</small>
+                </label>
+              </div>
+
+              <div className="daweiba-collaboration-actions">
+                <button className="primary-button" type="button" disabled={isSavingFeishuWebhook} onClick={() => void saveFeishuWebhookSettings()}>
+                  {isSavingFeishuWebhook ? <Loader2 size={16} className="spin" /> : <ShieldCheck size={16} />}
+                  保存设置
+                </button>
+                <button
+                  className="ghost-button"
+                  type="button"
+                  disabled={isTestingFeishuWebhook || !feishuWebhookStatus.configured || !feishuWebhookStatus.enabled}
+                  onClick={() => void testFeishuWebhookConnection()}
+                >
+                  {isTestingFeishuWebhook ? <Loader2 size={16} className="spin" /> : <Send size={16} />}
+                  发送测试消息
+                </button>
+                <button className="ghost-button is-danger" type="button" disabled={isSavingFeishuWebhook || !feishuWebhookStatus.configured} onClick={() => void clearFeishuWebhookSettings()}>
+                  清空配置
+                </button>
+              </div>
+              {feishuWebhookFeedback && <p className="daweiba-collaboration-feedback">{feishuWebhookFeedback}</p>}
+              <p className="daweiba-collaboration-security-note">
+                <ShieldCheck size={16} />
+                推荐在飞书端启用签名校验；自定义关键词和 IP 白名单由飞书端配置，本页面不伪造其启用状态。
+              </p>
+            </section>
+
+            <section className="daweiba-collaboration-rules" aria-label="通知规则">
+              <div className="daweiba-collaboration-section-title">
+                <div>
+                  <h3>通知规则</h3>
+                  <p>关闭任一类型后，该类事件不会发起飞书网络请求。</p>
+                </div>
+              </div>
+              <div className="daweiba-collaboration-rule-list">
+                {(
+                  [
+                    ["task_started", "任务开始", "读取输入或开始批量匹配时通知"],
+                    ["progress", "任务进度", "待匹配预览生成等关键阶段通知"],
+                    ["task_completed", "任务完成", "使用后端返回的处理行数、命中数和待复核数生成摘要"],
+                    ["task_failed", "任务失败", "发送脱敏错误摘要，不改变原业务失败结论"],
+                  ] as Array<[FeishuNotificationType, string, string]>
+                ).map(([id, label, description]) => (
+                  <label className="daweiba-collaboration-rule" key={id}>
+                    <span>
+                      <strong>{label}</strong>
+                      <small>{description}</small>
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={feishuNotificationDraft[id]}
+                      onChange={(event) => setFeishuNotificationDraft((current) => ({ ...current, [id]: event.target.checked }))}
+                    />
+                  </label>
+                ))}
+              </div>
+            </section>
+
+            <section className="daweiba-collaboration-history" aria-label="最近发送记录">
+              <div className="daweiba-collaboration-section-title">
+                <div>
+                  <h3>最近发送记录</h3>
+                  <p>仅显示时间、通知类型、结果、状态码和脱敏错误。</p>
+                </div>
+              </div>
+              {feishuWebhookHistory.length ? (
+                <div className="daweiba-collaboration-history-table" role="table">
+                  <div className="is-header" role="row">
+                    <span>时间</span><span>类型</span><span>结果</span><span>状态</span>
+                  </div>
+                  {feishuWebhookHistory.map((item, index) => (
+                    <div role="row" key={`${item.timestamp}-${item.notification_type}-${index}`}>
+                      <span>{new Date(item.timestamp).toLocaleString("zh-CN", { hour12: false })}</span>
+                      <span>{FEISHU_NOTIFICATION_LABELS[item.notification_type] ?? item.notification_type}</span>
+                      <span className={item.success ? "is-success" : "is-error"}>{item.success ? "成功" : "失败"}</span>
+                      <span title={item.error || ""}>{item.error || (item.business_code ?? item.http_status ?? "-")}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="daweiba-collaboration-empty">暂无发送记录。配置并启用后，可先发送一条明确标记为测试的消息。</p>
+              )}
+            </section>
+          </div>
+
+          <div className="daweiba-collaboration-boundary">
+            <AlertTriangle size={17} />
+            <p><strong>当前边界：</strong>只能向当前群发送通知，不能接收群消息、文件、用户指令和审批；第二层企业自建应用机器人尚未开发。</p>
           </div>
         </section>
       </section>

@@ -24,6 +24,7 @@ from .fill_engine import (
     TECHNICAL_ADJUSTMENT_FIELD,
     FillEngine,
 )
+from . import feishu_webhook
 from .knowledge_base import KnowledgeBase
 from .knowledge_qa import (
     NO_EVIDENCE_ANSWER,
@@ -99,7 +100,7 @@ from .paths import (
 from .report import append_risk_report, write_report
 
 
-APP_VERSION = "v5.5.4"
+APP_VERSION = "v5.6.0"
 OUTPUT_FILE_PREFIX = "【输出】"
 TEMP_FILE_PREFIX = "【临时】"
 PROCESS_STATE_FILENAME = "process-state.json"
@@ -273,6 +274,45 @@ async def save_preview_column_preferences(payload: dict[str, object] = Body(...)
         raise HTTPException(status_code=400, detail="预览列设置必须是对象")
     preferences = _sanitize_preview_column_preferences(raw_preferences)
     return _preview_column_preferences_payload(preferences)
+
+
+@app.get("/api/collaboration/feishu-webhook/status")
+def get_feishu_webhook_status() -> dict[str, object]:
+    return feishu_webhook.get_status()
+
+
+@app.post("/api/collaboration/feishu-webhook/settings")
+def update_feishu_webhook_settings(payload: dict[str, object] = Body(...)) -> dict[str, object]:
+    try:
+        return feishu_webhook.save_settings(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/collaboration/feishu-webhook/test")
+def test_feishu_webhook() -> dict[str, object]:
+    outcome = feishu_webhook.send_notification("test")
+    if outcome.skipped:
+        raise HTTPException(status_code=409, detail=outcome.error)
+    if not outcome.success:
+        raise HTTPException(status_code=502, detail=outcome.error or "飞书 Webhook 测试发送失败")
+    return outcome.to_dict()
+
+
+@app.get("/api/collaboration/feishu-webhook/history")
+def get_feishu_webhook_history(limit: int = 50) -> dict[str, object]:
+    return {"items": feishu_webhook.read_history(limit=limit)}
+
+
+@app.post("/api/collaboration/feishu-webhook/notify")
+def send_feishu_webhook_notification(payload: dict[str, object] = Body(...)) -> dict[str, object]:
+    notification_type = str(payload.get("notification_type") or "").strip()
+    if notification_type not in feishu_webhook.ALLOWED_NOTIFICATION_TYPES - {"test"}:
+        raise HTTPException(status_code=400, detail="不支持的通知类型")
+    context = payload.get("context") or {}
+    if not isinstance(context, dict):
+        raise HTTPException(status_code=400, detail="通知上下文必须是对象")
+    return feishu_webhook.send_notification(notification_type, context).to_dict()
 
 
 @app.post("/api/process")
