@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from app.feishu_app_bot import (
-    DB_PATH, FeishuApi, ProfessionalApi, TaskStore, TaskWorker, accept_event,
+    DB_PATH, FeishuApi, IgnoreEvent, ProfessionalApi, TaskStore, TaskWorker, accept_event,
     cleanup_expired, load_bot_defaults, load_credentials,
 )
 
@@ -46,6 +46,8 @@ def main() -> int:
     def handle_message(data):
         try:
             accept_event(data, store, feishu)
+        except IgnoreEvent:
+            return
         except ValueError as exc:
             raw = data.to_dict() if hasattr(data, "to_dict") else {}
             chat_id = (((raw.get("event") or {}).get("message") or {}).get("chat_id") or "")

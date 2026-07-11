@@ -29,14 +29,15 @@ class FakeFeishu:
         return target
 
 
-def event_payload(*, event_id: str = "evt-1", message_id: str = "msg-1", files=None, mentions=None):
+def event_payload(*, event_id: str = "evt-1", message_id: str = "msg-1", files=None, mentions=None, sender_id: str = "user-1", chat_type: str = "group"):
     return {
         "header": {"event_id": event_id},
         "event": {
+            "sender": {"sender_id": {"open_id": sender_id}},
             "message": {
                 "message_id": message_id,
                 "chat_id": "chat-1",
-                "chat_type": "group",
+                "chat_type": chat_type,
                 "mentions": [{"name": "机器人"}] if mentions is None else mentions,
                 "content": json.dumps({"files": files if files is not None else [{"file_key": "file-1", "file_name": "控制价.xlsx"}]}, ensure_ascii=False),
             }
@@ -54,9 +55,9 @@ def test_parse_valid_group_message():
     ("payload", "message"),
     [
         (event_payload(mentions=[]), "@机器人"),
-        (event_payload(files=[]), "必须且只能"),
+        (event_payload(files=[]), "只发送一个"),
         (event_payload(files=[{"file_key": "f", "file_name": "a.xls"}]), ".xlsx"),
-        (event_payload(files=[{"file_key": "a", "file_name": "a.xlsx"}, {"file_key": "b", "file_name": "b.xlsx"}]), "必须且只能"),
+        (event_payload(files=[{"file_key": "a", "file_name": "a.xlsx"}, {"file_key": "b", "file_name": "b.xlsx"}]), "只发送一个"),
     ],
 )
 def test_parse_rejects_invalid_messages(payload, message):
@@ -86,6 +87,44 @@ def test_accept_event_replies_once_for_duplicate(tmp_path):
     assert second["created"] is False
     assert len(feishu.texts) == 1
     assert first["task_id"] in feishu.texts[0][1]
+
+
+def test_at_then_separate_file_message_creates_task(tmp_path):
+    store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
+    feishu = FakeFeishu()
+    pending = feishu_app_bot.accept_event(event_payload(files=[], message_id="mention"), store, feishu)
+    file_message = event_payload(event_id="evt-file", message_id="file-message", mentions=[])
+    created = feishu_app_bot.accept_event(file_message, store, feishu)
+    assert pending["pending"] is True
+    assert created["created"] is True
+    assert "5 分钟" in feishu.texts[0][1]
+
+
+def test_unrelated_file_message_is_ignored(tmp_path):
+    store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
+    with pytest.raises(feishu_app_bot.IgnoreEvent):
+        feishu_app_bot.accept_event(event_payload(mentions=[]), store, FakeFeishu())
+
+
+def test_pending_upload_is_bound_to_sender(tmp_path):
+    store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
+    feishu_app_bot.accept_event(event_payload(files=[], sender_id="user-a"), store, FakeFeishu())
+    with pytest.raises(feishu_app_bot.IgnoreEvent):
+        feishu_app_bot.accept_event(event_payload(mentions=[], sender_id="user-b"), store, FakeFeishu())
+
+
+def test_private_chat_accepts_file_without_at(tmp_path):
+    store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
+    result = feishu_app_bot.accept_event(event_payload(chat_type="p2p", mentions=[]), store, FakeFeishu())
+    assert result["created"] is True
+
+
+def test_private_text_prompts_for_xlsx(tmp_path):
+    store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
+    feishu = FakeFeishu()
+    result = feishu_app_bot.accept_event(event_payload(chat_type="p2p", files=[], mentions=[]), store, feishu)
+    assert result["pending"] is True
+    assert ".xlsx" in feishu.texts[0][1]
 
 
 def test_worker_completes_and_returns_two_files(tmp_path, monkeypatch):

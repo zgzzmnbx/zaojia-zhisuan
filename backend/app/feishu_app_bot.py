@@ -139,8 +139,34 @@ class TaskStore:
                     detail TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS pending_uploads (
+                    chat_id TEXT NOT NULL,
+                    sender_id TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    PRIMARY KEY(chat_id, sender_id)
+                );
                 """
             )
+
+    def open_upload_window(self, chat_id: str, sender_id: str, minutes: int = 5) -> None:
+        now = datetime.now(timezone.utc)
+        with self._connect() as connection:
+            connection.execute(
+                """INSERT INTO pending_uploads(chat_id,sender_id,created_at,expires_at) VALUES (?,?,?,?)
+                ON CONFLICT(chat_id,sender_id) DO UPDATE SET created_at=excluded.created_at,expires_at=excluded.expires_at""",
+                (chat_id, sender_id, now.isoformat(timespec="seconds"), (now + timedelta(minutes=minutes)).isoformat(timespec="seconds")),
+            )
+
+    def consume_upload_window(self, chat_id: str, sender_id: str) -> bool:
+        now = utc_now()
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT expires_at FROM pending_uploads WHERE chat_id=? AND sender_id=?",
+                (chat_id, sender_id),
+            ).fetchone()
+            connection.execute("DELETE FROM pending_uploads WHERE chat_id=? AND sender_id=?", (chat_id, sender_id))
+        return bool(row and str(row["expires_at"]) >= now)
 
     def enqueue(self, *, event_id: str, message_id: str, chat_id: str, file_key: str, file_name: str) -> tuple[dict[str, Any], bool]:
         now = utc_now()
@@ -252,33 +278,58 @@ class IncomingFileTask:
     file_name: str
 
 
+@dataclass(frozen=True)
+class MessageEnvelope:
+    event_id: str
+    message_id: str
+    chat_id: str
+    chat_type: str
+    sender_id: str
+    mentioned: bool
+    files: list[tuple[str, str]]
+
+
 def parse_message_event(payload: Any) -> IncomingFileTask:
+    envelope = parse_message_envelope(payload)
+    if not envelope.mentioned:
+        raise ValueError("请在群聊中 @机器人 后上传文件")
+    return _incoming_task(envelope)
+
+
+def parse_message_envelope(payload: Any) -> MessageEnvelope:
     raw = _to_dict(payload)
     header = raw.get("header", {}) if isinstance(raw.get("header"), dict) else {}
     event = raw.get("event", raw)
     message = event.get("message", {}) if isinstance(event, dict) else {}
-    if str(message.get("chat_type") or "").lower() not in {"group", "group_chat"}:
-        raise ValueError("仅支持群聊任务")
+    chat_type = str(message.get("chat_type") or "").lower()
+    if chat_type not in {"group", "group_chat", "p2p", "private", "single"}:
+        raise ValueError("仅支持飞书群聊或机器人单聊任务")
+    sender = event.get("sender", {}) if isinstance(event, dict) else {}
+    sender_id_data = sender.get("sender_id", {}) if isinstance(sender, dict) else {}
+    sender_id = str(sender_id_data.get("open_id") or sender_id_data.get("user_id") or sender_id_data.get("union_id") or "").strip()
     mentions = message.get("mentions") or []
     content_text = str(message.get("content") or "")
-    if not mentions and "@_user_" not in content_text and "@机器人" not in content_text:
-        raise ValueError("请在群聊中 @机器人 后上传文件")
+    mentioned = bool(mentions or "@_user_" in content_text or "@机器人" in content_text)
     try:
         content = json.loads(content_text) if isinstance(message.get("content"), str) else message.get("content")
     except json.JSONDecodeError:
         content = {"text": content_text}
     files = _find_files(content)
-    if len(files) != 1:
-        raise ValueError("同一条消息必须且只能包含一个 .xlsx 文件")
-    file_key, file_name = files[0]
-    if Path(file_name).suffix.lower() != ".xlsx":
-        raise ValueError("当前只支持 .xlsx 文件")
     event_id = str(header.get("event_id") or raw.get("event_id") or "").strip()
     message_id = str(message.get("message_id") or "").strip()
     chat_id = str(message.get("chat_id") or "").strip()
-    if not event_id or not message_id or not chat_id or not file_key:
+    if not event_id or not message_id or not chat_id:
         raise ValueError("飞书消息缺少任务所需标识")
-    return IncomingFileTask(event_id, message_id, chat_id, file_key, safe_filename(file_name))
+    return MessageEnvelope(event_id, message_id, chat_id, chat_type, sender_id, mentioned, files)
+
+
+def _incoming_task(envelope: MessageEnvelope) -> IncomingFileTask:
+    if len(envelope.files) != 1:
+        raise ValueError("请发送且只发送一个 .xlsx 文件")
+    file_key, file_name = envelope.files[0]
+    if Path(file_name).suffix.lower() != ".xlsx":
+        raise ValueError("当前只支持 .xlsx 文件")
+    return IncomingFileTask(envelope.event_id, envelope.message_id, envelope.chat_id, file_key, safe_filename(file_name))
 
 
 def _to_dict(payload: Any) -> dict[str, Any]:
@@ -493,6 +544,10 @@ class NeedsManual(ValueError):
     pass
 
 
+class IgnoreEvent(ValueError):
+    pass
+
+
 class TaskWorker:
     def __init__(self, store: TaskStore, feishu: FeishuApi, professional: ProfessionalApi):
         self.store = store
@@ -550,7 +605,21 @@ class TaskWorker:
 
 
 def accept_event(payload: Any, store: TaskStore, feishu: FeishuApi) -> dict[str, Any]:
-    incoming = parse_message_event(payload)
+    envelope = parse_message_envelope(payload)
+    is_private = envelope.chat_type in {"p2p", "private", "single"}
+    if is_private and not envelope.files:
+        feishu.send_text(envelope.chat_id, "请直接拖入并发送一个 .xlsx 文件，我会自动完成匹配、风险识别、Excel 和 Word 输出。")
+        return {"pending": True}
+    if envelope.mentioned and not envelope.files:
+        if not envelope.sender_id:
+            raise ValueError("无法识别发起人，请重新 @机器人")
+        store.open_upload_window(envelope.chat_id, envelope.sender_id)
+        feishu.send_text(envelope.chat_id, "已进入收件状态，请在 5 分钟内直接拖入并发送一个 .xlsx 文件。")
+        return {"pending": True}
+    if not is_private and not envelope.mentioned:
+        if not envelope.files or not envelope.sender_id or not store.consume_upload_window(envelope.chat_id, envelope.sender_id):
+            raise IgnoreEvent("非机器人任务消息")
+    incoming = _incoming_task(envelope)
     task, created = store.enqueue(
         event_id=incoming.event_id, message_id=incoming.message_id, chat_id=incoming.chat_id,
         file_key=incoming.file_key, file_name=incoming.file_name,
