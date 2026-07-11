@@ -4,7 +4,7 @@
   "_说明": [
     "这是造价智算的项目默认设置文件，可以手动修改。",
     "注意：JSON 标准不支持 // 或 /* */ 注释；需要说明时请使用这种以下划线开头的说明字段。",
-    "程序只读取 previewColumns、zhisuanWindow、inputMapping、workloadCapture 内的有效配置项，未知说明字段会被忽略。",
+    "程序只读取 previewColumns、zhisuanWindow、inputMapping、workloadCapture、feishuAppBot 内的有效配置项，未知说明字段会被忽略。",
     "修改后请保持 JSON 格式合法；如果格式错误，程序会回退到代码内置默认值。"
   ],
   "previewColumns": {
@@ -172,6 +172,18 @@
       "输出-实物工作费调整系数": ["实物工作费调整系数", "输出-实物工作费调整系数"],
       "输出-技术工作费调整系数": ["技术工作费调整系数", "输出-技术工作费调整系数"]
     }
+  },
+  "feishuAppBot": {
+    "_说明": "第二层飞书企业自建应用机器人非秘密默认值。App ID 和 App Secret 只保存在本机 Codex-Temp/runtime/feishu-app-settings.json，不得写入本文件。",
+    "enabled": true,
+    "concurrency": 1,
+    "retentionDays": 30,
+    "allowedExtensions": [".xlsx"],
+    "maxFileSizeMb": 50,
+    "apiBaseUrl": "http://127.0.0.1:8000",
+    "enableLlmRiskNarrative": true,
+    "retryCount": 2,
+    "retryDelaySeconds": 2
   },
   "workloadCapture": {
     "_说明": "工作量抓取模块的默认设置：控制默认抓取字段、写入模式、过滤字段，以及工作量表和控制价表的列识别别名。",

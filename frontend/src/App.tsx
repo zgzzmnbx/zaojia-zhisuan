@@ -37,7 +37,7 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.7.1";
+const APP_VERSION = "v5.8.0";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const KNOWLEDGE_QA_ENTRY_COUNT = 3922;
 const KNOWLEDGE_QA_SOURCE_COUNT = 17;
@@ -126,7 +126,7 @@ const EMPTY_ELEMENT_COLUMN = "空元素列";
 const OUTPUT_ROW_FILTER_STORAGE_KEY = "guankanzhisuan-output-row-filter-settings";
 const WELCOME_SCREEN_HIDDEN_STORAGE_KEY = "guankanzhisuan-welcome-screen-hidden";
 const WELCOME_SCREEN_VERSION_STORAGE_KEY = "guankanzhisuan-welcome-screen-version";
-const WELCOME_SCREEN_VERSION = "brand-v5.7.1";
+const WELCOME_SCREEN_VERSION = "brand-v5.8.0";
 const ZHISUAN_QUICK_SETTINGS_VERSION = 2;
 const LEFT_COLUMN_COLLAPSED_STORAGE_KEY = "guankanzhisuan-left-column-collapsed";
 type MappingField = (typeof MAPPING_FIELDS)[number];
@@ -328,6 +328,8 @@ type FeishuWebhookStatus = {
   last_delivery?: FeishuDeliveryRecord | null;
 };
 
+type FeishuAppBotTask = { task_id: string; file_name: string; status: string; stage: string; error?: string; created_at: string; updated_at: string; risk_total?: number; risk_high?: number; };
+type FeishuAppBotStatus = { configured: boolean; enabled: boolean; connection_mode: string; concurrency: number; retention_days: number; counts: Record<string, number>; current_task?: FeishuAppBotTask | null; recent_tasks: FeishuAppBotTask[]; };
 const DEFAULT_FEISHU_NOTIFICATION_SWITCHES: FeishuNotificationSwitches = {
   task_started: true,
   progress: true,
@@ -1465,6 +1467,7 @@ function DaweibaApp() {
   const [isSavingFeishuWebhook, setIsSavingFeishuWebhook] = useState(false);
   const [isTestingFeishuWebhook, setIsTestingFeishuWebhook] = useState(false);
   const [feishuWebhookFeedback, setFeishuWebhookFeedback] = useState("");
+  const [feishuAppBotStatus, setFeishuAppBotStatus] = useState<FeishuAppBotStatus | null>(null);
   const [isLeftColumnCollapsed, setIsLeftColumnCollapsed] = useState(readInitialLeftColumnCollapsed);
   const [isWelcomeScreenVisible, setIsWelcomeScreenVisible] = useState(readInitialWelcomeScreenVisible);
   const [hideWelcomeNextTime, setHideWelcomeNextTime] = useState(false);
@@ -2713,9 +2716,10 @@ function DaweibaApp() {
   async function loadFeishuWebhookData() {
     setIsLoadingFeishuWebhook(true);
     try {
-      const [statusResponse, historyResponse] = await Promise.all([
+      const [statusResponse, historyResponse, appBotResponse] = await Promise.all([
         fetch(`${API_BASE}/api/collaboration/feishu-webhook/status`),
         fetch(`${API_BASE}/api/collaboration/feishu-webhook/history?limit=30`),
+        fetch(`${API_BASE}/api/collaboration/feishu-app-bot/status`),
       ]);
       if (!statusResponse.ok) throw new Error(`读取连接状态失败：${statusResponse.status}`);
       const statusPayload = (await statusResponse.json()) as FeishuWebhookStatus;
@@ -2724,6 +2728,7 @@ function DaweibaApp() {
         : { items: [] };
       applyFeishuWebhookStatus(statusPayload);
       setFeishuWebhookHistory(Array.isArray(historyPayload.items) ? historyPayload.items : []);
+      if (appBotResponse.ok) setFeishuAppBotStatus(await appBotResponse.json() as FeishuAppBotStatus);
     } catch (err) {
       setFeishuWebhookFeedback(err instanceof Error ? err.message : "读取飞书 Webhook 状态失败");
     } finally {
@@ -5849,7 +5854,7 @@ function DaweibaApp() {
     {
       id: "collaboration",
       name: "智能协同",
-      detail: feishuWebhookStatus.enabled ? "Webhook 已启用" : feishuWebhookStatus.configured ? "已配置未启用" : "第一层 · 待配置",
+      detail: feishuAppBotStatus?.configured && feishuAppBotStatus.enabled ? "第二层 · 已启用" : feishuWebhookStatus.enabled ? "Webhook 已启用" : "待配置",
       icon: <Send size={16} />,
     },
   ] satisfies Array<{
@@ -7623,16 +7628,16 @@ function DaweibaApp() {
           </div>
         </section>
 
-        <section className="daweiba-collaboration-module" aria-label="智能协同第一层 Webhook 简单机器人">
+        <section className="daweiba-collaboration-module" aria-label="智能协同飞书机器人">
           <div className="daweiba-collaboration-head">
             <div className="daweiba-module-head">
               <span><Send size={18} /></span>
               <div>
                 <p>智能协同</p>
-                <h2>第一层 · Webhook 简单机器人</h2>
+                <h2>飞书机器人 · 两层协同</h2>
               </div>
             </div>
-            <p>向指定飞书群单向推送任务通知；专业匹配、Excel、Word 和风险处理仍只在造价智算内完成。</p>
+            <p>第一层负责主动通知；第二层从群聊接收 Excel，按单任务队列自动完成匹配、风险识别和成果回传。</p>
           </div>
 
           <div className="daweiba-collaboration-status" aria-label="飞书连接状态">
@@ -7652,6 +7657,12 @@ function DaweibaApp() {
           </div>
 
           <div className="daweiba-collaboration-body">
+            <section className="daweiba-collaboration-settings" aria-label="第二层企业应用机器人状态">
+              <div className="daweiba-collaboration-section-title"><div><h3>第二层 · 企业应用长连接机器人</h3><p>任意已添加机器人的群聊可通过 @机器人并上传一个 .xlsx 发起任务；全局严格顺序处理。</p></div><span className={`daweiba-collaboration-badge ${feishuAppBotStatus?.configured && feishuAppBotStatus.enabled ? "is-success" : "is-warning"}`}>{feishuAppBotStatus?.configured ? feishuAppBotStatus.enabled ? "已配置并启用" : "已配置未启用" : "本机凭证未配置"}</span></div>
+              <div className="daweiba-feishu-app-metrics"><span><strong>{feishuAppBotStatus?.concurrency ?? 1}</strong>并发任务</span><span><strong>{feishuAppBotStatus?.counts?.queued ?? 0}</strong>等待中</span><span><strong>{feishuAppBotStatus?.counts?.completed ?? 0}</strong>已完成</span><span><strong>{feishuAppBotStatus?.retention_days ?? 30}</strong>天留存</span></div>
+              {feishuAppBotStatus?.current_task && <p className="daweiba-collaboration-feedback">正在处理：{feishuAppBotStatus.current_task.task_id} · {feishuAppBotStatus.current_task.file_name} · {feishuAppBotStatus.current_task.stage}</p>}
+              {feishuAppBotStatus?.recent_tasks?.length ? <div className="daweiba-collaboration-history-table" role="table"><div className="is-header" role="row"><span>任务</span><span>文件</span><span>状态</span><span>风险</span></div>{feishuAppBotStatus.recent_tasks.slice(0, 8).map((task) => <div role="row" key={task.task_id}><span title={task.task_id}>{task.task_id}</span><span title={task.file_name}>{task.file_name}</span><span>{task.status}</span><span>{task.risk_total ?? 0} 项 / 高 {task.risk_high ?? 0}</span></div>)}</div> : <p className="daweiba-collaboration-empty">暂无第二层任务。应用凭证只保存在本机运行目录，不会回显到前端。</p>}
+            </section>
             <section className="daweiba-collaboration-settings" aria-label="Webhook 设置">
               <div className="daweiba-collaboration-section-title">
                 <div>
@@ -7786,7 +7797,7 @@ function DaweibaApp() {
 
           <div className="daweiba-collaboration-boundary">
             <AlertTriangle size={17} />
-            <p><strong>当前边界：</strong>只能向当前群发送通知，不能接收群消息、文件、用户指令和审批；第二层企业自建应用机器人尚未开发。</p>
+            <p><strong>当前边界：</strong>第二层支持群聊收取单个 .xlsx、自动处理和成果回传；暂不包含审批、多维表格、风险派单、用户角色权限、多文件任务和群内逐行改值。</p>
           </div>
         </section>
       </section>
@@ -9207,6 +9218,3 @@ function Metric({
     </div>
   );
 }
-
-
-

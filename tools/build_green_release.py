@@ -778,6 +778,8 @@ def copy_runtime_assets(project_root: Path, release_root: Path) -> None:
     copy_tree(project_root / "backend" / "app", release_root / "backend" / "app", ignore=ignore_python_generated)
     copy_file(project_root, release_root, "backend/requirements-runtime.txt")
     copy_file(project_root, release_root, "backend/requirements.txt")
+    copy_file(project_root, release_root, "backend/feishu_bot_runner.py")
+    copy_file(project_root, release_root, "启动飞书第二层机器人.bat")
 
     copy_tree(project_root / "frontend", release_root / "frontend")
     dist_dir = release_root / "frontend" / "dist"

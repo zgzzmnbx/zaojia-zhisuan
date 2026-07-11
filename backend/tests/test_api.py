@@ -42,7 +42,7 @@ def test_health_endpoint():
 
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
-    assert response.json()["version"] == "v5.7.1"
+    assert response.json()["version"] == "v5.8.0"
 
 
 def test_project_default_settings_include_zhisuan_window():

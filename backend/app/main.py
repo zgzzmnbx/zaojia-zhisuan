@@ -25,6 +25,7 @@ from .fill_engine import (
     FillEngine,
 )
 from . import feishu_webhook
+from . import feishu_app_bot
 from .knowledge_base import KnowledgeBase
 from .knowledge_qa import (
     NO_EVIDENCE_ANSWER,
@@ -100,7 +101,7 @@ from .paths import (
 from .report import append_risk_report, write_report
 
 
-APP_VERSION = "v5.7.1"
+APP_VERSION = "v5.8.0"
 OUTPUT_FILE_PREFIX = "【输出】"
 TEMP_FILE_PREFIX = "【临时】"
 PROCESS_STATE_FILENAME = "process-state.json"
@@ -302,6 +303,17 @@ def test_feishu_webhook() -> dict[str, object]:
 @app.get("/api/collaboration/feishu-webhook/history")
 def get_feishu_webhook_history(limit: int = 50) -> dict[str, object]:
     return {"items": feishu_webhook.read_history(limit=limit)}
+
+
+@app.get("/api/collaboration/feishu-app-bot/status")
+def get_feishu_app_bot_status() -> dict[str, object]:
+    return feishu_app_bot.bot_status()
+
+
+@app.get("/api/collaboration/feishu-app-bot/tasks")
+def get_feishu_app_bot_tasks(limit: int = 30) -> dict[str, object]:
+    store = feishu_app_bot.TaskStore()
+    return {"items": [feishu_app_bot.public_task(task) for task in store.list_tasks(limit=limit)]}
 
 
 @app.post("/api/collaboration/feishu-webhook/notify")
@@ -2797,6 +2809,7 @@ def _project_default_settings_payload() -> dict[str, object]:
         "zhisuanWindow": _project_zhisuan_window_defaults(),
         "inputMapping": _project_input_mapping_defaults(),
         "workloadCapture": _project_workload_capture_defaults(),
+        "feishuAppBot": feishu_app_bot.load_bot_defaults(),
     }
 
 
