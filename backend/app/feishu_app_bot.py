@@ -161,11 +161,21 @@ class TaskStore:
     def consume_upload_window(self, chat_id: str, sender_id: str) -> bool:
         now = utc_now()
         with self._connect() as connection:
-            row = connection.execute(
-                "SELECT expires_at FROM pending_uploads WHERE chat_id=? AND sender_id=?",
-                (chat_id, sender_id),
-            ).fetchone()
-            connection.execute("DELETE FROM pending_uploads WHERE chat_id=? AND sender_id=?", (chat_id, sender_id))
+            row = None
+            if sender_id:
+                row = connection.execute(
+                    "SELECT sender_id,expires_at FROM pending_uploads WHERE chat_id=? AND sender_id=?",
+                    (chat_id, sender_id),
+                ).fetchone()
+            if not row and not sender_id:
+                candidates = connection.execute(
+                    "SELECT sender_id,expires_at FROM pending_uploads WHERE chat_id=? AND expires_at>=? ORDER BY created_at DESC LIMIT 2",
+                    (chat_id, now),
+                ).fetchall()
+                if len(candidates) == 1:
+                    row = candidates[0]
+            if row:
+                connection.execute("DELETE FROM pending_uploads WHERE chat_id=? AND sender_id=?", (chat_id, row["sender_id"]))
         return bool(row and str(row["expires_at"]) >= now)
 
     def enqueue(self, *, event_id: str, message_id: str, chat_id: str, file_key: str, file_name: str) -> tuple[dict[str, Any], bool]:
@@ -568,10 +578,24 @@ class TaskWorker:
             if input_path.stat().st_size > max_bytes:
                 raise NeedsManual(f"文件超过 {max_bytes // 1024 // 1024} MB 上限")
             self.store.update(task_id, "inspecting", "检查工作表与默认映射", stage="inspecting")
+            def report_progress(stage: str) -> None:
+                self.store.update(task_id, stage, f"进入 {stage} 阶段", stage=stage)
+                progress_messages = {
+                    "matching": f"任务 {task_id}：表格与字段识别完成，正在执行批量匹配。",
+                    "risk": f"任务 {task_id}：批量匹配完成，正在进行经验池预警和风险识别。",
+                    "report": f"任务 {task_id}：风险识别完成，正在生成 Excel 和 Word 成果。",
+                }
+                message = progress_messages.get(stage)
+                if message:
+                    try:
+                        self.feishu.send_text(task["chat_id"], message)
+                    except Exception:
+                        pass
+
             result = self.professional.run(
                 input_path,
                 task_dir,
-                progress=lambda stage: self.store.update(task_id, stage, f"进入 {stage} 阶段", stage=stage),
+                progress=report_progress,
             )
             risk_summary = dict((result.get("risks") or {}).get("summary") or {})
             high = int((risk_summary.get("severity_counts") or {}).get("high") or 0)
@@ -617,7 +641,7 @@ def accept_event(payload: Any, store: TaskStore, feishu: FeishuApi) -> dict[str,
         feishu.send_text(envelope.chat_id, "已进入收件状态，请在 5 分钟内直接拖入并发送一个 .xlsx 文件。")
         return {"pending": True}
     if not is_private and not envelope.mentioned:
-        if not envelope.files or not envelope.sender_id or not store.consume_upload_window(envelope.chat_id, envelope.sender_id):
+        if not envelope.files or not store.consume_upload_window(envelope.chat_id, envelope.sender_id):
             raise IgnoreEvent("非机器人任务消息")
     incoming = _incoming_task(envelope)
     task, created = store.enqueue(

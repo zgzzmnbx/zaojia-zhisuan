@@ -113,6 +113,18 @@ def test_pending_upload_is_bound_to_sender(tmp_path):
         feishu_app_bot.accept_event(event_payload(mentions=[], sender_id="user-b"), store, FakeFeishu())
 
 
+def test_group_file_uses_only_pending_window_when_sender_id_is_missing(tmp_path):
+    store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
+    feishu = FakeFeishu()
+    feishu_app_bot.accept_event(event_payload(files=[], sender_id="user-a"), store, feishu)
+    result = feishu_app_bot.accept_event(
+        event_payload(event_id="file-event", message_id="file-message", mentions=[], sender_id=""),
+        store,
+        feishu,
+    )
+    assert result["created"] is True
+
+
 def test_private_chat_accepts_file_without_at(tmp_path):
     store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
     result = feishu_app_bot.accept_event(event_payload(chat_type="p2p", mentions=[]), store, FakeFeishu())
@@ -155,6 +167,8 @@ def test_worker_completes_and_returns_two_files(tmp_path, monkeypatch):
     assert saved["status"] == "completed"
     assert saved["risk_total"] == 3
     assert len(feishu.files) == 2
+    assert any("批量匹配完成" in text for _, text in feishu.texts)
+    assert any("正在生成 Excel 和 Word" in text for _, text in feishu.texts)
 
 
 def test_worker_marks_mapping_problem_needs_manual(tmp_path, monkeypatch):
