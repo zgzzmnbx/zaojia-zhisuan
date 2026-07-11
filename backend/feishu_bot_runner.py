@@ -60,7 +60,7 @@ def main() -> int:
     client = lark.ws.Client(
         credentials["app_id"], credentials["app_secret"],
         event_handler=handler,
-        log_level=lark.LogLevel.WARN,
+        log_level=lark.LogLevel.WARNING,
     )
     print("第二层飞书机器人长连接已启动。")
     client.start()
