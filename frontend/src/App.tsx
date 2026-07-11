@@ -332,7 +332,7 @@ type FeishuWebhookStatus = {
   last_delivery?: FeishuDeliveryRecord | null;
 };
 type FeishuAppBotTask = { task_id: string; file_name: string; status: string; stage: string; error?: string; created_at: string; updated_at: string; risk_total?: number; risk_high?: number; };
-type FeishuAppBotStatus = { configured: boolean; enabled: boolean; connection_mode: string; concurrency: number; retention_days: number; counts: Record<string, number>; current_task?: FeishuAppBotTask | null; recent_tasks: FeishuAppBotTask[]; };
+type FeishuAppBotStatus = { configured: boolean; enabled: boolean; running: boolean; connection_mode: string; concurrency: number; retention_days: number; counts: Record<string, number>; current_task?: FeishuAppBotTask | null; recent_tasks: FeishuAppBotTask[]; };
 
 const DEFAULT_FEISHU_NOTIFICATION_SWITCHES: FeishuNotificationSwitches = {
   task_started: true,
@@ -1474,6 +1474,7 @@ function DaweibaApp() {
   const [isTestingFeishuWebhook, setIsTestingFeishuWebhook] = useState(false);
   const [feishuWebhookFeedback, setFeishuWebhookFeedback] = useState("");
   const [feishuAppBotStatus, setFeishuAppBotStatus] = useState<FeishuAppBotStatus | null>(null);
+  const [isTogglingFeishuAppBot, setIsTogglingFeishuAppBot] = useState(false);
   const [isLeftColumnCollapsed, setIsLeftColumnCollapsed] = useState(readInitialLeftColumnCollapsed);
   const [isWelcomeScreenVisible, setIsWelcomeScreenVisible] = useState(readInitialWelcomeScreenVisible);
   const [hideWelcomeNextTime, setHideWelcomeNextTime] = useState(false);
@@ -2776,6 +2777,65 @@ function DaweibaApp() {
       setFeishuWebhookFeedback(err instanceof Error ? err.message : "保存飞书 Webhook 设置失败");
     } finally {
       setIsSavingFeishuWebhook(false);
+    }
+  }
+
+  async function toggleFeishuWebhook(enabled: boolean) {
+    setFeishuEnabledDraft(enabled);
+    setIsSavingFeishuWebhook(true);
+    setFeishuWebhookFeedback("");
+    try {
+      const response = await fetch(`${API_BASE}/api/collaboration/feishu-webhook/settings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      });
+      if (!response.ok) throw new Error(`切换失败：${response.status}`);
+      applyFeishuWebhookStatus(await response.json() as FeishuWebhookStatus);
+      setFeishuWebhookFeedback(enabled ? "第一层 Webhook 通知已启用。" : "第一层 Webhook 通知已关闭。");
+    } catch (err) {
+      setFeishuEnabledDraft(!enabled);
+      setFeishuWebhookFeedback(err instanceof Error ? err.message : "切换第一层 Webhook 失败");
+    } finally {
+      setIsSavingFeishuWebhook(false);
+    }
+  }
+
+  async function toggleFeishuAppBot(enabled: boolean) {
+    setIsTogglingFeishuAppBot(true);
+    setFeishuWebhookFeedback("");
+    try {
+      const response = await fetch(`${API_BASE}/api/collaboration/feishu-app-bot/settings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.detail ?? `切换失败：${response.status}`);
+      }
+      const initialStatus = await response.json() as FeishuAppBotStatus;
+      setFeishuAppBotStatus(initialStatus);
+      setFeishuWebhookFeedback(enabled ? "第二层机器人已启用，正在建立长连接。" : "第二层机器人已关闭，本机不再接收飞书文件。运行中的任务不会被转交给其他实例。");
+      let latestStatus = initialStatus;
+      for (let attempt = 0; attempt < 10 && latestStatus.running !== enabled; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1000));
+        const statusResponse = await fetch(`${API_BASE}/api/collaboration/feishu-app-bot/status`);
+        if (!statusResponse.ok) break;
+        latestStatus = await statusResponse.json() as FeishuAppBotStatus;
+        setFeishuAppBotStatus(latestStatus);
+      }
+      if (enabled && !latestStatus.running) {
+        setFeishuWebhookFeedback("第二层机器人已启用，但10秒内未建立长连接，请查看机器人运行日志或重新启动造价智算。");
+      } else if (enabled) {
+        setFeishuWebhookFeedback("第二层机器人已启用并开始接收飞书任务。");
+      } else {
+        setFeishuWebhookFeedback("第二层机器人已关闭，本机长连接已经退出。");
+      }
+    } catch (err) {
+      setFeishuWebhookFeedback(err instanceof Error ? err.message : "切换第二层机器人失败");
+    } finally {
+      setIsTogglingFeishuAppBot(false);
     }
   }
 
@@ -7674,7 +7734,18 @@ function DaweibaApp() {
 
           <div className="daweiba-collaboration-body">
             <section className="daweiba-collaboration-settings" aria-label="第二层企业应用机器人状态">
-              <div className="daweiba-collaboration-section-title"><div><h3>第二层 · 企业应用长连接机器人</h3><p>任意已添加机器人的群聊可通过 @机器人并上传一个 .xlsx 发起任务；全局严格顺序处理。</p></div><span className={`daweiba-collaboration-badge ${feishuAppBotStatus?.configured && feishuAppBotStatus.enabled ? "is-success" : "is-warning"}`}>{feishuAppBotStatus?.configured ? feishuAppBotStatus.enabled ? "已配置并启用" : "已配置未启用" : "本机凭证未配置"}</span></div>
+              <div className="daweiba-collaboration-section-title">
+                <div><h3>第二层 · 企业应用长连接机器人</h3><p>群聊先 @机器人再发送 .xlsx；单聊可直接发送。服务器与本机只能选择一个实例启用。</p></div>
+                <div className="daweiba-collaboration-title-actions">
+                  <label className="daweiba-collaboration-switch">
+                    <input type="checkbox" checked={Boolean(feishuAppBotStatus?.enabled)} disabled={isTogglingFeishuAppBot || !feishuAppBotStatus?.configured} onChange={(event) => void toggleFeishuAppBot(event.target.checked)} />
+                    <span>启用接收</span>
+                  </label>
+                  <span className={`daweiba-collaboration-badge ${feishuAppBotStatus?.enabled && feishuAppBotStatus.running ? "is-success" : feishuAppBotStatus?.enabled ? "is-warning" : "is-muted"}`}>
+                    {!feishuAppBotStatus?.configured ? "凭证未配置" : feishuAppBotStatus.enabled ? feishuAppBotStatus.running ? "运行中" : isTogglingFeishuAppBot ? "正在启动" : "启用但未运行" : "已关闭"}
+                  </span>
+                </div>
+              </div>
               <div className="daweiba-feishu-app-metrics"><span><strong>{feishuAppBotStatus?.concurrency ?? 1}</strong>并发任务</span><span><strong>{feishuAppBotStatus?.counts?.queued ?? 0}</strong>等待中</span><span><strong>{feishuAppBotStatus?.counts?.completed ?? 0}</strong>已完成</span><span><strong>{feishuAppBotStatus?.retention_days ?? 30}</strong>天留存</span></div>
               {feishuAppBotStatus?.current_task && <p className="daweiba-collaboration-feedback">正在处理：{feishuAppBotStatus.current_task.task_id} · {feishuAppBotStatus.current_task.file_name} · {feishuAppBotStatus.current_task.stage}</p>}
               {feishuAppBotStatus?.recent_tasks?.length ? <div className="daweiba-collaboration-history-table" role="table"><div className="is-header" role="row"><span>任务</span><span>文件</span><span>状态</span><span>风险</span></div>{feishuAppBotStatus.recent_tasks.slice(0, 8).map((task) => <div role="row" key={task.task_id}><span title={task.task_id}>{task.task_id}</span><span title={task.file_name}>{task.file_name}</span><span>{task.status}</span><span>{task.risk_total ?? 0} 项 / 高 {task.risk_high ?? 0}</span></div>)}</div> : <p className="daweiba-collaboration-empty">暂无第二层任务。应用凭证只保存在本机运行目录，不会回显到前端。</p>}
@@ -7690,7 +7761,8 @@ function DaweibaApp() {
                   <input
                     type="checkbox"
                     checked={feishuEnabledDraft}
-                    onChange={(event) => setFeishuEnabledDraft(event.target.checked)}
+                    disabled={isSavingFeishuWebhook}
+                    onChange={(event) => void toggleFeishuWebhook(event.target.checked)}
                   />
                   <span>启用通知</span>
                 </label>

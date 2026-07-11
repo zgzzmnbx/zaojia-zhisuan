@@ -10143,6 +10143,27 @@ tbody tr:hover .row-ai-cell {
   line-height: 1.5;
 }
 
+.shell.layout-daweiba .daweiba-collaboration-section-title > div:first-child {
+  min-width: 0;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-title-actions {
+  display: flex;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+  max-width: 240px;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-title-actions .daweiba-collaboration-badge {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .shell.layout-daweiba .daweiba-collaboration-switch {
   display: inline-flex;
   align-items: center;
@@ -10286,6 +10307,15 @@ tbody tr:hover .row-ai-cell {
   overflow: hidden;
   border: 1px solid var(--db-border-soft);
   border-radius: 6px;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-settings > .daweiba-collaboration-history-table {
+  width: 100%;
+  min-width: 0;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-settings > .daweiba-collaboration-history-table > div {
+  grid-template-columns: minmax(120px, 1fr) minmax(120px, 1fr) 84px minmax(100px, 0.7fr);
 }
 
 .shell.layout-daweiba .daweiba-collaboration-history-table > div {

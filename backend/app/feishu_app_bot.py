@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import sqlite3
+import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -21,6 +24,8 @@ RUNTIME_ROOT = PROJECT_ROOT / "Codex-Temp" / "runtime" / "feishu-bot"
 SETTINGS_PATH = PROJECT_ROOT / "Codex-Temp" / "runtime" / "feishu-app-settings.json"
 DB_PATH = RUNTIME_ROOT / "tasks.sqlite3"
 TASKS_ROOT = RUNTIME_ROOT / "tasks"
+CONTROL_PATH = RUNTIME_ROOT / "control.json"
+PID_PATH = RUNTIME_ROOT / "runner.pid"
 REQUIRED_MAPPING_FIELDS = ("要素1", "单位", "输出-价格列")
 TERMINAL_STATES = {"completed", "needs_manual", "failed"}
 ACTIVE_STATES = {"downloading", "inspecting", "matching", "risk", "report", "uploading"}
@@ -68,6 +73,47 @@ def load_credentials() -> dict[str, str]:
     }
 
 
+def is_bot_enabled() -> bool:
+    try:
+        raw = json.loads(CONTROL_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return bool(load_bot_defaults().get("enabled"))
+    return bool(raw.get("enabled")) if isinstance(raw, dict) else bool(load_bot_defaults().get("enabled"))
+
+
+def save_bot_enabled(enabled: bool) -> None:
+    CONTROL_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CONTROL_PATH.write_text(json.dumps({"enabled": bool(enabled)}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def bot_process_running() -> bool:
+    try:
+        pid = int(PID_PATH.read_text(encoding="utf-8").strip())
+        os.kill(pid, 0)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def start_bot_process() -> bool:
+    if not is_bot_enabled() or bot_process_running():
+        return bot_process_running()
+    credentials = load_credentials()
+    if not credentials.get("app_id") or not credentials.get("app_secret"):
+        return False
+    runner = PROJECT_ROOT / "backend" / "feishu_bot_runner.py"
+    log_dir = RUNTIME_ROOT / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+    with (log_dir / "runner.out.log").open("a", encoding="utf-8") as stdout, (log_dir / "runner.err.log").open("a", encoding="utf-8") as stderr:
+        subprocess.Popen(
+            [sys.executable, str(runner)], cwd=PROJECT_ROOT,
+            stdout=stdout, stderr=stderr, creationflags=creationflags,
+            start_new_session=os.name != "nt",
+        )
+    return True
+
+
 def bot_status(db_path: Path | None = None) -> dict[str, Any]:
     defaults = load_bot_defaults()
     credentials = load_credentials()
@@ -75,8 +121,9 @@ def bot_status(db_path: Path | None = None) -> dict[str, Any]:
     counts = store.counts()
     current = store.current_task()
     return {
-        "enabled": bool(defaults.get("enabled")),
+        "enabled": is_bot_enabled(),
         "configured": bool(credentials.get("app_id") and credentials.get("app_secret")),
+        "running": bot_process_running(),
         "connection_mode": "local_long_connection",
         "concurrency": 1,
         "retention_days": int(defaults.get("retentionDays") or 30),

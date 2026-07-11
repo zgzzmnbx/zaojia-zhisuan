@@ -233,3 +233,28 @@ def test_status_api_does_not_expose_credentials(tmp_path, monkeypatch):
     text = response.text
     assert "secret" not in text
     assert response.json()["configured"] is True
+
+
+def test_app_bot_switch_persists_and_starts_when_enabled(tmp_path, monkeypatch):
+    control_path = tmp_path / "control.json"
+    monkeypatch.setattr(feishu_app_bot, "CONTROL_PATH", control_path)
+    monkeypatch.setattr(feishu_app_bot, "DB_PATH", tmp_path / "tasks.sqlite3")
+    monkeypatch.setattr(feishu_app_bot, "bot_process_running", lambda: False)
+    started: list[bool] = []
+    monkeypatch.setattr(feishu_app_bot, "start_bot_process", lambda: started.append(True) or True)
+    response = TestClient(app).post("/api/collaboration/feishu-app-bot/settings", json={"enabled": True})
+    assert response.status_code == 200
+    assert json.loads(control_path.read_text(encoding="utf-8"))["enabled"] is True
+    assert started == [True]
+
+
+def test_app_bot_switch_can_disable_without_starting(tmp_path, monkeypatch):
+    control_path = tmp_path / "control.json"
+    monkeypatch.setattr(feishu_app_bot, "CONTROL_PATH", control_path)
+    monkeypatch.setattr(feishu_app_bot, "DB_PATH", tmp_path / "tasks.sqlite3")
+    monkeypatch.setattr(feishu_app_bot, "bot_process_running", lambda: True)
+    monkeypatch.setattr(feishu_app_bot, "start_bot_process", lambda: pytest.fail("关闭时不应启动进程"))
+    response = TestClient(app).post("/api/collaboration/feishu-app-bot/settings", json={"enabled": False})
+    assert response.status_code == 200
+    assert response.json()["enabled"] is False
+    assert json.loads(control_path.read_text(encoding="utf-8"))["enabled"] is False

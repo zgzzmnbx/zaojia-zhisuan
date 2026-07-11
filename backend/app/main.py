@@ -316,6 +316,17 @@ def get_feishu_app_bot_tasks(limit: int = 30) -> dict[str, object]:
     return {"items": [feishu_app_bot.public_task(task) for task in store.list_tasks(limit=limit)]}
 
 
+@app.post("/api/collaboration/feishu-app-bot/settings")
+def update_feishu_app_bot_settings(payload: dict[str, object] = Body(...)) -> dict[str, object]:
+    if "enabled" not in payload or not isinstance(payload.get("enabled"), bool):
+        raise HTTPException(status_code=400, detail="enabled 必须是布尔值")
+    enabled = bool(payload["enabled"])
+    feishu_app_bot.save_bot_enabled(enabled)
+    if enabled:
+        feishu_app_bot.start_bot_process()
+    return feishu_app_bot.bot_status()
+
+
 @app.post("/api/collaboration/feishu-webhook/notify")
 def send_feishu_webhook_notification(payload: dict[str, object] = Body(...)) -> dict[str, object]:
     notification_type = str(payload.get("notification_type") or "").strip()

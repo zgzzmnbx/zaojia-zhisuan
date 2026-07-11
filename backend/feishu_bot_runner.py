@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import threading
 import time
@@ -10,14 +11,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from app.feishu_app_bot import (
     DB_PATH, FeishuApi, IgnoreEvent, ProfessionalApi, TaskStore, TaskWorker, accept_event,
-    cleanup_expired, load_bot_defaults, load_credentials,
+    CONTROL_PATH, PID_PATH, cleanup_expired, is_bot_enabled, load_bot_defaults, load_credentials,
 )
 
 
 def main() -> int:
     defaults = load_bot_defaults()
     credentials = load_credentials()
-    if not defaults.get("enabled"):
+    if not is_bot_enabled():
         print("第二层飞书机器人未启用。")
         return 0
     if not credentials.get("app_id") or not credentials.get("app_secret"):
@@ -35,6 +36,15 @@ def main() -> int:
     feishu = FeishuApi(credentials["app_id"], credentials["app_secret"])
     professional = ProfessionalApi(str(defaults.get("apiBaseUrl") or "http://127.0.0.1:8000"))
     worker = TaskWorker(store, feishu, professional)
+    PID_PATH.parent.mkdir(parents=True, exist_ok=True)
+    PID_PATH.write_text(str(os.getpid()), encoding="utf-8")
+
+    def control_loop() -> None:
+        while True:
+            time.sleep(1)
+            if not is_bot_enabled():
+                PID_PATH.unlink(missing_ok=True)
+                os._exit(0)
 
     def worker_loop() -> None:
         while True:
@@ -42,6 +52,7 @@ def main() -> int:
                 time.sleep(1)
 
     threading.Thread(target=worker_loop, name="feishu-task-worker", daemon=True).start()
+    threading.Thread(target=control_loop, name="feishu-control", daemon=True).start()
 
     def handle_message(data):
         try:

@@ -86,6 +86,7 @@ function Get-FeishuBotProcess {
 
 function Test-FeishuBotConfigured {
     $settingsPath = Join-Path $ProjectDir "Codex-Temp\runtime\feishu-app-settings.json"
+    $controlPath = Join-Path $ProjectDir "Codex-Temp\runtime\feishu-bot\control.json"
     $defaultsPath = Join-Path $ProjectDir "config\project-default-settings.json"
     if (-not (Test-Path -LiteralPath $settingsPath) -or -not (Test-Path -LiteralPath $defaultsPath)) {
         return $false
@@ -93,8 +94,13 @@ function Test-FeishuBotConfigured {
     try {
         $settings = Get-Content -LiteralPath $settingsPath -Encoding UTF8 -Raw | ConvertFrom-Json
         $defaults = Get-Content -LiteralPath $defaultsPath -Encoding UTF8 -Raw | ConvertFrom-Json
+        $enabled = $defaults.feishuAppBot.enabled -eq $true
+        if (Test-Path -LiteralPath $controlPath) {
+            $control = Get-Content -LiteralPath $controlPath -Encoding UTF8 -Raw | ConvertFrom-Json
+            $enabled = $control.enabled -eq $true
+        }
         return (
-            $defaults.feishuAppBot.enabled -eq $true -and
+            $enabled -and
             -not [string]::IsNullOrWhiteSpace([string]$settings.app_id) -and
             -not [string]::IsNullOrWhiteSpace([string]$settings.app_secret)
         )
