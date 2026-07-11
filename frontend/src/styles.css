@@ -7388,7 +7388,7 @@ tbody tr:hover .row-ai-cell {
 
 .shell.layout-daweiba .daweiba-report-module .daweiba-module-surface {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   width: 100%;
   height: 100%;
   min-width: 0;
@@ -7401,13 +7401,10 @@ tbody tr:hover .row-ai-cell {
   box-shadow: none;
 }
 
-.shell.layout-daweiba .daweiba-report-module .daweiba-module-head {
-  padding: 12px 16px;
-}
-
 .shell.layout-daweiba .daweiba-report-workspace {
   display: flex;
   flex-direction: column;
+  container-type: inline-size;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -7415,37 +7412,99 @@ tbody tr:hover .row-ai-cell {
 }
 
 .shell.layout-daweiba .daweiba-report-toolbar {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-areas:
+    "heading actions"
+    "meta meta";
+  grid-template-columns: minmax(180px, 1fr) auto;
   align-items: center;
-  gap: 10px 14px;
-  padding: 10px 14px;
+  gap: 6px 12px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--db-border);
   background: #ffffff;
 }
 
-.shell.layout-daweiba .daweiba-report-status {
-  flex: 1 1 220px;
-  min-width: 0;
-  padding: 0;
+.shell.layout-daweiba .daweiba-report-heading {
+  grid-area: heading;
+  display: flex;
   align-items: center;
-}
-
-.shell.layout-daweiba .daweiba-report-status div {
+  gap: 8px;
   min-width: 0;
 }
 
-.shell.layout-daweiba .daweiba-report-status span {
-  overflow: hidden;
-  text-overflow: ellipsis;
+.shell.layout-daweiba .daweiba-report-heading-icon {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background: var(--db-primary-soft);
+  color: var(--db-primary);
+}
+
+.shell.layout-daweiba .daweiba-report-heading-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.shell.layout-daweiba .daweiba-report-heading-line h2 {
+  margin: 0;
+  color: var(--db-text-strong);
+  font-size: 16px;
+  line-height: 1.2;
   white-space: nowrap;
 }
 
+.shell.layout-daweiba .daweiba-report-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--db-border);
+  border-radius: 999px;
+  background: #f8fafc;
+  color: var(--db-text-muted);
+  font-size: 11px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.shell.layout-daweiba .daweiba-report-state i {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #94a3b8;
+}
+
+.shell.layout-daweiba .daweiba-report-state.is-ready i {
+  background: rgb(117, 188, 146);
+}
+
+.shell.layout-daweiba .daweiba-report-state.is-loading i {
+  background: #2563eb;
+}
+
+.shell.layout-daweiba .daweiba-report-state.is-error i {
+  background: #b42318;
+}
+
+.shell.layout-daweiba .daweiba-report-state.is-pending i {
+  background: #d97706;
+}
+
 .shell.layout-daweiba .daweiba-report-toolbar-actions {
-  flex: 0 1 auto;
+  grid-area: actions;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
   justify-content: flex-end;
   gap: 6px;
   min-width: 0;
+  margin-top: 0;
 }
 
 .shell.layout-daweiba .daweiba-report-toolbar-actions .download-button {
@@ -7463,10 +7522,13 @@ tbody tr:hover .row-ai-cell {
 }
 
 .shell.layout-daweiba .daweiba-report-meta {
+  grid-area: meta;
   display: flex;
-  flex: 1 0 100%;
-  flex-wrap: wrap;
-  gap: 7px 16px;
+  align-items: center;
+  gap: 6px 14px;
+  min-width: 0;
+  padding-top: 6px;
+  border-top: 1px solid var(--db-border-soft);
   color: var(--db-text-muted);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
@@ -7485,6 +7547,26 @@ tbody tr:hover .row-ai-cell {
 
 .shell.layout-daweiba .daweiba-report-meta .is-warn b {
   color: #b42318;
+}
+
+.shell.layout-daweiba .daweiba-report-meta .daweiba-report-file {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  min-width: 80px;
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba .daweiba-report-file > svg {
+  flex: 0 0 auto;
+  color: var(--db-primary);
+}
+
+.shell.layout-daweiba .daweiba-report-file > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .shell.layout-daweiba .daweiba-report-sync-notice {
@@ -7714,12 +7796,29 @@ tbody tr:hover .row-ai-cell {
   text-align: center;
 }
 
-@media (max-width: 900px) {
+@container (max-width: 560px) {
+  .shell.layout-daweiba .daweiba-report-toolbar {
+    grid-template-areas:
+      "heading"
+      "actions"
+      "meta";
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .shell.layout-daweiba .daweiba-report-toolbar-actions {
-    flex: 1 0 100%;
     justify-content: flex-start;
   }
 
+  .shell.layout-daweiba .daweiba-report-meta {
+    flex-wrap: wrap;
+  }
+
+  .shell.layout-daweiba .daweiba-report-meta .daweiba-report-file {
+    flex-basis: 100%;
+  }
+}
+
+@media (max-width: 900px) {
   .shell.layout-daweiba .daweiba-report-sync-notice {
     align-items: flex-start;
     flex-wrap: wrap;
@@ -9840,6 +9939,10 @@ tbody tr:hover .row-ai-cell {
   margin: 0;
 }
 
+.shell.layout-daweiba .daweiba-workspace-frame > .daweiba-digital-project-assistant-module {
+  display: none;
+}
+
 .shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-collaboration > .daweiba-collaboration-module {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
@@ -9853,6 +9956,77 @@ tbody tr:hover .row-ai-cell {
   border: 1px solid var(--db-border);
   border-radius: 10px;
   background: #ffffff;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-digital-project-assistant > .daweiba-digital-project-assistant-module {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.shell.layout-daweiba .daweiba-digital-project-assistant-frame {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: #f8fafc;
+}
+
+.shell.layout-daweiba .daweiba-digital-project-assistant-frame iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  opacity: 0;
+}
+
+.shell.layout-daweiba .daweiba-digital-project-assistant-frame iframe.is-ready {
+  opacity: 1;
+}
+
+.shell.layout-daweiba .daweiba-digital-project-assistant-state {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 32px;
+  color: var(--db-text-muted);
+  text-align: center;
+}
+
+.shell.layout-daweiba .daweiba-digital-project-assistant-state.is-timeout > svg {
+  color: #d97706;
+}
+
+.shell.layout-daweiba .daweiba-digital-project-assistant-state div {
+  display: grid;
+  gap: 5px;
+}
+
+.shell.layout-daweiba .daweiba-digital-project-assistant-state strong {
+  color: var(--db-text-strong);
+  font-size: 16px;
+}
+
+.shell.layout-daweiba .daweiba-digital-project-assistant-state span {
+  font-size: 13px;
+}
+
+.shell.layout-daweiba .daweiba-digital-project-assistant-actions {
+  display: flex !important;
+  grid-auto-flow: column;
+  gap: 8px !important;
+}
+
+.shell.layout-daweiba .daweiba-digital-project-assistant-actions a {
+  text-decoration: none;
 }
 
 .shell.layout-daweiba .daweiba-collaboration-head {
@@ -9916,6 +10090,11 @@ tbody tr:hover .row-ai-cell {
   background: #fef2f2;
   color: #b91c1c;
 }
+
+.shell.layout-daweiba .daweiba-feishu-app-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin:14px 0; }
+.shell.layout-daweiba .daweiba-feishu-app-metrics span { display:grid; gap:3px; padding:12px; border:1px solid var(--db-border-soft); border-radius:8px; background:#f8fafc; color:var(--db-text-muted); font-size:12px; }
+.shell.layout-daweiba .daweiba-feishu-app-metrics strong { color:var(--db-text-strong); font-size:20px; }
+@media (max-width:900px) { .shell.layout-daweiba .daweiba-feishu-app-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 
 .shell.layout-daweiba .daweiba-collaboration-body {
   display: grid;
@@ -10696,7 +10875,3 @@ tbody tr:hover .row-ai-cell {
 .shell.layout-daweiba .daweiba-fill-system-card {
   min-height: 84px;
 }
-.shell.layout-daweiba .daweiba-feishu-app-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin:14px 0; }
-.shell.layout-daweiba .daweiba-feishu-app-metrics span { display:grid; gap:3px; padding:12px; border:1px solid var(--db-border-soft); border-radius:8px; background:#f8fafc; color:var(--db-text-muted); font-size:12px; }
-.shell.layout-daweiba .daweiba-feishu-app-metrics strong { color:var(--db-text-strong); font-size:20px; }
-@media (max-width:900px) { .shell.layout-daweiba .daweiba-feishu-app-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } }

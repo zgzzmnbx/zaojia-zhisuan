@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## v5.7.0 - 2026-07-10
+
+- 在既有“Word 报告”页完成真实 DOCX 只读预览，用 `@file-viewer/react@2.1.25` 与独立 Word renderer 替换摘要字段拼出的模拟页面；保留 Excel / Word 下载、风险清单、返回处理和右侧问问智算，不新增一级菜单。
+- 预览复用 `/api/download/{job_id}/report`，以 `Blob -> File(.docx)` 传入 renderer；File Viewer 与 Word renderer 按需加载，过期请求通过 `AbortController` 与请求序列取消，job 切换、重算、预警写回和风险报告写回会使旧预览失效。
+- 新增加载、更新、成功、未生成与失败状态，HTTP / 空文件 / 非 DOCX / renderer 异常均只影响预览区；失败时可重试、下载 Word 或返回处理，且旧任务响应不能覆盖新任务。
+- 将 DOCX Worker、JSZip 和第三方许可证同源同步到 `frontend/public/file-viewer`，Vite 构建复制到 `frontend/dist/file-viewer`；开发版、完整绿色版和 Tauri 静态托管均在阻断公网后成功读取真实报告。正式模板保留 Word 保存分页并关闭不适用的动态二次分页，3 页正式样例和 5 页显式分页样例均正常显示。
+- 报告页重排为紧凑操作区与主体真实预览；1366×768、1920×1080、左右侧栏折叠和 1280×800 Tauri 常规窗口均无页面级横向溢出。版本同步至 `v5.7.0`，README、当前版本计划、报告预览 PRD、Word 报告 PRD、整体 UI PRD、绿色版 / Tauri 说明和项目经验已同步。
+- 验证：报告预览专项 `6 passed`；前端构建和 PRD 严格一致性巡检通过；全量后端 `173 passed, 3 skipped, 2 failed`，两项失败与基线一致，分别来自本任务未修改的标准资料检索排序和项目样例第 90 行源值；完整绿色版构建与包内断网运行通过，Tauri release 编译通过，Worker / JSZip 在 Vite 与 FastAPI 静态托管下均返回真实 JavaScript 而非 404 / `index.html`。
+
 ## v5.6.1 - 2026-07-10
 
 - 小版本升级：统一根目录 npm 包、前端 npm 包、后端 API、前端显示、欢迎页版本标识、Tauri 配置、Cargo 元数据、README 和当前版本计划至 `v5.6.1`。

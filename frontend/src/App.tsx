@@ -8,11 +8,13 @@ import {
   Columns3,
   Database,
   Download,
+  ExternalLink,
   FileSpreadsheet,
   FileText,
   Settings,
   Loader2,
   MessageSquareText,
+  MonitorUp,
   PanelTop,
   PanelLeftClose,
   PanelLeftOpen,
@@ -29,6 +31,8 @@ import WordReportPreview, { type WordReportPreviewStatus } from "./components/re
 const DEFAULT_API_BASE = import.meta.env.DEV ? "http://127.0.0.1:8000" : "";
 const API_BASE = import.meta.env.VITE_API_BASE ?? DEFAULT_API_BASE;
 const API_BASE_LABEL = API_BASE.replace(/^https?:\/\//, "") || window.location.host;
+const DIGITAL_PROJECT_ASSISTANT_URL =
+  import.meta.env.VITE_DIGITAL_PROJECT_ASSISTANT_URL || "http://127.0.0.1:5175/?embed=1&theme=light";
 const APP_NAME = "造价智算";
 const APP_SUBTITLE = "工程造价辅助智能体";
 const OLD_APP_NAME = "管勘智算";
@@ -37,7 +41,7 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.8.0";
+const APP_VERSION = "v5.8.1";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const KNOWLEDGE_QA_ENTRY_COUNT = 3922;
 const KNOWLEDGE_QA_SOURCE_COUNT = 17;
@@ -126,12 +130,12 @@ const EMPTY_ELEMENT_COLUMN = "空元素列";
 const OUTPUT_ROW_FILTER_STORAGE_KEY = "guankanzhisuan-output-row-filter-settings";
 const WELCOME_SCREEN_HIDDEN_STORAGE_KEY = "guankanzhisuan-welcome-screen-hidden";
 const WELCOME_SCREEN_VERSION_STORAGE_KEY = "guankanzhisuan-welcome-screen-version";
-const WELCOME_SCREEN_VERSION = "brand-v5.8.0";
+const WELCOME_SCREEN_VERSION = "brand-v5.8.1";
 const ZHISUAN_QUICK_SETTINGS_VERSION = 2;
 const LEFT_COLUMN_COLLAPSED_STORAGE_KEY = "guankanzhisuan-left-column-collapsed";
 type MappingField = (typeof MAPPING_FIELDS)[number];
 type ColumnMapping = Record<MappingField, string>;
-type DaweibaModuleId = "fill" | "preview" | "experience" | "workload" | "report" | "knowledge" | "collaboration";
+type DaweibaModuleId = "fill" | "preview" | "experience" | "workload" | "report" | "knowledge" | "collaboration" | "digital-project-assistant";
 
 const UI_TUNER_TARGETS = [
   { id: "hero", name: "主标题区域" },
@@ -327,9 +331,9 @@ type FeishuWebhookStatus = {
   notifications: FeishuNotificationSwitches;
   last_delivery?: FeishuDeliveryRecord | null;
 };
-
 type FeishuAppBotTask = { task_id: string; file_name: string; status: string; stage: string; error?: string; created_at: string; updated_at: string; risk_total?: number; risk_high?: number; };
 type FeishuAppBotStatus = { configured: boolean; enabled: boolean; connection_mode: string; concurrency: number; retention_days: number; counts: Record<string, number>; current_task?: FeishuAppBotTask | null; recent_tasks: FeishuAppBotTask[]; };
+
 const DEFAULT_FEISHU_NOTIFICATION_SWITCHES: FeishuNotificationSwitches = {
   task_started: true,
   progress: true,
@@ -1456,6 +1460,8 @@ function DaweibaApp() {
   const [isRowAiLoading, setIsRowAiLoading] = useState(false);
   const [rowAiDetailPrompt, setRowAiDetailPrompt] = useState<RowAiContext | null>(null);
   const [activeDaweibaModule, setActiveDaweibaModule] = useState<DaweibaModuleId>("fill");
+  const [digitalProjectAssistantFrameKey, setDigitalProjectAssistantFrameKey] = useState(0);
+  const [digitalProjectAssistantFrameStatus, setDigitalProjectAssistantFrameStatus] = useState<"loading" | "ready" | "timeout">("loading");
   const [feishuWebhookStatus, setFeishuWebhookStatus] = useState<FeishuWebhookStatus>(EMPTY_FEISHU_WEBHOOK_STATUS);
   const [feishuWebhookHistory, setFeishuWebhookHistory] = useState<FeishuDeliveryRecord[]>([]);
   const [feishuWebhookDraft, setFeishuWebhookDraft] = useState("");
@@ -1727,6 +1733,12 @@ function DaweibaApp() {
     if (activeDaweibaModule !== "collaboration") return;
     void loadFeishuWebhookData();
   }, [activeDaweibaModule]);
+
+  useEffect(() => {
+    if (activeDaweibaModule !== "digital-project-assistant" || digitalProjectAssistantFrameStatus !== "loading") return undefined;
+    const timer = window.setTimeout(() => setDigitalProjectAssistantFrameStatus("timeout"), 10000);
+    return () => window.clearTimeout(timer);
+  }, [activeDaweibaModule, digitalProjectAssistantFrameKey, digitalProjectAssistantFrameStatus]);
 
   useEffect(() => {
     setPreviewDefaultLabelsDraft(preferenceText(previewColumnPreferences.defaultLabels));
@@ -5857,6 +5869,12 @@ function DaweibaApp() {
       detail: feishuAppBotStatus?.configured && feishuAppBotStatus.enabled ? "第二层 · 已启用" : feishuWebhookStatus.enabled ? "Webhook 已启用" : "待配置",
       icon: <Send size={16} />,
     },
+    {
+      id: "digital-project-assistant",
+      name: "数字化项目助手",
+      detail: "独立服务 · iframe",
+      icon: <MonitorUp size={16} />,
+    },
   ] satisfies Array<{
     id: DaweibaModuleId;
     name: string;
@@ -7416,32 +7434,24 @@ function DaweibaApp() {
 
         <section className="daweiba-report-module" id="daweiba-output" aria-label="报告生成和预览">
           <div className="daweiba-module-surface">
-            <div className="daweiba-module-head">
-              <span><FileText size={18} /></span>
-              <div>
-                <p>报告生成和预览</p>
-                <h2>当前报告</h2>
-              </div>
-            </div>
             {result ? (
               <div className="daweiba-report-workspace">
                 <div className="daweiba-report-toolbar">
-                  <div className="daweiba-report-status">
-                    <FileText size={24} />
-                    <div>
-                      <strong>
+                  <div className="daweiba-report-heading">
+                    <span className="daweiba-report-heading-icon"><FileText size={16} /></span>
+                    <div className="daweiba-report-heading-line">
+                      <h2>当前报告</h2>
+                      <span className={`daweiba-report-state is-${isBatchMatchPending ? "pending" : reportPreviewStatus}`}>
+                        <i aria-hidden="true" />
                         {isBatchMatchPending
-                          ? "Word 报告尚未生成"
+                          ? "尚未生成"
                           : reportPreviewStatus === "loading"
-                            ? reportPreviewUpdateMessage ? "报告已更新，正在刷新" : "正在读取真实 Word 报告"
+                            ? reportPreviewUpdateMessage ? "报告更新中" : "正在读取"
                             : reportPreviewStatus === "ready"
-                              ? "真实 Word 报告已就绪"
+                              ? "预览已就绪"
                               : reportPreviewStatus === "error"
-                                ? "报告预览失败，下载仍可用"
-                                : "Word 报告已生成"}
-                      </strong>
-                      <span title={result.summary.output_report || result.summary.report_text}>
-                        {result.summary.output_report || result.summary.report_text}
+                                ? "预览失败 · 可下载"
+                                : "报告已生成"}
                       </span>
                     </div>
                   </div>
@@ -7451,20 +7461,22 @@ function DaweibaApp() {
                       href={canDownloadOutputs ? excelDownloadHref : "#"}
                       aria-disabled={!canDownloadOutputs}
                       tabIndex={canDownloadOutputs ? 0 : -1}
+                      aria-label="下载当前报告 Excel"
                       onClick={(event) => { if (!canDownloadOutputs) event.preventDefault(); }}
                     >
                       <Download size={16} />
-                      下载 Excel
+                      Excel
                     </a>
                     <a
                       className={`download-button secondary ${!reportDownloadHref ? "is-disabled" : ""}`}
                       href={reportDownloadHref || "#"}
                       aria-disabled={!reportDownloadHref}
                       tabIndex={reportDownloadHref ? 0 : -1}
+                      aria-label="下载当前 Word 报告"
                       onClick={(event) => { if (!reportDownloadHref) event.preventDefault(); }}
                     >
                       <Download size={16} />
-                      下载 Word
+                      Word
                     </a>
                     <button
                       className="download-button secondary"
@@ -7474,14 +7486,18 @@ function DaweibaApp() {
                       onClick={refreshCurrentReportPreview}
                     >
                       {reportPreviewStatus === "loading" ? <Loader2 className="spin" size={16} /> : <RefreshCw size={16} />}
-                      刷新预览
+                      刷新
                     </button>
-                    <button className="download-button secondary" type="button" disabled={isRiskSummaryLoading || isBatchMatchPending} onClick={loadRiskSummary}>
+                    <button className="download-button secondary" type="button" disabled={isRiskSummaryLoading || isBatchMatchPending} aria-label="查看当前报告风险清单" onClick={loadRiskSummary}>
                       {isRiskSummaryLoading ? <Loader2 className="spin" size={16} /> : <ShieldCheck size={16} />}
                       风险清单
                     </button>
                   </div>
                   <div className="daweiba-report-meta" aria-label="当前报告摘要">
+                    <span className="daweiba-report-file" title={result.summary.output_report || result.summary.report_text}>
+                      <FileText size={13} />
+                      <span>{result.summary.output_report || result.summary.report_text}</span>
+                    </span>
                     <span><b>{result.summary.total_data_rows}</b> 输入行</span>
                     <span><b>{result.summary.filled_rows}</b> 已填价</span>
                     <span className={result.summary.review_rows ? "is-warn" : ""}><b>{result.summary.review_rows}</b> 待复核</span>
@@ -7540,7 +7556,7 @@ function DaweibaApp() {
                   <div className="daweiba-report-preview-head">
                     <div>
                       <span className={`daweiba-report-preview-dot is-${reportPreviewStatus}`} aria-hidden="true" />
-                      <strong>真实 DOCX 只读预览</strong>
+                      <strong>文档预览</strong>
                     </div>
                     <span>{result.summary.output_report || "等待报告生成"}</span>
                   </div>
@@ -7663,6 +7679,7 @@ function DaweibaApp() {
               {feishuAppBotStatus?.current_task && <p className="daweiba-collaboration-feedback">正在处理：{feishuAppBotStatus.current_task.task_id} · {feishuAppBotStatus.current_task.file_name} · {feishuAppBotStatus.current_task.stage}</p>}
               {feishuAppBotStatus?.recent_tasks?.length ? <div className="daweiba-collaboration-history-table" role="table"><div className="is-header" role="row"><span>任务</span><span>文件</span><span>状态</span><span>风险</span></div>{feishuAppBotStatus.recent_tasks.slice(0, 8).map((task) => <div role="row" key={task.task_id}><span title={task.task_id}>{task.task_id}</span><span title={task.file_name}>{task.file_name}</span><span>{task.status}</span><span>{task.risk_total ?? 0} 项 / 高 {task.risk_high ?? 0}</span></div>)}</div> : <p className="daweiba-collaboration-empty">暂无第二层任务。应用凭证只保存在本机运行目录，不会回显到前端。</p>}
             </section>
+
             <section className="daweiba-collaboration-settings" aria-label="Webhook 设置">
               <div className="daweiba-collaboration-section-title">
                 <div>
@@ -7798,6 +7815,46 @@ function DaweibaApp() {
           <div className="daweiba-collaboration-boundary">
             <AlertTriangle size={17} />
             <p><strong>当前边界：</strong>第二层支持群聊收取单个 .xlsx、自动处理和成果回传；暂不包含审批、多维表格、风险派单、用户角色权限、多文件任务和群内逐行改值。</p>
+          </div>
+        </section>
+
+        <section className="daweiba-digital-project-assistant-module" aria-label="数字化项目助手">
+          <div className="daweiba-digital-project-assistant-frame">
+            {digitalProjectAssistantFrameStatus !== "ready" && (
+              <div className={`daweiba-digital-project-assistant-state is-${digitalProjectAssistantFrameStatus}`}>
+                {digitalProjectAssistantFrameStatus === "loading" ? <Loader2 className="spin" size={24} /> : <AlertTriangle size={24} />}
+                <div>
+                  <strong>{digitalProjectAssistantFrameStatus === "loading" ? "正在加载数字化项目助手" : "数字化项目助手服务可能未启动"}</strong>
+                  <span>{digitalProjectAssistantFrameStatus === "loading" ? "正在连接独立服务，请稍候。" : "请确认独立前端服务已启动，然后重试或在新窗口打开。"}</span>
+                </div>
+                {digitalProjectAssistantFrameStatus === "timeout" && (
+                  <div className="daweiba-digital-project-assistant-actions">
+                    <button
+                      className="primary-button"
+                      type="button"
+                      onClick={() => {
+                        setDigitalProjectAssistantFrameStatus("loading");
+                        setDigitalProjectAssistantFrameKey((current) => current + 1);
+                      }}
+                    >
+                      <RefreshCw size={16} />
+                      重试
+                    </button>
+                    <a className="ghost-button" href={DIGITAL_PROJECT_ASSISTANT_URL} target="_blank" rel="noreferrer">
+                      <ExternalLink size={16} />
+                      新窗口打开
+                    </a>
+                  </div>
+                )}
+              </div>
+            )}
+            <iframe
+              key={digitalProjectAssistantFrameKey}
+              className={digitalProjectAssistantFrameStatus === "ready" ? "is-ready" : ""}
+              src={DIGITAL_PROJECT_ASSISTANT_URL}
+              title="数字化项目助手"
+              onLoad={() => setDigitalProjectAssistantFrameStatus("ready")}
+            />
           </div>
         </section>
       </section>
@@ -9218,3 +9275,6 @@ function Metric({
     </div>
   );
 }
+
+
+
