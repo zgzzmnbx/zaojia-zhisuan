@@ -107,3 +107,4 @@
 - 正式 Word 模板含页码文本框，它会使每页 `scrollHeight` 固定多出约 `98px`；File Viewer 报告预览应设置高于该装饰误差的 `paginationTolerance`，并保留有上限的动态分页，不能再次用 `maxDynamicPaginationPasses: 0` 关闭正文自动续页。回归时至少核对正式 3 页样例、一个 5 页以上显式分页样例和一个由长正文自动续排到 7 页左右的实际报告。
 - 统信 UOS 兼容性准备当前只是未来迁移预案，不是日常开发主线；`python tools/check_platform_compat.py` 只在统信/Linux 相关修改、路径/启动/打包规则调整或明确要求兼容性复核时手动运行，不挂入平时启动、`npm run build`、`python -m pytest backend/tests -v`、代码存档或 Windows 绿色版默认流程，避免拖慢当前 Windows 开发。
 - 同一飞书应用的多个长连接实例采用随机集群分发而非广播；本地与服务器迁移时必须只启用一个第二层机器人实例，使用智能协同页“启用接收”开关切换，避免任务、队列和成果随机分裂到不同环境。
+- Windows 上不能用 `os.kill(pid, 0)` 判断长连接进程是否存在（会返回无效参数）；第二层机器人状态应使用 Windows 进程句柄检测，否则页面可能误报未运行并重复拉起实例。

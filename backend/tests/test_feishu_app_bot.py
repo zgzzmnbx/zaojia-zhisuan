@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -29,7 +30,7 @@ class FakeFeishu:
         return target
 
 
-def event_payload(*, event_id: str = "evt-1", message_id: str = "msg-1", files=None, mentions=None, sender_id: str = "user-1", chat_type: str = "group"):
+def event_payload(*, event_id: str = "evt-1", message_id: str = "msg-1", files=None, mentions=None, text: str = "", sender_id: str = "user-1", chat_type: str = "group"):
     return {
         "header": {"event_id": event_id},
         "event": {
@@ -39,7 +40,7 @@ def event_payload(*, event_id: str = "evt-1", message_id: str = "msg-1", files=N
                 "chat_id": "chat-1",
                 "chat_type": chat_type,
                 "mentions": [{"name": "机器人"}] if mentions is None else mentions,
-                "content": json.dumps({"files": files if files is not None else [{"file_key": "file-1", "file_name": "控制价.xlsx"}]}, ensure_ascii=False),
+                "content": json.dumps({"text": text, "files": files if files is not None else [{"file_key": "file-1", "file_name": "控制价.xlsx"}]}, ensure_ascii=False),
             }
         },
     }
@@ -137,6 +138,81 @@ def test_private_text_prompts_for_xlsx(tmp_path):
     result = feishu_app_bot.accept_event(event_payload(chat_type="p2p", files=[], mentions=[]), store, feishu)
     assert result["pending"] is True
     assert ".xlsx" in feishu.texts[0][1]
+
+
+def test_group_knowledge_question_requires_bot_mention(tmp_path):
+    store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
+    feishu = FakeFeishu()
+    result = feishu_app_bot.accept_knowledge_event(
+        event_payload(files=[], text="@知识库：第二层经验提示是什么意思？"), store, feishu,
+    )
+    assert result["handled"] is True
+    assert result["question"] == "第二层经验提示是什么意思？"
+    assert "正在检索" in feishu.texts[0][1]
+
+
+def test_group_knowledge_question_without_bot_mention_is_ignored(tmp_path):
+    store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
+    with pytest.raises(feishu_app_bot.IgnoreEvent):
+        feishu_app_bot.accept_knowledge_event(
+            event_payload(files=[], mentions=[], text="@知识库：第二层经验提示是什么意思？"), store, FakeFeishu(),
+        )
+
+
+def test_private_knowledge_question_does_not_require_bot_mention(tmp_path):
+    store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
+    result = feishu_app_bot.accept_knowledge_event(
+        event_payload(chat_type="p2p", files=[], mentions=[], text="@知识库：技术工作费依据是什么？"), store, FakeFeishu(),
+    )
+    assert result["question"] == "技术工作费依据是什么？"
+
+
+def test_knowledge_question_is_idempotent(tmp_path):
+    store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
+    feishu = FakeFeishu()
+    first = feishu_app_bot.accept_knowledge_event(
+        event_payload(files=[], text="@知识库：预警阈值怎么来的？"), store, feishu,
+    )
+    second = feishu_app_bot.accept_knowledge_event(
+        event_payload(files=[], text="@知识库：预警阈值怎么来的？"), store, feishu,
+    )
+    assert first["duplicate"] is False
+    assert second["duplicate"] is True
+    assert len(feishu.texts) == 1
+
+
+def test_answer_knowledge_event_returns_answer_and_handles_failure():
+    feishu = FakeFeishu()
+
+    class Professional:
+        def ask_knowledge(self, question):
+            assert question == "技术工作费依据是什么？"
+            return "依据来源：规则说明"
+
+    feishu_app_bot.answer_knowledge_event("chat-1", "技术工作费依据是什么？", feishu, Professional())
+    assert "知识库查询完成" in feishu.texts[-1][1]
+
+
+def test_professional_api_knowledge_query_uses_existing_endpoint():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/knowledge/ask"
+        body = json.loads(request.content.decode("utf-8"))
+        assert body == {"question": "技术工作费依据是什么？", "force_knowledge": True}
+        return httpx.Response(
+            200,
+            json={
+                "answer": "技术工作费按规则表解释。",
+                "sources": [{"source_file": "规则说明.md", "title_path": "第一层规则"}],
+            },
+            request=request,
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    professional = feishu_app_bot.ProfessionalApi("http://127.0.0.1:8000", client=client)
+    answer = professional.ask_knowledge("技术工作费依据是什么？")
+    assert "技术工作费按规则表解释" in answer
+    assert "规则说明.md / 第一层规则" in answer
+    assert "不改变程序填价结果" in answer
 
 
 def test_worker_completes_and_returns_two_files(tmp_path, monkeypatch):
@@ -258,3 +334,10 @@ def test_app_bot_switch_can_disable_without_starting(tmp_path, monkeypatch):
     assert response.status_code == 200
     assert response.json()["enabled"] is False
     assert json.loads(control_path.read_text(encoding="utf-8"))["enabled"] is False
+
+
+def test_bot_process_running_detects_a_live_windows_process(tmp_path, monkeypatch):
+    pid_path = tmp_path / "runner.pid"
+    pid_path.write_text(str(os.getpid()), encoding="utf-8")
+    monkeypatch.setattr(feishu_app_bot, "PID_PATH", pid_path)
+    assert feishu_app_bot.bot_process_running() is True

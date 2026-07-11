@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from app.feishu_app_bot import (
     DB_PATH, FeishuApi, IgnoreEvent, ProfessionalApi, TaskStore, TaskWorker, accept_event,
+    accept_knowledge_event, answer_knowledge_event,
     CONTROL_PATH, PID_PATH, cleanup_expired, is_bot_enabled, load_bot_defaults, load_credentials,
 )
 
@@ -56,6 +57,16 @@ def main() -> int:
 
     def handle_message(data):
         try:
+            knowledge = accept_knowledge_event(data, store, feishu)
+            if knowledge is not None:
+                if not knowledge.get("duplicate"):
+                    threading.Thread(
+                        target=answer_knowledge_event,
+                        args=(knowledge["chat_id"], knowledge["question"], feishu, professional),
+                        name="feishu-knowledge-query",
+                        daemon=True,
+                    ).start()
+                return
             accept_event(data, store, feishu)
         except IgnoreEvent:
             return

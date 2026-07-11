@@ -89,6 +89,15 @@ def save_bot_enabled(enabled: bool) -> None:
 def bot_process_running() -> bool:
     try:
         pid = int(PID_PATH.read_text(encoding="utf-8").strip())
+        if os.name == "nt":
+            import ctypes
+
+            process_query_limited_information = 0x1000
+            handle = ctypes.windll.kernel32.OpenProcess(process_query_limited_information, False, pid)
+            if not handle:
+                return False
+            ctypes.windll.kernel32.CloseHandle(handle)
+            return True
         os.kill(pid, 0)
         return True
     except (OSError, ValueError):
@@ -193,8 +202,22 @@ class TaskStore:
                     expires_at TEXT NOT NULL,
                     PRIMARY KEY(chat_id, sender_id)
                 );
+                CREATE TABLE IF NOT EXISTS knowledge_events (
+                    event_id TEXT PRIMARY KEY,
+                    created_at TEXT NOT NULL
+                );
                 """
             )
+
+    def record_knowledge_event(self, event_id: str) -> bool:
+        if not event_id:
+            return False
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "INSERT OR IGNORE INTO knowledge_events(event_id, created_at) VALUES (?, ?)",
+                (event_id, utc_now()),
+            )
+            return cursor.rowcount == 1
 
     def open_upload_window(self, chat_id: str, sender_id: str, minutes: int = 5) -> None:
         now = datetime.now(timezone.utc)
@@ -343,6 +366,7 @@ class MessageEnvelope:
     chat_type: str
     sender_id: str
     mentioned: bool
+    text: str
     files: list[tuple[str, str]]
 
 
@@ -371,13 +395,59 @@ def parse_message_envelope(payload: Any) -> MessageEnvelope:
         content = json.loads(content_text) if isinstance(message.get("content"), str) else message.get("content")
     except json.JSONDecodeError:
         content = {"text": content_text}
+    text = _message_text(content)
     files = _find_files(content)
     event_id = str(header.get("event_id") or raw.get("event_id") or "").strip()
     message_id = str(message.get("message_id") or "").strip()
     chat_id = str(message.get("chat_id") or "").strip()
     if not event_id or not message_id or not chat_id:
         raise ValueError("飞书消息缺少任务所需标识")
-    return MessageEnvelope(event_id, message_id, chat_id, chat_type, sender_id, mentioned, files)
+    return MessageEnvelope(event_id, message_id, chat_id, chat_type, sender_id, mentioned, text, files)
+
+
+def _message_text(value: Any) -> str:
+    if isinstance(value, dict):
+        text = value.get("text")
+        if isinstance(text, str) and text.strip():
+            return text.strip()
+        for child in value.values():
+            found = _message_text(child)
+            if found:
+                return found
+    elif isinstance(value, list):
+        for child in value:
+            found = _message_text(child)
+            if found:
+                return found
+    elif isinstance(value, str):
+        return value.strip()
+    return ""
+
+
+def extract_knowledge_question(text: str) -> str:
+    """Extract an explicit @知识库 question while tolerating the bot mention before it."""
+    clean = re.sub(r"<at[^>]*>.*?</at>", " ", str(text or ""), flags=re.IGNORECASE)
+    clean = clean.replace("@_user_", " ").replace("@机器人", " ").strip()
+    for prefix in ("@知识库", "#知识库", "查库：", "查库:"):
+        index = clean.find(prefix)
+        if index < 0:
+            continue
+        question = clean[index + len(prefix):].lstrip(" \t\r\n:：,，.。;；")
+        return question.strip()
+    return ""
+
+
+def parse_knowledge_request(payload: Any) -> tuple[MessageEnvelope, str] | None:
+    envelope = parse_message_envelope(payload)
+    question = extract_knowledge_question(envelope.text)
+    if not question:
+        return None
+    is_private = envelope.chat_type in {"p2p", "private", "single"}
+    if not is_private and not envelope.mentioned:
+        raise IgnoreEvent("非机器人知识库消息")
+    if envelope.files:
+        raise ValueError("知识库问答请先发送文字问题，不要同时上传文件")
+    return envelope, question
 
 
 def _incoming_task(envelope: MessageEnvelope) -> IncomingFileTask:
@@ -565,6 +635,28 @@ class ProfessionalApi:
         report_path = self._download(f"/api/download/{job_id}/report", output_dir)
         return {"job_id": job_id, "excel": excel_path, "report": report_path, "risks": risks, "summary": warning.get("summary", {}), "llm_error": llm_error}
 
+    def ask_knowledge(self, question: str) -> str:
+        payload = self._get_json(
+            "POST",
+            "/api/knowledge/ask",
+            json_body={"question": question, "force_knowledge": True},
+        )
+        answer = str(payload.get("answer") or "当前知识库未找到明确依据，需要人工复核。").strip()
+        sources = payload.get("sources") or []
+        source_lines = []
+        for index, source in enumerate(sources[:5], start=1):
+            if not isinstance(source, dict):
+                continue
+            source_file = str(source.get("source_file") or "").strip()
+            title_path = str(source.get("title_path") or "").strip()
+            if source_file:
+                source_lines.append(f"{index}. {source_file}{f' / {title_path}' if title_path else ''}")
+        if source_lines and "依据来源" not in answer:
+            answer = f"{answer}\n\n依据来源：\n{chr(10).join(source_lines)}"
+        if "不改变程序填价结果" not in answer and "不改变填价结果" not in answer:
+            answer += "\n\n提示：本回答只解释依据，不改变程序填价结果。"
+        return answer[:7000]
+
     def _post_file(self, path: str, file_path: Path, *, data: dict[str, str]) -> dict[str, Any]:
         with file_path.open("rb") as stream:
             response = self.client.post(f"{self.base_url}{path}", data=data, files={"file": (file_path.name, stream, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
@@ -701,6 +793,25 @@ def accept_event(payload: Any, store: TaskStore, feishu: FeishuApi) -> dict[str,
     return {"task_id": task["task_id"], "created": created}
 
 
+def accept_knowledge_event(payload: Any, store: TaskStore, feishu: FeishuApi) -> dict[str, Any] | None:
+    request = parse_knowledge_request(payload)
+    if request is None:
+        return None
+    envelope, question = request
+    if not store.record_knowledge_event(envelope.event_id):
+        return {"handled": True, "duplicate": True}
+    feishu.send_text(envelope.chat_id, "已收到知识库问题，正在检索本地规则、知识库和依据来源，请稍候。")
+    return {"handled": True, "duplicate": False, "chat_id": envelope.chat_id, "question": question}
+
+
+def answer_knowledge_event(chat_id: str, question: str, feishu: FeishuApi, professional: ProfessionalApi) -> None:
+    try:
+        answer = professional.ask_knowledge(question)
+        feishu.send_text(chat_id, f"知识库查询完成：\n\n{answer}")
+    except Exception as exc:
+        feishu.send_text(chat_id, f"知识库查询暂时失败：{sanitize_error(exc)}。请稍后重试，或在造价智算“知识库问答”中查询。")
+
+
 def cleanup_expired(store: TaskStore, tasks_root: Path = TASKS_ROOT, retention_days: int | None = None) -> int:
     days = retention_days or int(load_bot_defaults().get("retentionDays") or 30)
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
@@ -720,4 +831,6 @@ def cleanup_expired(store: TaskStore, tasks_root: Path = TASKS_ROOT, retention_d
             if target.exists():
                 shutil.rmtree(target)
                 removed += 1
+    with store._connect() as connection:
+        connection.execute("DELETE FROM knowledge_events WHERE created_at < ?", (cutoff.isoformat(timespec="seconds"),))
     return removed
