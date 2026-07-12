@@ -4378,7 +4378,7 @@ function DaweibaApp() {
     setIsBatchMatching(true);
     setError("");
     setPreviewManualEditMessage("");
-    appendZhisuanMessage("开始批量匹配。我会按二维知识库、标准规则和第二层经验提示依次填写基价 / 单价、实物工作费调整系数和技术工作费调整系数。", "system");
+    appendZhisuanMessage("开始批量匹配。我会按结构化计价库、标准规则和第二层经验提示依次填写基价 / 单价、实物工作费调整系数和技术工作费调整系数。", "system");
     void sendCollaborationNotification("task_started", {
       task_name: file?.name ?? "当前造价任务",
       job_id: requestJobId,
@@ -5883,7 +5883,7 @@ function DaweibaApp() {
     {
       label: "知识库",
       value: `${KNOWLEDGE_QA_ENTRY_COUNT} 条知识`,
-      detail: `${KNOWLEDGE_QA_SOURCE_COUNT} 个来源 · 二维库 ${PRICE_KNOWLEDGE_ROW_COUNT} 条`,
+      detail: `${KNOWLEDGE_QA_SOURCE_COUNT} 个来源 · 结构化计价库 ${PRICE_KNOWLEDGE_ROW_COUNT} 条`,
     },
   ];
   const daweibaModules = [
@@ -6063,7 +6063,7 @@ function DaweibaApp() {
                       <BookOpen size={20} />
                       <span>
                         <strong>规则引擎先裁决，AI 只解释</strong>
-                        <small>二维知识库、规则表和经验池预警分层处理</small>
+                        <small>结构化计价库、规则表和经验池预警分层处理</small>
                       </span>
                     </div>
                     <div className="welcome-mini-grid">

@@ -107,7 +107,7 @@ def _knowledge_similar_candidates(row: dict[str, Any], knowledge_base: Knowledge
                 "source_row": item.get("_excel_row"),
                 "reason": f"单位一致，{matches}/{total} 个非空要素一致。",
                 "risk_tips": _difference_risk_tips(differences),
-                "basis": f"二维知识库第 {item.get('_excel_row')} 行",
+                "basis": f"结构化计价库第 {item.get('_excel_row')} 行",
                 "candidate_key": {field: item.get(field) for field in FIELD_COLUMNS},
             }
         )

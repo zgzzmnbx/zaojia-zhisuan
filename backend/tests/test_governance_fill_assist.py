@@ -164,7 +164,7 @@ def test_fill_assist_candidates_and_confirm_write_trace(tmp_path, monkeypatch):
         cell = edited["表2"]["G2"]
         assert cell.value == 3000
         assert "辅助填价人工确认" in cell.comment.text
-        assert "二维知识库第 2 行" in cell.comment.text
+        assert "结构化计价库第 2 行" in cell.comment.text
     finally:
         edited.close()
     logs = main_module.json.loads((job_dir / main_module.MANUAL_EDIT_LOG_FILENAME).read_text(encoding="utf-8"))
