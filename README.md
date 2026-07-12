@@ -12,7 +12,7 @@
 
 - 产品名：造价智算
 - 定位：工程造价辅助智能体
-- 当前版本：v5.8.3
+- 当前版本：v5.8.4
 - 当前页面布局：`大尾巴主题 / daweiba` 唯一主界面
 - 前端：React + TypeScript + Vite
 - 后端：Python + FastAPI
