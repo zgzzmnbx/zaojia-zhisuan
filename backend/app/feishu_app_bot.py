@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import unquote
+from urllib.parse import urlparse
 from uuid import uuid4
 
 import httpx
@@ -31,6 +32,27 @@ REQUIRED_MAPPING_FIELDS = ("要素1", "单位", "输出-价格列")
 TERMINAL_STATES = {"completed", "needs_manual", "failed"}
 ACTIVE_STATES = {"downloading", "inspecting", "matching", "risk", "report", "uploading"}
 DEFAULT_PROFILE_ID = "default"
+DEFAULT_FEISHU_DOMAIN = "https://open.feishu.cn"
+ALLOWED_FEISHU_DOMAINS = {"open.feishu.cn", "open.weact.pipechina.com.cn"}
+
+
+def normalize_feishu_domain(value: object) -> str:
+    domain = str(value or DEFAULT_FEISHU_DOMAIN).strip().rstrip("/")
+    try:
+        parsed = urlparse(domain)
+    except ValueError:
+        return DEFAULT_FEISHU_DOMAIN
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname not in ALLOWED_FEISHU_DOMAINS
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or parsed.path not in {"", "/"}
+    ):
+        return DEFAULT_FEISHU_DOMAIN
+    return domain
 
 
 def utc_now() -> str:
@@ -87,6 +109,7 @@ def _read_credential_store() -> dict[str, Any]:
                     "label": str(value.get("label") or profile_key).strip() or profile_key,
                     "app_id": app_id,
                     "app_secret": app_secret,
+                    "domain": normalize_feishu_domain(value.get("domain")),
                 }
 
     # Backward compatibility for the original single-profile format.
@@ -95,9 +118,10 @@ def _read_credential_store() -> dict[str, Any]:
         app_secret = str(raw.get("app_secret") or "").strip()
         if app_id and app_secret:
             profiles[DEFAULT_PROFILE_ID] = {
-                "label": "默认机器人",
+                "label": "默认机器人（普通飞书）",
                 "app_id": app_id,
                 "app_secret": app_secret,
+                "domain": normalize_feishu_domain(raw.get("domain")),
             }
 
     active_profile = str(raw.get("active_profile") or "").strip()
@@ -117,6 +141,7 @@ def load_credentials(profile_id: str | None = None) -> dict[str, str]:
         "profile_id": selected_profile,
         "app_id": str(selected.get("app_id") or "").strip(),
         "app_secret": str(selected.get("app_secret") or "").strip(),
+        "domain": normalize_feishu_domain(selected.get("domain")),
     }
 
 
@@ -128,6 +153,7 @@ def credential_profiles() -> list[dict[str, str]]:
             "profile_id": profile_id,
             "label": str(value.get("label") or profile_id),
             "app_id_suffix": str(value.get("app_id") or "")[-4:],
+            "domain_host": urlparse(normalize_feishu_domain(value.get("domain"))).hostname or "",
         }
         for profile_id, value in profiles.items()
         if isinstance(value, dict)
@@ -199,11 +225,13 @@ def start_bot_process() -> bool:
     log_dir.mkdir(parents=True, exist_ok=True)
     creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
     with (log_dir / "runner.out.log").open("a", encoding="utf-8") as stdout, (log_dir / "runner.err.log").open("a", encoding="utf-8") as stderr:
-        subprocess.Popen(
+        process = subprocess.Popen(
             [sys.executable, str(runner)], cwd=PROJECT_ROOT,
             stdout=stdout, stderr=stderr, creationflags=creationflags,
             start_new_session=os.name != "nt",
         )
+    PID_PATH.parent.mkdir(parents=True, exist_ok=True)
+    PID_PATH.write_text(str(process.pid), encoding="utf-8")
     return True
 
 
@@ -590,11 +618,11 @@ def sanitize_error(value: Any) -> str:
 
 
 class FeishuApi:
-    BASE_URL = "https://open.feishu.cn/open-apis"
-
-    def __init__(self, app_id: str, app_secret: str, *, client: httpx.Client | None = None):
+    def __init__(self, app_id: str, app_secret: str, *, domain: str = DEFAULT_FEISHU_DOMAIN, client: httpx.Client | None = None):
         self.app_id = app_id
         self.app_secret = app_secret
+        self.domain = normalize_feishu_domain(domain)
+        self.base_url = f"{self.domain}/open-apis"
         self.client = client or httpx.Client(timeout=60)
         self._token = ""
         self._token_expires_at = 0.0
@@ -603,7 +631,7 @@ class FeishuApi:
         if self._token and time.time() < self._token_expires_at:
             return self._token
         response = self.client.post(
-            f"{self.BASE_URL}/auth/v3/tenant_access_token/internal",
+            f"{self.base_url}/auth/v3/tenant_access_token/internal",
             json={"app_id": self.app_id, "app_secret": self.app_secret},
         )
         response.raise_for_status()
@@ -619,7 +647,7 @@ class FeishuApi:
 
     def download_file(self, message_id: str, file_key: str, target: Path) -> Path:
         response = self.client.get(
-            f"{self.BASE_URL}/im/v1/messages/{message_id}/resources/{file_key}",
+            f"{self.base_url}/im/v1/messages/{message_id}/resources/{file_key}",
             params={"type": "file"}, headers=self._headers(),
         )
         response.raise_for_status()
@@ -633,7 +661,7 @@ class FeishuApi:
     def upload_file(self, path: Path) -> str:
         with path.open("rb") as stream:
             response = self.client.post(
-                f"{self.BASE_URL}/im/v1/files",
+                f"{self.base_url}/im/v1/files",
                 headers=self._headers(),
                 data={"file_type": "stream", "file_name": path.name},
                 files={"file": (path.name, stream, "application/octet-stream")},
@@ -649,7 +677,7 @@ class FeishuApi:
 
     def _send_message(self, chat_id: str, msg_type: str, content: dict[str, Any]) -> None:
         response = self.client.post(
-            f"{self.BASE_URL}/im/v1/messages",
+            f"{self.base_url}/im/v1/messages",
             params={"receive_id_type": "chat_id"}, headers=self._headers(),
             json={"receive_id": chat_id, "msg_type": msg_type, "content": json.dumps(content, ensure_ascii=False)},
         )

@@ -4,6 +4,7 @@ import json
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -311,13 +312,30 @@ def test_status_api_does_not_expose_credentials(tmp_path, monkeypatch):
     assert response.json()["configured"] is True
 
 
+def test_start_bot_process_records_child_pid_immediately(tmp_path, monkeypatch):
+    pid_path = tmp_path / "runner.pid"
+    monkeypatch.setattr(feishu_app_bot, "PID_PATH", pid_path)
+    monkeypatch.setattr(feishu_app_bot, "RUNTIME_ROOT", tmp_path / "runtime")
+    monkeypatch.setattr(feishu_app_bot, "is_bot_enabled", lambda: True)
+    monkeypatch.setattr(feishu_app_bot, "bot_process_running", lambda: False)
+    monkeypatch.setattr(
+        feishu_app_bot,
+        "load_credentials",
+        lambda: {"app_id": "app", "app_secret": "secret", "domain": "https://open.weact.pipechina.com.cn"},
+    )
+    monkeypatch.setattr(feishu_app_bot.subprocess, "Popen", lambda *args, **kwargs: SimpleNamespace(pid=4321))
+
+    assert feishu_app_bot.start_bot_process() is True
+    assert pid_path.read_text(encoding="utf-8") == "4321"
+
+
 def test_credential_profiles_support_multiple_bots_without_exposing_secrets(tmp_path, monkeypatch):
     settings_path = tmp_path / "feishu-app-settings.json"
     settings_path.write_text(json.dumps({
         "active_profile": "default",
         "profiles": {
-            "default": {"label": "默认机器人", "app_id": "cli_default", "app_secret": "secret-default"},
-            "weact_cost": {"label": "weact机器人（造价中心）", "app_id": "cli_weact", "app_secret": "secret-weact"},
+            "default": {"label": "默认机器人（普通飞书）", "app_id": "cli_default", "app_secret": "secret-default"},
+            "weact_cost": {"label": "Weact机器人（管网内网）", "app_id": "cli_weact", "app_secret": "secret-weact", "domain": "https://open.weact.pipechina.com.cn"},
         },
     }), encoding="utf-8")
     monkeypatch.setattr(feishu_app_bot, "SETTINGS_PATH", settings_path)
@@ -328,7 +346,33 @@ def test_credential_profiles_support_multiple_bots_without_exposing_secrets(tmp_
     feishu_app_bot.save_active_profile("weact_cost")
     assert feishu_app_bot.active_profile_id() == "weact_cost"
     assert feishu_app_bot.load_credentials()["app_secret"] == "secret-weact"
+    assert feishu_app_bot.load_credentials()["domain"] == "https://open.weact.pipechina.com.cn"
+    assert feishu_app_bot.credential_profiles()[1]["domain_host"] == "open.weact.pipechina.com.cn"
     assert "secret-weact" not in json.dumps(feishu_app_bot.credential_profiles(), ensure_ascii=False)
+
+
+def test_feishu_api_uses_selected_enterprise_domain():
+    api = feishu_app_bot.FeishuApi(
+        "cli_weact",
+        "secret-weact",
+        domain="https://open.weact.pipechina.com.cn",
+        client=httpx.Client(transport=httpx.MockTransport(lambda _request: httpx.Response(500))),
+    )
+
+    assert api.domain == "https://open.weact.pipechina.com.cn"
+    assert api.base_url == "https://open.weact.pipechina.com.cn/open-apis"
+
+
+@pytest.mark.parametrize(
+    "domain",
+    [
+        "http://open.weact.pipechina.com.cn",
+        "https://example.com",
+        "https://open.weact.pipechina.com.cn/path",
+    ],
+)
+def test_invalid_feishu_domain_falls_back_to_public_feishu(domain):
+    assert feishu_app_bot.normalize_feishu_domain(domain) == "https://open.feishu.cn"
 
 
 def test_app_bot_switch_persists_and_starts_when_enabled(tmp_path, monkeypatch):
@@ -349,8 +393,8 @@ def test_app_bot_profile_switch_persists_and_starts_selected_profile(tmp_path, m
     settings_path.write_text(json.dumps({
         "active_profile": "default",
         "profiles": {
-            "default": {"label": "默认机器人", "app_id": "cli_default", "app_secret": "secret-default"},
-            "weact_cost": {"label": "weact机器人（造价中心）", "app_id": "cli_weact", "app_secret": "secret-weact"},
+            "default": {"label": "默认机器人（普通飞书）", "app_id": "cli_default", "app_secret": "secret-default"},
+            "weact_cost": {"label": "Weact机器人（管网内网）", "app_id": "cli_weact", "app_secret": "secret-weact", "domain": "https://open.weact.pipechina.com.cn"},
         },
     }), encoding="utf-8")
     control_path = tmp_path / "control.json"

@@ -34,7 +34,8 @@ def main() -> int:
     store = TaskStore(DB_PATH)
     store.recover_interrupted()
     cleanup_expired(store)
-    feishu = FeishuApi(credentials["app_id"], credentials["app_secret"])
+    domain = credentials.get("domain") or "https://open.feishu.cn"
+    feishu = FeishuApi(credentials["app_id"], credentials["app_secret"], domain=domain)
     professional = ProfessionalApi(str(defaults.get("apiBaseUrl") or "http://127.0.0.1:8000"))
     worker = TaskWorker(store, feishu, professional)
     PID_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -84,9 +85,11 @@ def main() -> int:
     client = lark.ws.Client(
         credentials["app_id"], credentials["app_secret"],
         event_handler=handler,
-        log_level=lark.LogLevel.WARNING,
+        log_level=lark.LogLevel.INFO,
+        domain=domain,
+        auto_reconnect=True,
     )
-    print("第二层飞书机器人长连接已启动。")
+    print(f"第二层飞书机器人正在建立长连接：{domain}", flush=True)
     client.start()
     return 0
 

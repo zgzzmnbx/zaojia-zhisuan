@@ -110,3 +110,4 @@
 - 第一层 Webhook 与第二层企业应用机器人的运行秘密统一保存在 `Codex-Temp/runtime/feishu-robot-settings.json`，分别使用 `webhook` 和 `app_bot` 分区；新增机器人配置时只维护这个文件，旧版 `feishu-webhook-settings.json` / `feishu-app-settings.json` 仅用于自动迁移兼容，不再作为现行配置入口。
 - Windows 上不能用 `os.kill(pid, 0)` 判断长连接进程是否存在（会返回无效参数）；第二层机器人状态应使用 Windows 进程句柄检测，否则页面可能误报未运行并重复拉起实例。
 - 云端 FastAPI 固定监听 `1285`，而本机默认监听 `8000`；服务器运行第二层机器人时，`feishuAppBot.apiBaseUrl` 必须在服务器运行时配置为 `http://127.0.0.1:1285`，不能直接沿用本机默认值，否则任务处理和知识库问答都会报 `[Errno 111] Connection refused`。
+- 企业 WeAct 第二层机器人不能沿用 SDK 默认公网飞书域名；对应配置必须保存 `domain=https://open.weact.pipechina.com.cn`，并让 REST API 客户端和 WebSocket 客户端同时使用该域名。连接成功标志是进入 `wss://lark-frontier.weact.pipechina.com.cn/ws/v2`；省略域名会反复报 `1000040343: internal error`。
