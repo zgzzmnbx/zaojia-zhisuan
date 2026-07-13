@@ -101,7 +101,7 @@ from .paths import (
 from .report import append_risk_report, write_report
 
 
-APP_VERSION = "v5.8.7"
+APP_VERSION = "v5.8.8"
 OUTPUT_FILE_PREFIX = "【输出】"
 TEMP_FILE_PREFIX = "【临时】"
 PROCESS_STATE_FILENAME = "process-state.json"
@@ -314,6 +314,11 @@ def get_feishu_app_bot_status() -> dict[str, object]:
 def get_feishu_app_bot_tasks(limit: int = 30) -> dict[str, object]:
     store = feishu_app_bot.TaskStore()
     return {"items": [feishu_app_bot.public_task(task) for task in store.list_tasks(limit=limit)]}
+
+
+@app.get("/api/collaboration/feishu-app-bot/logs")
+def get_feishu_app_bot_logs(limit: int = 200) -> dict[str, object]:
+    return {"items": feishu_app_bot.read_console_events(limit=limit)}
 
 
 @app.post("/api/collaboration/feishu-app-bot/settings")

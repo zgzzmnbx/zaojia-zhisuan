@@ -1,6 +1,6 @@
 [package]
 name = "guankanzhisuan-desktop"
-version = "5.8.7"
+version = "5.8.8"
 description = "Tauri desktop shell MVP for zaojiazhisuan"
 authors = ["zaojiazhisuan"]
 edition = "2021"

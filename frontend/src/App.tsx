@@ -41,7 +41,7 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.8.7";
+const APP_VERSION = "v5.8.8";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const KNOWLEDGE_QA_ENTRY_COUNT = 3922;
 const KNOWLEDGE_QA_SOURCE_COUNT = 17;
@@ -130,7 +130,7 @@ const EMPTY_ELEMENT_COLUMN = "空元素列";
 const OUTPUT_ROW_FILTER_STORAGE_KEY = "guankanzhisuan-output-row-filter-settings";
 const WELCOME_SCREEN_HIDDEN_STORAGE_KEY = "guankanzhisuan-welcome-screen-hidden";
 const WELCOME_SCREEN_VERSION_STORAGE_KEY = "guankanzhisuan-welcome-screen-version";
-const WELCOME_SCREEN_VERSION = "brand-v5.8.7";
+const WELCOME_SCREEN_VERSION = "brand-v5.8.8";
 const ZHISUAN_QUICK_SETTINGS_VERSION = 2;
 const LEFT_COLUMN_COLLAPSED_STORAGE_KEY = "guankanzhisuan-left-column-collapsed";
 type MappingField = (typeof MAPPING_FIELDS)[number];
@@ -337,6 +337,15 @@ type FeishuWebhookProfile = { profile_id: string; label: string; host?: string; 
 type FeishuAppBotProfile = { profile_id: string; label: string; app_id_suffix?: string; domain_host?: string };
 type FeishuAppBotTask = { task_id: string; file_name: string; status: string; stage: string; error?: string; created_at: string; updated_at: string; risk_total?: number; risk_high?: number; };
 type FeishuAppBotStatus = { configured: boolean; enabled: boolean; running: boolean; active_profile: string; profiles: FeishuAppBotProfile[]; connection_mode: string; concurrency: number; retention_days: number; counts: Record<string, number>; current_task?: FeishuAppBotTask | null; recent_tasks: FeishuAppBotTask[]; };
+type FeishuBotConsoleEvent = {
+  timestamp: string;
+  level: "info" | "success" | "warning" | "error";
+  category: "process" | "config" | "connection" | "message" | "knowledge" | "task";
+  message: string;
+  task_id?: string;
+  profile_id?: string;
+  source?: string;
+};
 
 const DEFAULT_FEISHU_NOTIFICATION_SWITCHES: FeishuNotificationSwitches = {
   task_started: true,
@@ -352,6 +361,21 @@ const FEISHU_NOTIFICATION_LABELS: Record<FeishuDeliveryRecord["notification_type
   task_completed: "任务完成",
   task_failed: "任务失败",
 };
+
+const FEISHU_BOT_CONSOLE_CATEGORY_LABELS: Record<FeishuBotConsoleEvent["category"], string> = {
+  process: "进程",
+  config: "配置",
+  connection: "连接",
+  message: "消息",
+  knowledge: "知识库",
+  task: "任务",
+};
+
+function formatFeishuConsoleTime(value: string) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleTimeString("zh-CN", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
 
 const EMPTY_FEISHU_WEBHOOK_STATUS: FeishuWebhookStatus = {
   configured: false,
@@ -1481,6 +1505,10 @@ function DaweibaApp() {
   const [feishuWebhookFeedback, setFeishuWebhookFeedback] = useState("");
   const [feishuAppBotStatus, setFeishuAppBotStatus] = useState<FeishuAppBotStatus | null>(null);
   const [isTogglingFeishuAppBot, setIsTogglingFeishuAppBot] = useState(false);
+  const [feishuBotConsoleEvents, setFeishuBotConsoleEvents] = useState<FeishuBotConsoleEvent[]>([]);
+  const [isFeishuBotConsoleLive, setIsFeishuBotConsoleLive] = useState(true);
+  const [isLoadingFeishuBotConsole, setIsLoadingFeishuBotConsole] = useState(false);
+  const feishuBotConsoleRef = useRef<HTMLDivElement | null>(null);
   const [isLeftColumnCollapsed, setIsLeftColumnCollapsed] = useState(readInitialLeftColumnCollapsed);
   const [isWelcomeScreenVisible, setIsWelcomeScreenVisible] = useState(readInitialWelcomeScreenVisible);
   const [hideWelcomeNextTime, setHideWelcomeNextTime] = useState(false);
@@ -1740,6 +1768,17 @@ function DaweibaApp() {
     if (activeDaweibaModule !== "collaboration") return;
     void loadFeishuWebhookData();
   }, [activeDaweibaModule]);
+
+  useEffect(() => {
+    if (activeDaweibaModule !== "collaboration" || !isFeishuBotConsoleLive) return undefined;
+    const timer = window.setInterval(() => void loadFeishuBotConsole(true), 3000);
+    return () => window.clearInterval(timer);
+  }, [activeDaweibaModule, isFeishuBotConsoleLive]);
+
+  useEffect(() => {
+    if (activeDaweibaModule !== "collaboration" || !feishuBotConsoleRef.current) return;
+    feishuBotConsoleRef.current.scrollTop = feishuBotConsoleRef.current.scrollHeight;
+  }, [activeDaweibaModule, feishuBotConsoleEvents]);
 
   useEffect(() => {
     if (activeDaweibaModule !== "digital-project-assistant" || digitalProjectAssistantFrameStatus !== "loading") return undefined;
@@ -2735,10 +2774,11 @@ function DaweibaApp() {
   async function loadFeishuWebhookData() {
     setIsLoadingFeishuWebhook(true);
     try {
-      const [statusResponse, historyResponse, appBotResponse] = await Promise.all([
+      const [statusResponse, historyResponse, appBotResponse, consoleResponse] = await Promise.all([
         fetch(`${API_BASE}/api/collaboration/feishu-webhook/status`),
         fetch(`${API_BASE}/api/collaboration/feishu-webhook/history?limit=30`),
         fetch(`${API_BASE}/api/collaboration/feishu-app-bot/status`),
+        fetch(`${API_BASE}/api/collaboration/feishu-app-bot/logs?limit=160`),
       ]);
       if (!statusResponse.ok) throw new Error(`读取连接状态失败：${statusResponse.status}`);
       const statusPayload = (await statusResponse.json()) as FeishuWebhookStatus;
@@ -2748,10 +2788,32 @@ function DaweibaApp() {
       applyFeishuWebhookStatus(statusPayload);
       setFeishuWebhookHistory(Array.isArray(historyPayload.items) ? historyPayload.items : []);
       if (appBotResponse.ok) setFeishuAppBotStatus(await appBotResponse.json() as FeishuAppBotStatus);
+      if (consoleResponse.ok) {
+        const consolePayload = await consoleResponse.json() as { items?: FeishuBotConsoleEvent[] };
+        setFeishuBotConsoleEvents(Array.isArray(consolePayload.items) ? consolePayload.items : []);
+      }
     } catch (err) {
       setFeishuWebhookFeedback(err instanceof Error ? err.message : "读取飞书 Webhook 状态失败");
     } finally {
       setIsLoadingFeishuWebhook(false);
+    }
+  }
+
+  async function loadFeishuBotConsole(silent = false) {
+    if (!silent) setIsLoadingFeishuBotConsole(true);
+    try {
+      const [statusResponse, consoleResponse] = await Promise.all([
+        fetch(`${API_BASE}/api/collaboration/feishu-app-bot/status`),
+        fetch(`${API_BASE}/api/collaboration/feishu-app-bot/logs?limit=160`),
+      ]);
+      if (statusResponse.ok) setFeishuAppBotStatus(await statusResponse.json() as FeishuAppBotStatus);
+      if (!consoleResponse.ok) throw new Error(`读取机器人日志失败：${consoleResponse.status}`);
+      const payload = await consoleResponse.json() as { items?: FeishuBotConsoleEvent[] };
+      setFeishuBotConsoleEvents(Array.isArray(payload.items) ? payload.items : []);
+    } catch (err) {
+      if (!silent) setFeishuWebhookFeedback(err instanceof Error ? err.message : "读取机器人运行日志失败");
+    } finally {
+      if (!silent) setIsLoadingFeishuBotConsole(false);
     }
   }
 
@@ -7919,6 +7981,45 @@ function DaweibaApp() {
               <p className="daweiba-collaboration-security-note">
                 <ShieldCheck size={16} />
                 推荐在飞书端启用签名校验；自定义关键词和 IP 白名单由飞书端配置，本页面不伪造其启用状态。
+              </p>
+            </section>
+
+            <section className="daweiba-collaboration-history daweiba-bot-console-panel" aria-label="第二层机器人运行控制台">
+              <div className="daweiba-collaboration-section-title">
+                <div>
+                  <h3>第二层：机器人运行控制台</h3>
+                  <p>查看长连接、消息接收和任务处理情况；页面只展示脱敏后的结构化日志。</p>
+                </div>
+                <div className="daweiba-collaboration-title-actions">
+                  <label className="daweiba-collaboration-switch">
+                    <input type="checkbox" checked={isFeishuBotConsoleLive} onChange={(event) => setIsFeishuBotConsoleLive(event.target.checked)} />
+                    <span>实时刷新</span>
+                  </label>
+                  <button className="ghost-button" type="button" disabled={isLoadingFeishuBotConsole} onClick={() => void loadFeishuBotConsole()}>
+                    <RefreshCw size={15} className={isLoadingFeishuBotConsole ? "spin" : ""} />
+                    刷新日志
+                  </button>
+                </div>
+              </div>
+              <div className="daweiba-bot-console-summary">
+                <span className={feishuAppBotStatus?.enabled && feishuAppBotStatus.running ? "is-online" : "is-offline"}>
+                  <i />{feishuAppBotStatus?.enabled && feishuAppBotStatus.running ? "长连接进程运行中" : feishuAppBotStatus?.enabled ? "已启用但未运行" : "接收已关闭"}
+                </span>
+                <span>当前机器人：{feishuAppBotStatus?.profiles?.find((profile) => profile.profile_id === feishuAppBotStatus.active_profile)?.label ?? "未配置"}</span>
+                <span>日志：{feishuBotConsoleEvents.length} 条</span>
+              </div>
+              <div className="daweiba-bot-console" role="log" aria-label="机器人脱敏运行日志" ref={feishuBotConsoleRef}>
+                {feishuBotConsoleEvents.length ? feishuBotConsoleEvents.map((item, index) => (
+                  <div className={`daweiba-bot-console-line is-${item.level}`} key={`${item.timestamp}-${item.source ?? "log"}-${item.task_id ?? ""}-${index}`}>
+                    <time title={item.timestamp}>{formatFeishuConsoleTime(item.timestamp)}</time>
+                    <span className="daweiba-bot-console-category">{FEISHU_BOT_CONSOLE_CATEGORY_LABELS[item.category] ?? item.category}</span>
+                    <span className="daweiba-bot-console-message">{item.message}{item.task_id ? <code>{item.task_id}</code> : null}</span>
+                  </div>
+                )) : <p className="daweiba-bot-console-empty">暂无运行日志。启用机器人或收到消息后，这里会自动显示连接和处理过程。</p>}
+              </div>
+              <p className="daweiba-collaboration-security-note">
+                <ShieldCheck size={16} />
+                控制台不会显示 App Secret、访问令牌、连接票据、文件 Key、群 ID、用户 ID 或完整 WebSocket 地址。
               </p>
             </section>
 

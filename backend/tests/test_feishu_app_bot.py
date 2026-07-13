@@ -14,6 +14,11 @@ from backend.app import feishu_app_bot
 from backend.app.main import app
 
 
+@pytest.fixture(autouse=True)
+def isolate_runtime_console_log(tmp_path, monkeypatch):
+    monkeypatch.setattr(feishu_app_bot, "CONSOLE_EVENTS_PATH", tmp_path / "console-events.jsonl")
+
+
 class FakeFeishu:
     def __init__(self):
         self.texts: list[tuple[str, str]] = []
@@ -310,6 +315,64 @@ def test_status_api_does_not_expose_credentials(tmp_path, monkeypatch):
     text = response.text
     assert "secret" not in text
     assert response.json()["configured"] is True
+
+
+def test_console_events_merge_runtime_connection_and_task_logs_without_secrets(tmp_path):
+    console_path = tmp_path / "console-events.jsonl"
+    runner_out = tmp_path / "runner.out.log"
+    runner_err = tmp_path / "runner.err.log"
+    db_path = tmp_path / "tasks.sqlite3"
+    feishu_app_bot.append_runtime_event(
+        "message",
+        "收到消息 ticket=private-ticket chat_id=private-chat https://open.feishu.cn/open-apis/private/path",
+        path=console_path,
+    )
+    runner_out.write_text(
+        "[Lark] [2026-07-13 19:31:38,123] [INFO] connected to "
+        "wss://lark-frontier.weact.pipechina.com.cn/ws/v2?ticket=private-ticket&access_key=private-key\n",
+        encoding="utf-8",
+    )
+    store = feishu_app_bot.TaskStore(db_path)
+    task, _ = store.enqueue(event_id="e-console", message_id="m-console", chat_id="c", file_key="f", file_name="a.xlsx")
+    store.update(task["task_id"], "completed", "成果已回传", stage="completed")
+
+    items = feishu_app_bot.read_console_events(
+        limit=50,
+        db_path=db_path,
+        console_path=console_path,
+        runner_out_path=runner_out,
+        runner_err_path=runner_err,
+    )
+
+    serialized = json.dumps(items, ensure_ascii=False)
+    assert "private-ticket" not in serialized
+    assert "private-key" not in serialized
+    assert "private-chat" not in serialized
+    assert "/ws/v2" not in serialized
+    assert any(item["category"] == "connection" and "lark-frontier.weact.pipechina.com.cn" in item["message"] for item in items)
+    assert any(item["category"] == "message" for item in items)
+    assert any(item["category"] == "task" and item["task_id"] == task["task_id"] for item in items)
+
+
+def test_console_log_api_is_bounded_and_does_not_expose_raw_runner_url(tmp_path, monkeypatch):
+    console_path = tmp_path / "console-events.jsonl"
+    runner_out = tmp_path / "runner.out.log"
+    runner_out.write_text(
+        "[Lark] [2026-07-13 19:31:38,123] [INFO] connected to "
+        "wss://msg-frontier.feishu.cn/ws/v2?ticket=secret-ticket\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(feishu_app_bot, "DB_PATH", tmp_path / "tasks.sqlite3")
+    monkeypatch.setattr(feishu_app_bot, "CONSOLE_EVENTS_PATH", console_path)
+    monkeypatch.setattr(feishu_app_bot, "RUNNER_OUT_LOG_PATH", runner_out)
+    monkeypatch.setattr(feishu_app_bot, "RUNNER_ERR_LOG_PATH", tmp_path / "runner.err.log")
+
+    response = TestClient(app).get("/api/collaboration/feishu-app-bot/logs?limit=1")
+
+    assert response.status_code == 200
+    assert len(response.json()["items"]) == 1
+    assert "secret-ticket" not in response.text
+    assert "/ws/v2" not in response.text
 
 
 def test_start_bot_process_records_child_pid_immediately(tmp_path, monkeypatch):

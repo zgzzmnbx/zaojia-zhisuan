@@ -7,6 +7,7 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -28,6 +29,13 @@ DB_PATH = RUNTIME_ROOT / "tasks.sqlite3"
 TASKS_ROOT = RUNTIME_ROOT / "tasks"
 CONTROL_PATH = RUNTIME_ROOT / "control.json"
 PID_PATH = RUNTIME_ROOT / "runner.pid"
+CONSOLE_EVENTS_PATH = RUNTIME_ROOT / "console-events.jsonl"
+RUNNER_OUT_LOG_PATH = RUNTIME_ROOT / "logs" / "runner.out.log"
+RUNNER_ERR_LOG_PATH = RUNTIME_ROOT / "logs" / "runner.err.log"
+CONSOLE_EVENT_MAX_BYTES = 2 * 1024 * 1024
+CONSOLE_EVENT_LEVELS = {"info", "success", "warning", "error"}
+CONSOLE_EVENT_CATEGORIES = {"process", "config", "connection", "message", "knowledge", "task"}
+_CONSOLE_EVENT_LOCK = threading.Lock()
 REQUIRED_MAPPING_FIELDS = ("要素1", "单位", "输出-价格列")
 TERMINAL_STATES = {"completed", "needs_manual", "failed"}
 ACTIVE_STATES = {"downloading", "inspecting", "matching", "risk", "report", "uploading"}
@@ -57,6 +65,138 @@ def normalize_feishu_domain(value: object) -> str:
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _sanitize_console_text(value: Any) -> str:
+    text = str(value or "").replace("\r", " ").replace("\n", " ").strip()
+    text = re.sub(
+        r"(?i)(app[_ -]?secret|tenant[_ -]?access[_ -]?token|access[_ -]?token|ticket|access[_ -]?key|file[_ -]?key|chat[_ -]?id|open[_ -]?id|user[_ -]?id)\s*[:=]\s*[^\s&]+",
+        r"\1=***",
+        text,
+    )
+    text = re.sub(r"((?:https?|wss)://[A-Za-z0-9.-]+)(?:/[^\s]*)?", r"\1", text)
+    return text[:500]
+
+
+def append_runtime_event(
+    category: str,
+    message: str,
+    *,
+    level: str = "info",
+    task_id: str = "",
+    profile_id: str = "",
+    path: Path | None = None,
+) -> None:
+    target = Path(path or CONSOLE_EVENTS_PATH)
+    normalized_level = level if level in CONSOLE_EVENT_LEVELS else "info"
+    normalized_category = category if category in CONSOLE_EVENT_CATEGORIES else "process"
+    payload = {
+        "timestamp": utc_now(),
+        "level": normalized_level,
+        "category": normalized_category,
+        "message": _sanitize_console_text(message),
+        "task_id": _sanitize_console_text(task_id),
+        "profile_id": _sanitize_console_text(profile_id),
+        "source": "runtime",
+    }
+    if not payload["message"]:
+        return
+    try:
+        with _CONSOLE_EVENT_LOCK:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if target.exists() and target.stat().st_size >= CONSOLE_EVENT_MAX_BYTES:
+                rotated = target.with_suffix(f"{target.suffix}.1")
+                rotated.unlink(missing_ok=True)
+                target.replace(rotated)
+            with target.open("a", encoding="utf-8") as stream:
+                stream.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except OSError:
+        return
+
+
+def _runner_timestamp(value: str) -> str:
+    try:
+        parsed = datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+        local_timezone = datetime.now().astimezone().tzinfo
+        return parsed.replace(tzinfo=local_timezone).astimezone(timezone.utc).isoformat(timespec="seconds")
+    except ValueError:
+        return utc_now()
+
+
+def _read_runner_connection_events(path: Path) -> list[dict[str, Any]]:
+    try:
+        with path.open("rb") as stream:
+            stream.seek(0, os.SEEK_END)
+            size = stream.tell()
+            stream.seek(max(0, size - 512 * 1024))
+            text = stream.read().decode("utf-8", errors="replace")
+    except OSError:
+        return []
+    events: list[dict[str, Any]] = []
+    for line in text.splitlines():
+        timestamp_match = re.search(r"\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})(?:,\d+)?\]", line)
+        timestamp = _runner_timestamp(timestamp_match.group(1)) if timestamp_match else utc_now()
+        host_match = re.search(r"wss://([^\s/?]+)", line)
+        host = _sanitize_console_text(host_match.group(1) if host_match else "")
+        level = "info"
+        message = ""
+        if "connected to wss://" in line and "disconnected" not in line:
+            level = "success"
+            message = f"长连接已建立：{host or '飞书消息节点'}"
+        elif "disconnected to wss://" in line:
+            level = "warning"
+            message = f"长连接已断开：{host or '飞书消息节点'}"
+        elif "trying to reconnect" in line:
+            level = "warning"
+            retry_match = re.search(r"trying to reconnect for the ([^\s]+) time", line)
+            message = f"正在自动重连{f'（{retry_match.group(1)}）' if retry_match else ''}"
+        elif "receive message loop exit" in line:
+            level = "warning"
+            message = "消息接收循环中断，等待自动重连"
+        elif "connect failed" in line:
+            level = "error"
+            code_match = re.search(r"err:\s*([0-9-]+)", line)
+            message = f"长连接建立失败{f'（错误码 {code_match.group(1)}）' if code_match else ''}"
+        if message:
+            events.append({
+                "timestamp": timestamp,
+                "level": level,
+                "category": "connection",
+                "message": message,
+                "task_id": "",
+                "profile_id": "",
+                "source": "sdk",
+            })
+    return events
+
+
+def _read_runtime_events(path: Path) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    for target in (path.with_suffix(f"{path.suffix}.1"), path):
+        try:
+            lines = target.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        for line in lines[-1000:]:
+            try:
+                raw = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(raw, dict):
+                continue
+            message = _sanitize_console_text(raw.get("message"))
+            if not message:
+                continue
+            events.append({
+                "timestamp": str(raw.get("timestamp") or utc_now()),
+                "level": str(raw.get("level") or "info") if str(raw.get("level") or "info") in CONSOLE_EVENT_LEVELS else "info",
+                "category": str(raw.get("category") or "process") if str(raw.get("category") or "process") in CONSOLE_EVENT_CATEGORIES else "process",
+                "message": message,
+                "task_id": _sanitize_console_text(raw.get("task_id")),
+                "profile_id": _sanitize_console_text(raw.get("profile_id")),
+                "source": "runtime",
+            })
+    return events
 
 
 def load_bot_defaults() -> dict[str, Any]:
@@ -181,6 +321,9 @@ def save_active_profile(profile_id: str) -> None:
         temporary = SETTINGS_PATH.with_suffix(f"{SETTINGS_PATH.suffix}.tmp")
         temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         temporary.replace(SETTINGS_PATH)
+    selected = profiles.get(profile_id) if isinstance(profiles, dict) else {}
+    label = str(selected.get("label") or profile_id) if isinstance(selected, dict) else profile_id
+    append_runtime_event("config", f"已切换第二层机器人：{label}", profile_id=profile_id)
 
 
 def is_bot_enabled() -> bool:
@@ -194,6 +337,7 @@ def is_bot_enabled() -> bool:
 def save_bot_enabled(enabled: bool) -> None:
     CONTROL_PATH.parent.mkdir(parents=True, exist_ok=True)
     CONTROL_PATH.write_text(json.dumps({"enabled": bool(enabled)}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    append_runtime_event("config", "已启用第二层机器人接收" if enabled else "已关闭第二层机器人接收")
 
 
 def bot_process_running() -> bool:
@@ -232,6 +376,11 @@ def start_bot_process() -> bool:
         )
     PID_PATH.parent.mkdir(parents=True, exist_ok=True)
     PID_PATH.write_text(str(process.pid), encoding="utf-8")
+    append_runtime_event(
+        "process",
+        "第二层机器人子进程已启动，正在建立长连接",
+        profile_id=str(credentials.get("profile_id") or ""),
+    )
     return True
 
 
@@ -458,6 +607,14 @@ class TaskStore:
             ).fetchone()
         return dict(row) if row else None
 
+    def list_logs(self, limit: int = 200) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT id,task_id,status,detail,created_at FROM task_logs ORDER BY id DESC LIMIT ?",
+                (max(1, min(limit, 500)),),
+            ).fetchall()
+        return [dict(row) for row in reversed(rows)]
+
     def queue_position(self, task_id: str) -> int:
         with self._connect() as connection:
             row = connection.execute("SELECT created_at FROM tasks WHERE task_id=?", (task_id,)).fetchone()
@@ -469,6 +626,40 @@ class TaskStore:
             ).fetchone()[0]
         return int(count)
 
+
+def read_console_events(
+    limit: int = 200,
+    *,
+    db_path: Path | None = None,
+    console_path: Path | None = None,
+    runner_out_path: Path | None = None,
+    runner_err_path: Path | None = None,
+) -> list[dict[str, Any]]:
+    safe_limit = max(1, min(int(limit), 500))
+    events = _read_runtime_events(Path(console_path or CONSOLE_EVENTS_PATH))
+    events.extend(_read_runner_connection_events(Path(runner_out_path or RUNNER_OUT_LOG_PATH)))
+    events.extend(_read_runner_connection_events(Path(runner_err_path or RUNNER_ERR_LOG_PATH)))
+    try:
+        task_logs = TaskStore(db_path or DB_PATH).list_logs(limit=max(safe_limit, 200))
+    except sqlite3.Error:
+        task_logs = []
+    warning_statuses = {"needs_manual", "retryable_failed", "recovered"}
+    error_statuses = {"failed"}
+    success_statuses = {"completed"}
+    for item in task_logs:
+        status = str(item.get("status") or "")
+        level = "error" if status in error_statuses else "warning" if status in warning_statuses else "success" if status in success_statuses else "info"
+        events.append({
+            "timestamp": str(item.get("created_at") or utc_now()),
+            "level": level,
+            "category": "task",
+            "message": _sanitize_console_text(item.get("detail") or status or "任务状态更新"),
+            "task_id": _sanitize_console_text(item.get("task_id")),
+            "profile_id": "",
+            "source": "task",
+        })
+    events.sort(key=lambda item: str(item.get("timestamp") or ""))
+    return events[-safe_limit:]
 
 @dataclass(frozen=True)
 class IncomingFileTask:
@@ -929,7 +1120,9 @@ def answer_knowledge_event(chat_id: str, question: str, feishu: FeishuApi, profe
     try:
         answer = professional.ask_knowledge(question)
         feishu.send_text(chat_id, f"知识库查询完成：\n\n{answer}")
+        append_runtime_event("knowledge", "知识库问题查询完成并已回复", level="success", profile_id=active_profile_id())
     except Exception as exc:
+        append_runtime_event("knowledge", f"知识库问题查询失败：{sanitize_error(exc)}", level="error", profile_id=active_profile_id())
         feishu.send_text(chat_id, f"知识库查询暂时失败：{sanitize_error(exc)}。请稍后重试，或在造价智算“知识库问答”中查询。")
 
 
