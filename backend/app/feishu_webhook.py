@@ -14,11 +14,13 @@ from urllib.parse import urlparse
 
 import httpx
 
+from . import feishu_robot_settings
 from .paths import RUNTIME_DIR
 
 
-DEFAULT_SETTINGS_PATH = RUNTIME_DIR / "feishu-webhook-settings.json"
+DEFAULT_SETTINGS_PATH = feishu_robot_settings.SETTINGS_PATH
 DEFAULT_HISTORY_PATH = RUNTIME_DIR / "feishu-webhook-history.jsonl"
+DEFAULT_PROFILE_ID = "default"
 ALLOWED_NOTIFICATION_TYPES = {"test", "task_started", "progress", "task_completed", "task_failed"}
 DEFAULT_NOTIFICATION_SWITCHES = {
     "task_started": True,
@@ -51,6 +53,8 @@ class SendOutcome:
 def default_settings() -> dict[str, Any]:
     return {
         "enabled": False,
+        "active_profile": DEFAULT_PROFILE_ID,
+        "profiles": {},
         "webhook_url": "",
         "secret": "",
         "app_url": "",
@@ -73,20 +77,60 @@ def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
     temporary.replace(path)
 
 
+def _read_settings_payload(path: Path) -> dict[str, Any]:
+    if path == feishu_robot_settings.SETTINGS_PATH:
+        return feishu_robot_settings.load_section("webhook")
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def _write_settings_payload(path: Path, payload: dict[str, Any]) -> None:
+    if path == feishu_robot_settings.SETTINGS_PATH:
+        feishu_robot_settings.save_section("webhook", payload)
+    else:
+        _atomic_write_json(path, payload)
+
+
 def load_settings(path: Path | None = None) -> dict[str, Any]:
     settings = default_settings()
     target = _settings_path(path)
-    if not target.exists():
+    raw = _read_settings_payload(target)
+    if not raw:
         return settings
-    try:
-        raw = json.loads(target.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return settings
-    if not isinstance(raw, dict):
-        return settings
-    webhook_url = str(raw.get("webhook_url") or "").strip()
-    if webhook_url and not is_official_webhook_url(webhook_url):
-        return settings
+    profiles: dict[str, dict[str, str]] = {}
+    raw_profiles = raw.get("profiles")
+    if isinstance(raw_profiles, dict):
+        for profile_id, profile_value in raw_profiles.items():
+            if not isinstance(profile_value, dict):
+                continue
+            normalized_id = str(profile_id or "").strip()
+            webhook_url = str(profile_value.get("webhook_url") or "").strip()
+            if not normalized_id or not webhook_url or not is_official_webhook_url(webhook_url):
+                continue
+            profiles[normalized_id] = {
+                "label": str(profile_value.get("label") or normalized_id).strip() or normalized_id,
+                "webhook_url": webhook_url,
+                "secret": str(profile_value.get("secret") or "").strip(),
+            }
+    else:
+        webhook_url = str(raw.get("webhook_url") or "").strip()
+        if webhook_url and not is_official_webhook_url(webhook_url):
+            return settings
+        if webhook_url:
+            profiles[DEFAULT_PROFILE_ID] = {
+                "label": "默认 Webhook",
+                "webhook_url": webhook_url,
+                "secret": str(raw.get("secret") or "").strip(),
+            }
+
+    active_profile = str(raw.get("active_profile") or DEFAULT_PROFILE_ID).strip() or DEFAULT_PROFILE_ID
+    if active_profile not in profiles and profiles:
+        active_profile = next(iter(profiles))
+    active = profiles.get(active_profile, {})
+    webhook_url = str(active.get("webhook_url") or "")
     notifications = raw.get("notifications")
     if isinstance(notifications, dict):
         for key in DEFAULT_NOTIFICATION_SWITCHES:
@@ -95,12 +139,49 @@ def load_settings(path: Path | None = None) -> dict[str, Any]:
     settings.update(
         {
             "enabled": bool(raw.get("enabled", False)) and bool(webhook_url),
+            "active_profile": active_profile,
+            "profiles": profiles,
             "webhook_url": webhook_url,
-            "secret": str(raw.get("secret") or "").strip(),
+            "secret": str(active.get("secret") or ""),
             "app_url": _safe_app_url(raw.get("app_url")),
         }
     )
     return settings
+
+
+def _stored_settings(settings: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "enabled": bool(settings.get("enabled")) and bool(settings.get("webhook_url")),
+        "active_profile": str(settings.get("active_profile") or DEFAULT_PROFILE_ID),
+        "profiles": settings.get("profiles") if isinstance(settings.get("profiles"), dict) else {},
+        "app_url": str(settings.get("app_url") or ""),
+        "notifications": dict(settings.get("notifications") or DEFAULT_NOTIFICATION_SWITCHES),
+    }
+
+
+def credential_profiles(settings: dict[str, Any]) -> list[dict[str, object]]:
+    profiles = settings.get("profiles")
+    if not isinstance(profiles, dict):
+        return []
+    result: list[dict[str, object]] = []
+    for profile_id, profile in profiles.items():
+        if not isinstance(profile, dict):
+            continue
+        webhook_url = str(profile.get("webhook_url") or "")
+        host = ""
+        try:
+            host = urlparse(webhook_url).hostname or ""
+        except ValueError:
+            pass
+        result.append(
+            {
+                "profile_id": str(profile_id),
+                "label": str(profile.get("label") or profile_id),
+                "host": host,
+                "security_enabled": bool(profile.get("secret")),
+            }
+        )
+    return result
 
 
 def is_official_webhook_url(value: str) -> bool:
@@ -137,8 +218,24 @@ def save_settings(payload: dict[str, Any], path: Path | None = None) -> dict[str
     if not isinstance(payload, dict):
         raise ValueError("Webhook 设置必须是对象")
     settings = load_settings(path)
+    requested_profile = str(payload.get("profile_id") or settings["active_profile"]).strip()
+    if requested_profile and requested_profile != settings["active_profile"]:
+        if requested_profile not in settings["profiles"]:
+            raise ValueError("选择的 Webhook 配置不存在")
+        settings["active_profile"] = requested_profile
+        active = settings["profiles"][requested_profile]
+        settings["webhook_url"] = str(active.get("webhook_url") or "")
+        settings["secret"] = str(active.get("secret") or "")
+
     if bool(payload.get("clear_credentials")):
-        settings.update({"enabled": False, "webhook_url": "", "secret": ""})
+        settings["profiles"].pop(settings["active_profile"], None)
+        if settings["profiles"]:
+            settings["active_profile"] = next(iter(settings["profiles"]))
+            active = settings["profiles"][settings["active_profile"]]
+            settings["webhook_url"] = str(active.get("webhook_url") or "")
+            settings["secret"] = str(active.get("secret") or "")
+        else:
+            settings.update({"enabled": False, "active_profile": DEFAULT_PROFILE_ID, "webhook_url": "", "secret": ""})
     else:
         webhook_value = payload.get("webhook_url")
         if webhook_value is not None and str(webhook_value).strip():
@@ -146,11 +243,22 @@ def save_settings(payload: dict[str, Any], path: Path | None = None) -> dict[str
             if not is_official_webhook_url(webhook_url):
                 raise ValueError("Webhook 地址必须是飞书官方群自定义机器人地址")
             settings["webhook_url"] = webhook_url
+            current = settings["profiles"].setdefault(
+                settings["active_profile"],
+                {"label": "默认 Webhook", "webhook_url": "", "secret": ""},
+            )
+            current["webhook_url"] = webhook_url
         secret_value = payload.get("secret")
         if secret_value is not None and str(secret_value).strip():
             settings["secret"] = str(secret_value).strip()
+            settings["profiles"].setdefault(
+                settings["active_profile"],
+                {"label": "默认 Webhook", "webhook_url": settings["webhook_url"], "secret": ""},
+            )["secret"] = settings["secret"]
         if bool(payload.get("clear_secret")):
             settings["secret"] = ""
+            if settings["active_profile"] in settings["profiles"]:
+                settings["profiles"][settings["active_profile"]]["secret"] = ""
 
     if "app_url" in payload:
         raw_app_url = str(payload.get("app_url") or "").strip()
@@ -172,7 +280,7 @@ def save_settings(payload: dict[str, Any], path: Path | None = None) -> dict[str
     if settings["enabled"] and not settings["webhook_url"]:
         raise ValueError("启用 Webhook 前请先填写飞书群机器人地址")
 
-    _atomic_write_json(_settings_path(path), settings)
+    _write_settings_payload(_settings_path(path), _stored_settings(settings))
     return get_status(path)
 
 
@@ -183,6 +291,8 @@ def get_status(path: Path | None = None, history_path: Path | None = None) -> di
         "configured": bool(settings["webhook_url"]),
         "enabled": bool(settings["enabled"]),
         "security_enabled": bool(settings["secret"]),
+        "active_profile": str(settings["active_profile"]),
+        "profiles": credential_profiles(settings),
         "app_url": str(settings["app_url"]),
         "notifications": dict(settings["notifications"]),
         "last_delivery": history[0] if history else None,

@@ -17,11 +17,12 @@ from uuid import uuid4
 
 import httpx
 
+from . import feishu_robot_settings
 from .paths import PROJECT_DEFAULT_SETTINGS_PATH, PROJECT_ROOT
 
 
 RUNTIME_ROOT = PROJECT_ROOT / "Codex-Temp" / "runtime" / "feishu-bot"
-SETTINGS_PATH = PROJECT_ROOT / "Codex-Temp" / "runtime" / "feishu-app-settings.json"
+SETTINGS_PATH = feishu_robot_settings.SETTINGS_PATH
 DB_PATH = RUNTIME_ROOT / "tasks.sqlite3"
 TASKS_ROOT = RUNTIME_ROOT / "tasks"
 CONTROL_PATH = RUNTIME_ROOT / "control.json"
@@ -62,10 +63,13 @@ def load_bot_defaults() -> dict[str, Any]:
 
 
 def _read_credential_store() -> dict[str, Any]:
-    try:
-        raw = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {"active_profile": "", "profiles": {}}
+    if SETTINGS_PATH == feishu_robot_settings.SETTINGS_PATH:
+        raw = feishu_robot_settings.load_section("app_bot")
+    else:
+        try:
+            raw = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {"active_profile": "", "profiles": {}}
     if not isinstance(raw, dict):
         return {"active_profile": "", "profiles": {}}
 
@@ -144,14 +148,13 @@ def save_active_profile(profile_id: str) -> None:
         "active_profile": profile_id,
         "profiles": profiles,
     }
-    SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    temporary = SETTINGS_PATH.with_suffix(f"{SETTINGS_PATH.suffix}.tmp")
-    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    temporary.replace(SETTINGS_PATH)
-    try:
-        os.chmod(SETTINGS_PATH, 0o600)
-    except OSError:
-        pass
+    if SETTINGS_PATH == feishu_robot_settings.SETTINGS_PATH:
+        feishu_robot_settings.save_section("app_bot", payload)
+    else:
+        SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        temporary = SETTINGS_PATH.with_suffix(f"{SETTINGS_PATH.suffix}.tmp")
+        temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        temporary.replace(SETTINGS_PATH)
 
 
 def is_bot_enabled() -> bool:

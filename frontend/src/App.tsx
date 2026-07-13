@@ -41,7 +41,7 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.8.5";
+const APP_VERSION = "v5.8.6";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const KNOWLEDGE_QA_ENTRY_COUNT = 3922;
 const KNOWLEDGE_QA_SOURCE_COUNT = 17;
@@ -130,7 +130,7 @@ const EMPTY_ELEMENT_COLUMN = "空元素列";
 const OUTPUT_ROW_FILTER_STORAGE_KEY = "guankanzhisuan-output-row-filter-settings";
 const WELCOME_SCREEN_HIDDEN_STORAGE_KEY = "guankanzhisuan-welcome-screen-hidden";
 const WELCOME_SCREEN_VERSION_STORAGE_KEY = "guankanzhisuan-welcome-screen-version";
-const WELCOME_SCREEN_VERSION = "brand-v5.8.5";
+const WELCOME_SCREEN_VERSION = "brand-v5.8.6";
 const ZHISUAN_QUICK_SETTINGS_VERSION = 2;
 const LEFT_COLUMN_COLLAPSED_STORAGE_KEY = "guankanzhisuan-left-column-collapsed";
 type MappingField = (typeof MAPPING_FIELDS)[number];
@@ -327,10 +327,13 @@ type FeishuWebhookStatus = {
   configured: boolean;
   enabled: boolean;
   security_enabled: boolean;
+  active_profile: string;
+  profiles: FeishuWebhookProfile[];
   app_url: string;
   notifications: FeishuNotificationSwitches;
   last_delivery?: FeishuDeliveryRecord | null;
 };
+type FeishuWebhookProfile = { profile_id: string; label: string; host?: string; security_enabled?: boolean };
 type FeishuAppBotProfile = { profile_id: string; label: string; app_id_suffix?: string };
 type FeishuAppBotTask = { task_id: string; file_name: string; status: string; stage: string; error?: string; created_at: string; updated_at: string; risk_total?: number; risk_high?: number; };
 type FeishuAppBotStatus = { configured: boolean; enabled: boolean; running: boolean; active_profile: string; profiles: FeishuAppBotProfile[]; connection_mode: string; concurrency: number; retention_days: number; counts: Record<string, number>; current_task?: FeishuAppBotTask | null; recent_tasks: FeishuAppBotTask[]; };
@@ -354,6 +357,8 @@ const EMPTY_FEISHU_WEBHOOK_STATUS: FeishuWebhookStatus = {
   configured: false,
   enabled: false,
   security_enabled: false,
+  active_profile: "default",
+  profiles: [],
   app_url: "",
   notifications: DEFAULT_FEISHU_NOTIFICATION_SWITCHES,
   last_delivery: null,
@@ -2802,6 +2807,32 @@ function DaweibaApp() {
     }
   }
 
+  async function selectFeishuWebhookProfile(profileId: string) {
+    if (!profileId || profileId === feishuWebhookStatus.active_profile) return;
+    setIsSavingFeishuWebhook(true);
+    setFeishuWebhookFeedback("正在切换第一层 Webhook 配置。");
+    try {
+      const response = await fetch(`${API_BASE}/api/collaboration/feishu-webhook/settings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: feishuEnabledDraft, profile_id: profileId }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.detail ?? `切换失败：${response.status}`);
+      }
+      const latestStatus = await response.json() as FeishuWebhookStatus;
+      applyFeishuWebhookStatus(latestStatus);
+      const selected = latestStatus.profiles.find((profile) => profile.profile_id === latestStatus.active_profile);
+      setFeishuWebhookFeedback(`已切换为${selected?.label ?? "当前 Webhook"}${latestStatus.enabled ? "，通知已启用。" : "。"}`);
+    } catch (err) {
+      setFeishuWebhookFeedback(err instanceof Error ? err.message : "切换第一层 Webhook 配置失败");
+      await loadFeishuWebhookData();
+    } finally {
+      setIsSavingFeishuWebhook(false);
+    }
+  }
+
   async function toggleFeishuAppBot(enabled: boolean) {
     setIsTogglingFeishuAppBot(true);
     setFeishuWebhookFeedback("");
@@ -2877,7 +2908,7 @@ function DaweibaApp() {
   }
 
   async function clearFeishuWebhookSettings() {
-    if (!window.confirm("确定清空本机保存的飞书 Webhook 地址和签名密钥吗？")) return;
+    if (!window.confirm("确定清空当前选中的 Webhook 配置吗？其他 Webhook 配置不会被删除。")) return;
     setIsSavingFeishuWebhook(true);
     setFeishuWebhookFeedback("");
     try {
@@ -2890,7 +2921,7 @@ function DaweibaApp() {
       applyFeishuWebhookStatus(await response.json() as FeishuWebhookStatus);
       setFeishuWebhookDraft("");
       setFeishuSecretDraft("");
-      setFeishuWebhookFeedback("Webhook 地址和签名密钥已从本机运行配置中清除。");
+      setFeishuWebhookFeedback("当前 Webhook 配置已清除；如仍有其他配置，系统已自动切换到下一项。");
     } catch (err) {
       setFeishuWebhookFeedback(err instanceof Error ? err.message : "清空飞书 Webhook 设置失败");
     } finally {
@@ -7801,18 +7832,36 @@ function DaweibaApp() {
             <section className="daweiba-collaboration-settings" aria-label="Webhook 设置">
               <div className="daweiba-collaboration-section-title">
                 <div>
-                  <h3>Webhook 设置</h3>
+                  <h3>第一层：Webhook</h3>
                   <p>凭证只保存在后端运行目录，保存后不会再次回显完整值。</p>
                 </div>
-                <label className="daweiba-collaboration-switch">
-                  <input
-                    type="checkbox"
-                    checked={feishuEnabledDraft}
-                    disabled={isSavingFeishuWebhook}
-                    onChange={(event) => void toggleFeishuWebhook(event.target.checked)}
-                  />
-                  <span>启用通知</span>
-                </label>
+                <div className="daweiba-collaboration-title-actions">
+                  {feishuWebhookStatus.profiles.length > 0 && (
+                    <label className="daweiba-collaboration-bot-picker">
+                      <span>Webhook</span>
+                      <select
+                        value={feishuWebhookStatus.active_profile}
+                        disabled={isSavingFeishuWebhook}
+                        onChange={(event) => void selectFeishuWebhookProfile(event.target.value)}
+                      >
+                        {feishuWebhookStatus.profiles.map((profile) => (
+                          <option key={profile.profile_id} value={profile.profile_id}>
+                            {profile.label}{profile.host ? ` · ${profile.host}` : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                  <label className="daweiba-collaboration-switch">
+                    <input
+                      type="checkbox"
+                      checked={feishuEnabledDraft}
+                      disabled={isSavingFeishuWebhook}
+                      onChange={(event) => void toggleFeishuWebhook(event.target.checked)}
+                    />
+                    <span>启用通知</span>
+                  </label>
+                </div>
               </div>
 
               <div className="daweiba-collaboration-form-grid">
@@ -7863,7 +7912,7 @@ function DaweibaApp() {
                   发送测试消息
                 </button>
                 <button className="ghost-button is-danger" type="button" disabled={isSavingFeishuWebhook || !feishuWebhookStatus.configured} onClick={() => void clearFeishuWebhookSettings()}>
-                  清空配置
+                  清空当前配置
                 </button>
               </div>
               {feishuWebhookFeedback && <p className="daweiba-collaboration-feedback">{feishuWebhookFeedback}</p>}

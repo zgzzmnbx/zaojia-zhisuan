@@ -77,6 +77,53 @@ def test_internal_feishu_webhook_url_is_accepted():
     assert response.json()["enabled"] is True
 
 
+def test_multiple_webhook_profiles_can_switch_without_exposing_urls():
+    feishu_webhook.DEFAULT_SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    feishu_webhook.DEFAULT_SETTINGS_PATH.write_text(
+        json.dumps(
+            {
+                "enabled": True,
+                "active_profile": "default",
+                "profiles": {
+                    "default": {"label": "默认 Webhook", "webhook_url": TEST_WEBHOOK, "secret": ""},
+                    "weact": {"label": "weact机器人（webhook）", "webhook_url": INTERNAL_WEBHOOK, "secret": TEST_SECRET},
+                },
+                "app_url": "",
+                "notifications": feishu_webhook.DEFAULT_NOTIFICATION_SWITCHES,
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    response = TestClient(app).post(
+        "/api/collaboration/feishu-webhook/settings",
+        json={"profile_id": "weact", "enabled": True},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["active_profile"] == "weact"
+    assert [profile["label"] for profile in payload["profiles"]] == ["默认 Webhook", "weact机器人（webhook）"]
+    assert payload["security_enabled"] is True
+    serialized = json.dumps(payload, ensure_ascii=False)
+    assert "internal-token-1234" not in serialized
+    assert TEST_SECRET not in serialized
+    assert feishu_webhook.load_settings()["webhook_url"] == INTERNAL_WEBHOOK
+
+
+def test_unknown_webhook_profile_is_rejected_without_changing_active_profile():
+    enable_webhook()
+
+    response = TestClient(app).post(
+        "/api/collaboration/feishu-webhook/settings",
+        json={"profile_id": "missing", "enabled": True},
+    )
+
+    assert response.status_code == 400
+    assert feishu_webhook.get_status()["active_profile"] == "default"
+
+
 def test_saved_status_never_returns_webhook_or_secret():
     response = TestClient(app).post(
         "/api/collaboration/feishu-webhook/settings",

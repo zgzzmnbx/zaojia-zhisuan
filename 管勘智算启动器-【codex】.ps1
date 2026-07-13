@@ -85,15 +85,30 @@ function Get-FeishuBotProcess {
 }
 
 function Test-FeishuBotConfigured {
-    $settingsPath = Join-Path $ProjectDir "Codex-Temp\runtime\feishu-app-settings.json"
+    $settingsPath = Join-Path $ProjectDir "Codex-Temp\runtime\feishu-robot-settings.json"
+    $legacySettingsPath = Join-Path $ProjectDir "Codex-Temp\runtime\feishu-app-settings.json"
     $controlPath = Join-Path $ProjectDir "Codex-Temp\runtime\feishu-bot\control.json"
     $defaultsPath = Join-Path $ProjectDir "config\project-default-settings.json"
+    if (-not (Test-Path -LiteralPath $settingsPath) -and (Test-Path -LiteralPath $legacySettingsPath)) {
+        $settingsPath = $legacySettingsPath
+    }
     if (-not (Test-Path -LiteralPath $settingsPath) -or -not (Test-Path -LiteralPath $defaultsPath)) {
         return $false
     }
     try {
         $settings = Get-Content -LiteralPath $settingsPath -Encoding UTF8 -Raw | ConvertFrom-Json
         $defaults = Get-Content -LiteralPath $defaultsPath -Encoding UTF8 -Raw | ConvertFrom-Json
+        $credentialStore = if ($settings.app_bot) { $settings.app_bot } else { $settings }
+        $appId = [string]$credentialStore.app_id
+        $appSecret = [string]$credentialStore.app_secret
+        if ($credentialStore.profiles) {
+            $activeProfile = [string]$credentialStore.active_profile
+            $profile = $credentialStore.profiles.PSObject.Properties[$activeProfile].Value
+            if ($profile) {
+                $appId = [string]$profile.app_id
+                $appSecret = [string]$profile.app_secret
+            }
+        }
         $enabled = $defaults.feishuAppBot.enabled -eq $true
         if (Test-Path -LiteralPath $controlPath) {
             $control = Get-Content -LiteralPath $controlPath -Encoding UTF8 -Raw | ConvertFrom-Json
@@ -101,8 +116,8 @@ function Test-FeishuBotConfigured {
         }
         return (
             $enabled -and
-            -not [string]::IsNullOrWhiteSpace([string]$settings.app_id) -and
-            -not [string]::IsNullOrWhiteSpace([string]$settings.app_secret)
+            -not [string]::IsNullOrWhiteSpace($appId) -and
+            -not [string]::IsNullOrWhiteSpace($appSecret)
         )
     }
     catch {
