@@ -28,8 +28,9 @@ DEFAULT_NOTIFICATION_SWITCHES = {
 }
 MAX_HISTORY_LINES = 500
 MAX_ERROR_LENGTH = 240
+ALLOWED_WEBHOOK_HOSTS = {"open.feishu.cn", "open.weact.pipechina.com.cn"}
 WEBHOOK_PATTERN = re.compile(
-    r"https://open\.feishu\.cn/open-apis/bot/v2/hook/[^\s\"'<>]+",
+    r"https://(?:open\.feishu\.cn|open\.weact\.pipechina\.com\.cn)/open-apis/bot/v2/hook/[^\s\"'<>]+",
     re.IGNORECASE,
 )
 
@@ -109,7 +110,7 @@ def is_official_webhook_url(value: str) -> bool:
         return False
     return (
         parsed.scheme == "https"
-        and parsed.hostname == "open.feishu.cn"
+        and parsed.hostname in ALLOWED_WEBHOOK_HOSTS
         and parsed.username is None
         and parsed.password is None
         and parsed.query == ""

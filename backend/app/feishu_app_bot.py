@@ -29,6 +29,7 @@ PID_PATH = RUNTIME_ROOT / "runner.pid"
 REQUIRED_MAPPING_FIELDS = ("要素1", "单位", "输出-价格列")
 TERMINAL_STATES = {"completed", "needs_manual", "failed"}
 ACTIVE_STATES = {"downloading", "inspecting", "matching", "risk", "report", "uploading"}
+DEFAULT_PROFILE_ID = "default"
 
 
 def utc_now() -> str:
@@ -60,17 +61,97 @@ def load_bot_defaults() -> dict[str, Any]:
     return defaults
 
 
-def load_credentials() -> dict[str, str]:
+def _read_credential_store() -> dict[str, Any]:
     try:
         raw = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return {}
+        return {"active_profile": "", "profiles": {}}
     if not isinstance(raw, dict):
+        return {"active_profile": "", "profiles": {}}
+
+    profiles: dict[str, dict[str, str]] = {}
+    raw_profiles = raw.get("profiles")
+    if isinstance(raw_profiles, dict):
+        for profile_id, value in raw_profiles.items():
+            if not isinstance(value, dict):
+                continue
+            profile_key = str(profile_id or "").strip()
+            app_id = str(value.get("app_id") or "").strip()
+            app_secret = str(value.get("app_secret") or "").strip()
+            if profile_key and app_id and app_secret:
+                profiles[profile_key] = {
+                    "label": str(value.get("label") or profile_key).strip() or profile_key,
+                    "app_id": app_id,
+                    "app_secret": app_secret,
+                }
+
+    # Backward compatibility for the original single-profile format.
+    if not profiles:
+        app_id = str(raw.get("app_id") or "").strip()
+        app_secret = str(raw.get("app_secret") or "").strip()
+        if app_id and app_secret:
+            profiles[DEFAULT_PROFILE_ID] = {
+                "label": "默认机器人",
+                "app_id": app_id,
+                "app_secret": app_secret,
+            }
+
+    active_profile = str(raw.get("active_profile") or "").strip()
+    if active_profile not in profiles:
+        active_profile = next(iter(profiles), "")
+    return {"active_profile": active_profile, "profiles": profiles}
+
+
+def load_credentials(profile_id: str | None = None) -> dict[str, str]:
+    store = _read_credential_store()
+    selected_profile = str(profile_id or store.get("active_profile") or "").strip()
+    profiles = store.get("profiles") if isinstance(store.get("profiles"), dict) else {}
+    selected = profiles.get(selected_profile) if isinstance(profiles, dict) else None
+    if not isinstance(selected, dict):
         return {}
     return {
-        "app_id": str(raw.get("app_id") or "").strip(),
-        "app_secret": str(raw.get("app_secret") or "").strip(),
+        "profile_id": selected_profile,
+        "app_id": str(selected.get("app_id") or "").strip(),
+        "app_secret": str(selected.get("app_secret") or "").strip(),
     }
+
+
+def credential_profiles() -> list[dict[str, str]]:
+    store = _read_credential_store()
+    profiles = store.get("profiles") if isinstance(store.get("profiles"), dict) else {}
+    return [
+        {
+            "profile_id": profile_id,
+            "label": str(value.get("label") or profile_id),
+            "app_id_suffix": str(value.get("app_id") or "")[-4:],
+        }
+        for profile_id, value in profiles.items()
+        if isinstance(value, dict)
+    ]
+
+
+def active_profile_id() -> str:
+    return str(_read_credential_store().get("active_profile") or "").strip()
+
+
+def save_active_profile(profile_id: str) -> None:
+    profile_id = str(profile_id or "").strip()
+    store = _read_credential_store()
+    profiles = store.get("profiles") if isinstance(store.get("profiles"), dict) else {}
+    if profile_id not in profiles:
+        raise ValueError("未找到指定的飞书机器人配置")
+    payload = {
+        "active_profile": profile_id,
+        "profiles": profiles,
+    }
+    SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    temporary = SETTINGS_PATH.with_suffix(f"{SETTINGS_PATH.suffix}.tmp")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(SETTINGS_PATH)
+    try:
+        os.chmod(SETTINGS_PATH, 0o600)
+    except OSError:
+        pass
 
 
 def is_bot_enabled() -> bool:
@@ -123,6 +204,13 @@ def start_bot_process() -> bool:
     return True
 
 
+def wait_for_bot_process_exit(timeout_seconds: float = 5.0) -> bool:
+    deadline = time.monotonic() + max(0.1, timeout_seconds)
+    while bot_process_running() and time.monotonic() < deadline:
+        time.sleep(0.1)
+    return not bot_process_running()
+
+
 def bot_status(db_path: Path | None = None) -> dict[str, Any]:
     defaults = load_bot_defaults()
     credentials = load_credentials()
@@ -132,6 +220,8 @@ def bot_status(db_path: Path | None = None) -> dict[str, Any]:
     return {
         "enabled": is_bot_enabled(),
         "configured": bool(credentials.get("app_id") and credentials.get("app_secret")),
+        "active_profile": active_profile_id(),
+        "profiles": credential_profiles(),
         "running": bot_process_running(),
         "connection_mode": "local_long_connection",
         "concurrency": 1,

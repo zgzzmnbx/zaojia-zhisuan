@@ -41,7 +41,7 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.8.4";
+const APP_VERSION = "v5.8.5";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const KNOWLEDGE_QA_ENTRY_COUNT = 3922;
 const KNOWLEDGE_QA_SOURCE_COUNT = 17;
@@ -130,7 +130,7 @@ const EMPTY_ELEMENT_COLUMN = "空元素列";
 const OUTPUT_ROW_FILTER_STORAGE_KEY = "guankanzhisuan-output-row-filter-settings";
 const WELCOME_SCREEN_HIDDEN_STORAGE_KEY = "guankanzhisuan-welcome-screen-hidden";
 const WELCOME_SCREEN_VERSION_STORAGE_KEY = "guankanzhisuan-welcome-screen-version";
-const WELCOME_SCREEN_VERSION = "brand-v5.8.4";
+const WELCOME_SCREEN_VERSION = "brand-v5.8.5";
 const ZHISUAN_QUICK_SETTINGS_VERSION = 2;
 const LEFT_COLUMN_COLLAPSED_STORAGE_KEY = "guankanzhisuan-left-column-collapsed";
 type MappingField = (typeof MAPPING_FIELDS)[number];
@@ -331,8 +331,9 @@ type FeishuWebhookStatus = {
   notifications: FeishuNotificationSwitches;
   last_delivery?: FeishuDeliveryRecord | null;
 };
+type FeishuAppBotProfile = { profile_id: string; label: string; app_id_suffix?: string };
 type FeishuAppBotTask = { task_id: string; file_name: string; status: string; stage: string; error?: string; created_at: string; updated_at: string; risk_total?: number; risk_high?: number; };
-type FeishuAppBotStatus = { configured: boolean; enabled: boolean; running: boolean; connection_mode: string; concurrency: number; retention_days: number; counts: Record<string, number>; current_task?: FeishuAppBotTask | null; recent_tasks: FeishuAppBotTask[]; };
+type FeishuAppBotStatus = { configured: boolean; enabled: boolean; running: boolean; active_profile: string; profiles: FeishuAppBotProfile[]; connection_mode: string; concurrency: number; retention_days: number; counts: Record<string, number>; current_task?: FeishuAppBotTask | null; recent_tasks: FeishuAppBotTask[]; };
 
 const DEFAULT_FEISHU_NOTIFICATION_SWITCHES: FeishuNotificationSwitches = {
   task_started: true,
@@ -2834,6 +2835,42 @@ function DaweibaApp() {
       }
     } catch (err) {
       setFeishuWebhookFeedback(err instanceof Error ? err.message : "切换第二层机器人失败");
+    } finally {
+      setIsTogglingFeishuAppBot(false);
+    }
+  }
+
+  async function selectFeishuAppBotProfile(profileId: string) {
+    if (!profileId || profileId === feishuAppBotStatus?.active_profile) return;
+    setIsTogglingFeishuAppBot(true);
+    setFeishuWebhookFeedback("正在切换第二层机器人配置，当前长连接会先安全退出。");
+    try {
+      const enabled = Boolean(feishuAppBotStatus?.enabled);
+      const response = await fetch(`${API_BASE}/api/collaboration/feishu-app-bot/settings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled, profile_id: profileId }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.detail ?? `切换失败：${response.status}`);
+      }
+      let latestStatus = await response.json() as FeishuAppBotStatus;
+      setFeishuAppBotStatus(latestStatus);
+      for (let attempt = 0; enabled && attempt < 10 && latestStatus.running !== enabled; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1000));
+        const statusResponse = await fetch(`${API_BASE}/api/collaboration/feishu-app-bot/status`);
+        if (!statusResponse.ok) break;
+        latestStatus = await statusResponse.json() as FeishuAppBotStatus;
+        setFeishuAppBotStatus(latestStatus);
+      }
+      const selected = latestStatus.profiles.find((profile) => profile.profile_id === latestStatus.active_profile);
+      setFeishuWebhookFeedback(enabled && !latestStatus.running
+        ? "机器人配置已切换，但长连接尚未恢复，请查看运行状态。"
+        : `已切换为${selected?.label ?? "当前机器人"}${enabled ? "，长连接已运行。" : "。"}`);
+    } catch (err) {
+      setFeishuWebhookFeedback(err instanceof Error ? err.message : "切换第二层机器人配置失败");
+      await loadFeishuWebhookData();
     } finally {
       setIsTogglingFeishuAppBot(false);
     }
@@ -7737,6 +7774,16 @@ function DaweibaApp() {
               <div className="daweiba-collaboration-section-title">
                 <div><h3>第二层 · 企业应用长连接机器人</h3><p>群聊先 @机器人再发送 .xlsx；单聊可直接发送。群聊 @机器人或单聊后输入“@知识库：问题”，会自动查询本地知识库。服务器与本机只能选择一个实例启用。</p></div>
                 <div className="daweiba-collaboration-title-actions">
+                  {feishuAppBotStatus?.profiles?.length ? <label className="daweiba-collaboration-bot-picker">
+                    <span>机器人</span>
+                    <select
+                      value={feishuAppBotStatus.active_profile}
+                      disabled={isTogglingFeishuAppBot}
+                      onChange={(event) => void selectFeishuAppBotProfile(event.target.value)}
+                    >
+                      {feishuAppBotStatus.profiles.map((profile) => <option key={profile.profile_id} value={profile.profile_id}>{profile.label}</option>)}
+                    </select>
+                  </label> : null}
                   <label className="daweiba-collaboration-switch">
                     <input type="checkbox" checked={Boolean(feishuAppBotStatus?.enabled)} disabled={isTogglingFeishuAppBot || !feishuAppBotStatus?.configured} onChange={(event) => void toggleFeishuAppBot(event.target.checked)} />
                     <span>启用接收</span>

@@ -10155,13 +10155,33 @@ tbody tr:hover .row-ai-cell {
   justify-content: flex-end;
   gap: 8px;
   min-width: 0;
-  max-width: 240px;
+  max-width: min(100%, 420px);
 }
 
 .shell.layout-daweiba .daweiba-collaboration-title-actions .daweiba-collaboration-badge {
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-bot-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--db-text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-bot-picker select {
+  min-width: 132px;
+  max-width: 180px;
+  border: 1px solid var(--db-border);
+  border-radius: 8px;
+  background: var(--db-surface);
+  color: var(--db-text);
+  padding: 6px 8px;
+  font: inherit;
 }
 
 .shell.layout-daweiba .daweiba-collaboration-switch {
@@ -10421,6 +10441,11 @@ tbody tr:hover .row-ai-cell {
 
   .shell.layout-daweiba .daweiba-collaboration-form-grid label.is-wide {
     grid-column: auto;
+  }
+
+  .shell.layout-daweiba .daweiba-collaboration-title-actions {
+    justify-content: flex-start;
+    max-width: 100%;
   }
 }
 

@@ -311,6 +311,26 @@ def test_status_api_does_not_expose_credentials(tmp_path, monkeypatch):
     assert response.json()["configured"] is True
 
 
+def test_credential_profiles_support_multiple_bots_without_exposing_secrets(tmp_path, monkeypatch):
+    settings_path = tmp_path / "feishu-app-settings.json"
+    settings_path.write_text(json.dumps({
+        "active_profile": "default",
+        "profiles": {
+            "default": {"label": "默认机器人", "app_id": "cli_default", "app_secret": "secret-default"},
+            "weact_cost": {"label": "weact机器人（造价中心）", "app_id": "cli_weact", "app_secret": "secret-weact"},
+        },
+    }), encoding="utf-8")
+    monkeypatch.setattr(feishu_app_bot, "SETTINGS_PATH", settings_path)
+
+    assert feishu_app_bot.active_profile_id() == "default"
+    assert [item["profile_id"] for item in feishu_app_bot.credential_profiles()] == ["default", "weact_cost"]
+    assert feishu_app_bot.load_credentials()["app_id"] == "cli_default"
+    feishu_app_bot.save_active_profile("weact_cost")
+    assert feishu_app_bot.active_profile_id() == "weact_cost"
+    assert feishu_app_bot.load_credentials()["app_secret"] == "secret-weact"
+    assert "secret-weact" not in json.dumps(feishu_app_bot.credential_profiles(), ensure_ascii=False)
+
+
 def test_app_bot_switch_persists_and_starts_when_enabled(tmp_path, monkeypatch):
     control_path = tmp_path / "control.json"
     monkeypatch.setattr(feishu_app_bot, "CONTROL_PATH", control_path)
@@ -320,6 +340,35 @@ def test_app_bot_switch_persists_and_starts_when_enabled(tmp_path, monkeypatch):
     monkeypatch.setattr(feishu_app_bot, "start_bot_process", lambda: started.append(True) or True)
     response = TestClient(app).post("/api/collaboration/feishu-app-bot/settings", json={"enabled": True})
     assert response.status_code == 200
+    assert json.loads(control_path.read_text(encoding="utf-8"))["enabled"] is True
+    assert started == [True]
+
+
+def test_app_bot_profile_switch_persists_and_starts_selected_profile(tmp_path, monkeypatch):
+    settings_path = tmp_path / "feishu-app-settings.json"
+    settings_path.write_text(json.dumps({
+        "active_profile": "default",
+        "profiles": {
+            "default": {"label": "默认机器人", "app_id": "cli_default", "app_secret": "secret-default"},
+            "weact_cost": {"label": "weact机器人（造价中心）", "app_id": "cli_weact", "app_secret": "secret-weact"},
+        },
+    }), encoding="utf-8")
+    control_path = tmp_path / "control.json"
+    monkeypatch.setattr(feishu_app_bot, "SETTINGS_PATH", settings_path)
+    monkeypatch.setattr(feishu_app_bot, "CONTROL_PATH", control_path)
+    monkeypatch.setattr(feishu_app_bot, "DB_PATH", tmp_path / "tasks.sqlite3")
+    monkeypatch.setattr(feishu_app_bot, "bot_process_running", lambda: False)
+    started: list[bool] = []
+    monkeypatch.setattr(feishu_app_bot, "start_bot_process", lambda: started.append(True) or True)
+
+    response = TestClient(app).post(
+        "/api/collaboration/feishu-app-bot/settings",
+        json={"enabled": True, "profile_id": "weact_cost"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["active_profile"] == "weact_cost"
+    assert response.json()["configured"] is True
     assert json.loads(control_path.read_text(encoding="utf-8"))["enabled"] is True
     assert started == [True]
 

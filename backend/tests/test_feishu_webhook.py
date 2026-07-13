@@ -13,6 +13,7 @@ from backend.app.main import app
 
 
 TEST_WEBHOOK = "https://open.feishu.cn/open-apis/bot/v2/hook/test-token-1234"
+INTERNAL_WEBHOOK = "https://open.weact.pipechina.com.cn/open-apis/bot/v2/hook/internal-token-1234"
 TEST_SECRET = "unit-test-signing-secret"
 
 
@@ -63,6 +64,17 @@ def test_non_official_webhook_url_is_rejected(webhook_url):
 
     assert response.status_code == 400
     assert "官方群自定义机器人地址" in response.json()["detail"]
+
+
+def test_internal_feishu_webhook_url_is_accepted():
+    response = TestClient(app).post(
+        "/api/collaboration/feishu-webhook/settings",
+        json={"webhook_url": INTERNAL_WEBHOOK, "enabled": True},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["configured"] is True
+    assert response.json()["enabled"] is True
 
 
 def test_saved_status_never_returns_webhook_or_secret():
