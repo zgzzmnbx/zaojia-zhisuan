@@ -14,6 +14,7 @@ from app.feishu_app_bot import (
     DB_PATH, FeishuApi, IgnoreEvent, ProfessionalApi, TaskStore, TaskWorker, accept_event,
     accept_knowledge_event, acknowledge_message_event, answer_knowledge_event, append_runtime_event, describe_message_event,
     CONTROL_PATH, PID_PATH, cleanup_expired, is_bot_enabled, load_bot_defaults, load_credentials,
+    parse_message_envelope,
 )
 
 
@@ -69,7 +70,7 @@ def main() -> int:
     reaction_lock = threading.Lock()
     reaction_message_ids: OrderedDict[str, None] = OrderedDict()
 
-    def acknowledge_in_background(data) -> None:
+    def acknowledge_in_background(data, message_id: str) -> None:
         try:
             acknowledge_message_event(data, feishu)
             append_runtime_event(
@@ -85,20 +86,13 @@ def main() -> int:
                 level="warning",
                 profile_id=profile_id,
             )
-            try:
-                raw = data.to_dict() if hasattr(data, "to_dict") else data
-                message_id = str((((raw.get("event") or {}).get("message") or {}).get("message_id") or ""))
-            except (AttributeError, TypeError):
-                message_id = ""
-            if message_id:
-                with reaction_lock:
-                    reaction_message_ids.pop(message_id, None)
+            with reaction_lock:
+                reaction_message_ids.pop(message_id, None)
 
     def schedule_acknowledgement(data) -> None:
         try:
-            raw = data.to_dict() if hasattr(data, "to_dict") else data
-            message_id = str((((raw.get("event") or {}).get("message") or {}).get("message_id") or "")).strip()
-        except (AttributeError, TypeError):
+            message_id = parse_message_envelope(data).message_id
+        except ValueError:
             return
         if not message_id:
             return
@@ -110,7 +104,7 @@ def main() -> int:
                 reaction_message_ids.popitem(last=False)
         threading.Thread(
             target=acknowledge_in_background,
-            args=(data,),
+            args=(data, message_id),
             name="feishu-message-reaction",
             daemon=True,
         ).start()

@@ -77,6 +77,20 @@ def test_acknowledge_message_event_uses_get_reaction():
     assert feishu.reactions == [("msg-1", "Get")]
 
 
+def test_acknowledge_message_event_supports_sdk_event_body_shape():
+    feishu = FakeFeishu()
+    payload = event_payload()
+    sdk_event_body = {
+        "event_id": payload["header"]["event_id"],
+        **payload["event"],
+    }
+
+    message_id = feishu_app_bot.acknowledge_message_event(sdk_event_body, feishu)
+
+    assert message_id == "msg-1"
+    assert feishu.reactions == [("msg-1", "Get")]
+
+
 def test_describe_message_event_contains_business_context_and_marks_missing_ip():
     detail = feishu_app_bot.describe_message_event(
         event_payload(text="@知识库：系数如何确定？"),
