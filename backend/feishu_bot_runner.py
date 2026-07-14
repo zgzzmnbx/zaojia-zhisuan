@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from app.feishu_app_bot import (
     DB_PATH, FeishuApi, IgnoreEvent, ProfessionalApi, TaskStore, TaskWorker, accept_event,
-    accept_conversation_event, accept_knowledge_event, acknowledge_message_event, answer_chat_event,
+    accept_conversation_event, accept_knowledge_event, acknowledge_message_event, answer_chat_event, answer_group_members_event,
     answer_knowledge_event, append_runtime_event, describe_message_event,
     CONTROL_PATH, PID_PATH, cleanup_expired, is_bot_enabled, load_bot_defaults, load_credentials,
     parse_message_envelope, should_acknowledge_message,
@@ -193,13 +193,14 @@ def main() -> int:
                 conversation = accept_conversation_event(
                     data, store, feishu, bot_open_id=bot_open_id, bot_name=bot_name,
                 )
+                conversation_log = {
+                    "greeting": "收到问候，已回复自我介绍和使用说明",
+                    "members": "收到群成员确定性查询指令，已调用群成员接口",
+                    "members_private": "收到单聊群成员查询指令，已提示转到目标群聊",
+                }.get(conversation.get("kind"), "收到普通问题，已进入大模型托底问答")
                 append_runtime_event(
                     "message",
-                    (
-                        "收到问候，已回复自我介绍和使用说明"
-                        if conversation.get("kind") == "greeting"
-                        else "收到普通问题，已进入大模型托底问答"
-                    ) + f"｜{event_context()}",
+                    conversation_log + f"｜{event_context()}",
                     level="warning" if conversation.get("duplicate") else "info",
                     profile_id=profile_id,
                 )
@@ -208,6 +209,13 @@ def main() -> int:
                         target=answer_chat_event,
                         args=(conversation["chat_id"], conversation["question"], feishu, professional),
                         name="feishu-llm-chat",
+                        daemon=True,
+                    ).start()
+                elif conversation.get("kind") == "members" and not conversation.get("duplicate"):
+                    threading.Thread(
+                        target=answer_group_members_event,
+                        args=(conversation["chat_id"], feishu),
+                        name="feishu-group-members",
                         daemon=True,
                     ).start()
         except IgnoreEvent:

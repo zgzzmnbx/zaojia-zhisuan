@@ -46,15 +46,17 @@ ACK_REACTION_EMOJI = "Get"
 UPLOAD_WINDOW_MINUTES = 1
 UPLOAD_COMMANDS = {"@上传", "@上传文件"}
 GREETING_COMMANDS = {"你好"}
+GROUP_MEMBER_COMMANDS = {"群里有几个人", "群成员", "都有谁"}
 BOT_INTRODUCTION = (
     "你好，我是造价智算机器人，是造价智算在飞书和 WeAct 中的协同助手。\n\n"
-    "我可以提供三类功能：\n"
+    "我可以提供四类功能：\n"
     "1. Excel 自动处理：接收标准 .xlsx，按顺序完成匹配、风险识别，并返回 Excel 和 Word 成果；\n"
     "2. 知识库问答：检索本地规则、知识库和依据来源后回答专业问题；\n"
-    "3. 普通智能问答：其他文字问题由大模型提供辅助回答。\n\n"
+    "3. 群成员查询：在群聊中询问“群里有几个人”“群成员”或“都有谁”，返回真实人数和名单；\n"
+    "4. 普通智能问答：其他文字问题由大模型提供辅助回答。\n\n"
     "使用方法：\n"
-    "• 群聊：先 @机器人，再发送“@上传”“@知识库：问题”或其他问题；\n"
-    "• 单聊：直接发送上述指令或问题；\n"
+    "• 群聊：先 @机器人，再发送“@上传”“@知识库：问题”“群成员”或其他问题；\n"
+    "• 单聊：直接发送上传、知识库、问候或普通问题；群成员请到目标群中查询；\n"
     "• 上传时请在收到提示后的 1 分钟内发送一个 .xlsx 文件。\n\n"
     "说明：价格和系数仍由造价智算规则与知识库处理，大模型不会直接裁决最终结果。"
 )
@@ -872,6 +874,10 @@ def is_greeting_command(text: str) -> bool:
     return clean_bot_command_text(text) in GREETING_COMMANDS
 
 
+def is_group_member_command(text: str) -> bool:
+    return clean_bot_command_text(text) in GROUP_MEMBER_COMMANDS
+
+
 def parse_knowledge_request(
     payload: Any,
     *,
@@ -1033,6 +1039,44 @@ class FeishuApi:
             raise RuntimeError("飞书未返回当前机器人身份")
         self._bot_identity_cache = identity
         return identity
+
+    def list_chat_members(self, chat_id: str) -> dict[str, Any]:
+        normalized = str(chat_id or "").strip()
+        if not normalized:
+            raise ValueError("缺少群聊标识")
+        members: list[dict[str, str]] = []
+        page_token = ""
+        member_total = 0
+        for _ in range(100):
+            params: dict[str, Any] = {"member_id_type": "open_id", "page_size": 100}
+            if page_token:
+                params["page_token"] = page_token
+            response = self.client.get(
+                f"{self.base_url}/im/v1/chats/{quote(normalized, safe='')}/members",
+                params=params,
+                headers=self._headers(),
+            )
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, dict) or int(payload.get("code") or 0) != 0:
+                raise RuntimeError(str(payload.get("msg") if isinstance(payload, dict) else "") or "获取群成员失败")
+            data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+            member_total = max(member_total, int(data.get("member_total") or 0))
+            for item in data.get("items") or []:
+                if not isinstance(item, dict):
+                    continue
+                member_id = str(item.get("member_id") or "").strip()
+                name = str(item.get("name") or "").strip()
+                if member_id or name:
+                    members.append({"member_id": member_id, "name": name or "未命名成员"})
+            if not data.get("has_more"):
+                break
+            next_token = str(data.get("page_token") or "").strip()
+            if not next_token or next_token == page_token:
+                raise RuntimeError("群成员分页信息异常")
+            page_token = next_token
+        unique_members = list({(item["member_id"], item["name"]): item for item in members}.values())
+        return {"member_total": member_total or len(unique_members), "members": unique_members}
 
     def download_file(self, message_id: str, file_key: str, target: Path) -> Path:
         response = self.client.get(
@@ -1416,10 +1460,22 @@ def accept_conversation_event(
         feishu.send_text(envelope.chat_id, BOT_INTRODUCTION)
         return {"handled": True, "duplicate": False, "kind": "greeting"}
     if not store.record_conversation_event(envelope.event_id):
-        return {"handled": True, "duplicate": True, "kind": "greeting" if is_greeting_command(question) else "chat"}
+        duplicate_kind = "greeting" if is_greeting_command(question) else "members" if is_group_member_command(question) else "chat"
+        return {"handled": True, "duplicate": True, "kind": duplicate_kind}
     if is_greeting_command(question):
         feishu.send_text(envelope.chat_id, BOT_INTRODUCTION)
         return {"handled": True, "duplicate": False, "kind": "greeting"}
+    if is_group_member_command(question):
+        if is_private:
+            feishu.send_text(envelope.chat_id, "群成员查询仅适用于群聊。请在目标群中 @机器人 后发送“群里有几个人”“群成员”或“都有谁”。")
+            return {"handled": True, "duplicate": False, "kind": "members_private"}
+        feishu.send_text(envelope.chat_id, "正在读取当前群的真实成员信息，请稍候。")
+        return {
+            "handled": True,
+            "duplicate": False,
+            "kind": "members",
+            "chat_id": envelope.chat_id,
+        }
     feishu.send_text(envelope.chat_id, "已收到问题，正在由大模型组织回答，请稍候。")
     return {
         "handled": True,
@@ -1438,6 +1494,33 @@ def answer_chat_event(chat_id: str, question: str, feishu: FeishuApi, profession
     except Exception as exc:
         append_runtime_event("message", f"大模型托底问答失败：{sanitize_error(exc)}", level="error", profile_id=active_profile_id())
         feishu.send_text(chat_id, f"大模型问答暂时失败：{sanitize_error(exc)}。请稍后重试。")
+
+
+def format_chat_members(payload: dict[str, Any]) -> str:
+    members = [item for item in payload.get("members") or [] if isinstance(item, dict)]
+    total = int(payload.get("member_total") or len(members))
+    lines = [f"当前群共有 {total} 人。", "", "群成员："]
+    for index, member in enumerate(members, start=1):
+        name = str(member.get("name") or "未命名成员").strip() or "未命名成员"
+        candidate = f"{index}. {name}"
+        if len("\n".join([*lines, candidate])) > 6500:
+            lines.append(f"……名单较长，当前消息已显示前 {index - 1} 人。")
+            break
+        lines.append(candidate)
+    if not members:
+        lines.append("暂未读取到可展示的成员姓名。")
+    return "\n".join(lines)
+
+
+def answer_group_members_event(chat_id: str, feishu: FeishuApi) -> None:
+    try:
+        result = feishu.list_chat_members(chat_id)
+        feishu.send_text(chat_id, format_chat_members(result))
+        append_runtime_event("message", "群成员确定性查询完成并已回复", level="success", profile_id=active_profile_id())
+    except Exception as exc:
+        error = sanitize_error(exc)
+        append_runtime_event("message", f"群成员查询失败：{error}", level="error", profile_id=active_profile_id())
+        feishu.send_text(chat_id, f"群成员查询暂时失败：{error}。请检查机器人是否具有读取群信息与群成员的权限。")
 
 
 def cleanup_expired(store: TaskStore, tasks_root: Path = TASKS_ROOT, retention_days: int | None = None) -> int:

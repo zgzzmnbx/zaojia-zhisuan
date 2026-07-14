@@ -1171,7 +1171,7 @@ dependencies = [
 
 [[package]]
 name = "guankanzhisuan-desktop"
-version = "5.8.13"
+version = "5.8.14"
 dependencies = [
  "tauri",
  "tauri-build",

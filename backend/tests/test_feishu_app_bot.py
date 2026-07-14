@@ -308,6 +308,125 @@ def test_weact_numbered_mention_still_triggers_greeting(tmp_path):
     assert "我是造价智算机器人" in feishu.texts[0][1]
 
 
+@pytest.mark.parametrize("command", ["群里有几个人", "群成员", "都有谁？"])
+def test_exact_group_member_commands_use_deterministic_route(tmp_path, command):
+    store = feishu_app_bot.TaskStore(tmp_path / f"{command}-tasks.sqlite3")
+    feishu = FakeFeishu()
+    result = feishu_app_bot.accept_conversation_event(
+        event_payload(
+            files=[],
+            mentions=[{"key": "@_user_1", "id": {"open_id": "ou_current_bot"}, "name": "当前机器人"}],
+            text=f"@_user_1 {command}",
+        ),
+        store,
+        feishu,
+        bot_open_id="ou_current_bot",
+        bot_name="当前机器人",
+    )
+
+    assert result == {
+        "handled": True,
+        "duplicate": False,
+        "kind": "members",
+        "chat_id": "chat-1",
+    }
+    assert "真实成员信息" in feishu.texts[0][1]
+
+
+@pytest.mark.parametrize("text", ["这个群成员挺多", "都有谁会参加项目", "群里大概有几个人吧"])
+def test_similar_group_member_phrases_fall_back_to_llm(tmp_path, text):
+    store = feishu_app_bot.TaskStore(tmp_path / f"{len(text)}-tasks.sqlite3")
+    feishu = FakeFeishu()
+
+    result = feishu_app_bot.accept_conversation_event(
+        event_payload(files=[], text=text), store, feishu,
+    )
+
+    assert result["kind"] == "chat"
+    assert result["question"] == text
+    assert "大模型" in feishu.texts[0][1]
+
+
+def test_group_member_command_in_private_chat_explains_group_only(tmp_path):
+    store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
+    feishu = FakeFeishu()
+
+    result = feishu_app_bot.accept_conversation_event(
+        event_payload(chat_type="p2p", files=[], mentions=[], text="群成员"), store, feishu,
+    )
+
+    assert result["kind"] == "members_private"
+    assert "仅适用于群聊" in feishu.texts[0][1]
+
+
+def test_list_chat_members_paginates_and_deduplicates():
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path.endswith("/auth/v3/tenant_access_token/internal"):
+            return httpx.Response(200, json={"code": 0, "tenant_access_token": "token", "expire": 7200})
+        assert request.url.path == "/open-apis/im/v1/chats/chat-1/members"
+        assert request.url.params["member_id_type"] == "open_id"
+        assert request.url.params["page_size"] == "100"
+        if request.url.params.get("page_token") == "next-page":
+            return httpx.Response(200, json={
+                "code": 0,
+                "data": {
+                    "member_total": 3,
+                    "has_more": False,
+                    "items": [
+                        {"member_id": "ou-2", "name": "李四"},
+                        {"member_id": "ou-3", "name": "王五"},
+                    ],
+                },
+            })
+        return httpx.Response(200, json={
+            "code": 0,
+            "data": {
+                "member_total": 3,
+                "has_more": True,
+                "page_token": "next-page",
+                "items": [
+                    {"member_id": "ou-1", "name": "张三"},
+                    {"member_id": "ou-2", "name": "李四"},
+                ],
+            },
+        })
+
+    api = feishu_app_bot.FeishuApi(
+        "app-id",
+        "app-secret",
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    result = api.list_chat_members("chat-1")
+
+    assert result == {
+        "member_total": 3,
+        "members": [
+            {"member_id": "ou-1", "name": "张三"},
+            {"member_id": "ou-2", "name": "李四"},
+            {"member_id": "ou-3", "name": "王五"},
+        ],
+    }
+    assert sum(request.url.path.endswith("/members") for request in requests) == 2
+
+
+def test_format_chat_members_contains_total_and_numbered_names():
+    message = feishu_app_bot.format_chat_members({
+        "member_total": 2,
+        "members": [
+            {"member_id": "ou-1", "name": "张三"},
+            {"member_id": "ou-2", "name": "李四"},
+        ],
+    })
+
+    assert "当前群共有 2 人" in message
+    assert "1. 张三" in message
+    assert "2. 李四" in message
+
+
 def test_other_text_uses_llm_fallback_and_is_idempotent(tmp_path):
     store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
     feishu = FakeFeishu()
