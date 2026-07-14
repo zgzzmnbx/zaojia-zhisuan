@@ -13,8 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import unquote
-from urllib.parse import urlparse
+from urllib.parse import quote, unquote, urlparse
 from uuid import uuid4
 
 import httpx
@@ -33,6 +32,7 @@ CONSOLE_EVENTS_PATH = RUNTIME_ROOT / "console-events.jsonl"
 RUNNER_OUT_LOG_PATH = RUNTIME_ROOT / "logs" / "runner.out.log"
 RUNNER_ERR_LOG_PATH = RUNTIME_ROOT / "logs" / "runner.err.log"
 CONSOLE_EVENT_MAX_BYTES = 2 * 1024 * 1024
+CONSOLE_MESSAGE_MAX_CHARS = 20000
 CONSOLE_EVENT_LEVELS = {"info", "success", "warning", "error"}
 CONSOLE_EVENT_CATEGORIES = {"process", "config", "connection", "message", "knowledge", "task"}
 _CONSOLE_EVENT_LOCK = threading.Lock()
@@ -70,12 +70,18 @@ def utc_now() -> str:
 def _sanitize_console_text(value: Any) -> str:
     text = str(value or "").replace("\r", " ").replace("\n", " ").strip()
     text = re.sub(
-        r"(?i)(app[_ -]?secret|tenant[_ -]?access[_ -]?token|access[_ -]?token|ticket|access[_ -]?key|file[_ -]?key|chat[_ -]?id|open[_ -]?id|user[_ -]?id)\s*[:=]\s*[^\s&]+",
+        r"(?i)(app[_ -]?secret|tenant[_ -]?access[_ -]?token|access[_ -]?token|authorization|ticket|access[_ -]?key|file[_ -]?key)\s*[:=]\s*[^\s&]+",
         r"\1=***",
         text,
     )
-    text = re.sub(r"((?:https?|wss)://[A-Za-z0-9.-]+)(?:/[^\s]*)?", r"\1", text)
-    return text[:500]
+    text = re.sub(r"(?i)bearer\s+[A-Za-z0-9._~+/-]+", "Bearer ***", text)
+    text = re.sub(r"(wss://[A-Za-z0-9.-]+)(?:/[^\s]*)?", r"\1", text)
+    text = re.sub(
+        r"(?i)([?&](?:ticket|access_key|access_token|tenant_access_token)=)[^&\s]+",
+        r"\1***",
+        text,
+    )
+    return text[:CONSOLE_MESSAGE_MAX_CHARS]
 
 
 def append_runtime_event(
@@ -717,6 +723,37 @@ def parse_message_envelope(payload: Any) -> MessageEnvelope:
     return MessageEnvelope(event_id, message_id, chat_id, chat_type, sender_id, mentioned, text, files)
 
 
+def describe_message_event(payload: Any, feishu: "FeishuApi") -> str:
+    """Build a readable audit line for a handled event without exposing runtime credentials."""
+    try:
+        envelope = parse_message_envelope(payload)
+    except ValueError:
+        return "发送人、会话与消息内容无法解析｜来源 IP：飞书长连接事件未提供"
+
+    sender_name = feishu.resolve_user_name(envelope.sender_id) if envelope.sender_id else ""
+    sender_name = sender_name or envelope.sender_id or "未知发送人"
+    sender_identity = envelope.sender_id or "无发送人 ID"
+    is_private = envelope.chat_type in {"p2p", "private", "single"}
+    if is_private:
+        chat_name = f"与 {sender_name} 的单聊"
+        chat_kind = "单聊"
+    else:
+        chat_name = feishu.resolve_chat_name(envelope.chat_id) or envelope.chat_id or "未知群聊"
+        chat_kind = "群聊"
+
+    message_parts: list[str] = []
+    if envelope.text:
+        message_parts.append(envelope.text)
+    if envelope.files:
+        message_parts.append("附件：" + "、".join(name for _key, name in envelope.files))
+    message = "；".join(message_parts) or "（空消息）"
+    return (
+        f"发送人：{sender_name}（{sender_identity}）｜"
+        f"会话：{chat_name}（{chat_kind}；{envelope.chat_id}）｜"
+        f"来源 IP：飞书长连接事件未提供｜消息：{message}"
+    )
+
+
 def _message_text(value: Any) -> str:
     if isinstance(value, dict):
         text = value.get("text")
@@ -817,6 +854,8 @@ class FeishuApi:
         self.client = client or httpx.Client(timeout=60)
         self._token = ""
         self._token_expires_at = 0.0
+        self._user_name_cache: dict[str, str] = {}
+        self._chat_name_cache: dict[str, str] = {}
 
     def token(self) -> str:
         if self._token and time.time() < self._token_expires_at:
@@ -835,6 +874,55 @@ class FeishuApi:
 
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.token()}"}
+
+    def resolve_user_name(self, user_id: str) -> str:
+        normalized = str(user_id or "").strip()
+        if not normalized:
+            return ""
+        if normalized in self._user_name_cache:
+            return self._user_name_cache[normalized]
+        name = ""
+        try:
+            response = self.client.get(
+                f"{self.base_url}/contact/v3/users/{quote(normalized, safe='')}",
+                params={"user_id_type": "open_id"},
+                headers=self._headers(),
+            )
+            response.raise_for_status()
+            payload = response.json()
+            if int(payload.get("code") or 0) == 0:
+                data = payload.get("data") or {}
+                user = data.get("user") or {}
+                name = str(user.get("name") or user.get("nickname") or "").strip()
+        except (httpx.HTTPError, ValueError, TypeError, AttributeError, RuntimeError):
+            name = ""
+        resolved = name or normalized
+        self._user_name_cache[normalized] = resolved
+        return resolved
+
+    def resolve_chat_name(self, chat_id: str) -> str:
+        normalized = str(chat_id or "").strip()
+        if not normalized:
+            return ""
+        if normalized in self._chat_name_cache:
+            return self._chat_name_cache[normalized]
+        name = ""
+        try:
+            response = self.client.get(
+                f"{self.base_url}/im/v1/chats/{quote(normalized, safe='')}",
+                headers=self._headers(),
+            )
+            response.raise_for_status()
+            payload = response.json()
+            if int(payload.get("code") or 0) == 0:
+                data = payload.get("data") or {}
+                chat = data.get("chat") if isinstance(data.get("chat"), dict) else data
+                name = str(chat.get("name") or "").strip()
+        except (httpx.HTTPError, ValueError, TypeError, AttributeError, RuntimeError):
+            name = ""
+        resolved = name or normalized
+        self._chat_name_cache[normalized] = resolved
+        return resolved
 
     def download_file(self, message_id: str, file_key: str, target: Path) -> Path:
         response = self.client.get(

@@ -12,7 +12,7 @@
 
 - 产品名：造价智算
 - 定位：工程造价辅助智能体
-- 当前版本：v5.8.8
+- 当前版本：v5.8.9
 - 当前页面布局：`大尾巴主题 / daweiba` 唯一主界面
 - 前端：React + TypeScript + Vite
 - 后端：Python + FastAPI
@@ -175,6 +175,7 @@ python tools/check_prd_consistency.py --strict
 
 ### 智能协同
 
+- v5.8.9 已把第二层机器人运行控制台改为“刷新”旁按钮打开的弹窗，并增加业务追踪日志：记录已处理消息的发送人名称与 ID、群名与会话 ID、消息正文和附件名；名称查询无权限时回退显示 ID。飞书长连接事件不提供发送者来源 IP，控制台明确标注平台未提供；App Secret、访问令牌、连接票据、文件 Key 和完整 WebSocket 地址仍不回显。
 - v5.8.8 已在智能协同设置页增加“第二层：机器人运行控制台”：每 3 秒可自动刷新长连接建立 / 断开 / 重连、消息接收、知识库问答和任务处理阶段；后端只汇总脱敏结构化事件，不向前端返回 App Secret、访问令牌、连接票据、文件 Key、群 ID、用户 ID 或完整 WebSocket 地址。
 - v5.8.7 已把企业 WeAct 长连接实测成果接入第二层正式机器人：第二层明确提供 `默认机器人（普通飞书）` 与 `Weact机器人（管网内网）` 两个选项；Weact 配置同时使用企业 API 域名和企业 WebSocket 节点，并已真实连接 `lark-frontier.weact.pipechina.com.cn`。本机默认启用普通飞书，云端默认启用 Weact，用户仍可在智能协同页随时关闭或切换；两个配置共用单任务顺序队列。
 - v5.8.6 已支持第一层多 Webhook 配置选择，并新增 `weact机器人（webhook）`；第一层 Webhook 与第二层企业应用机器人的全部秘密配置统一保存到 Git 忽略的 `Codex-Temp/runtime/feishu-robot-settings.json`，旧版两个分散配置文件可自动迁移。

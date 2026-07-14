@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from app.feishu_app_bot import (
     DB_PATH, FeishuApi, IgnoreEvent, ProfessionalApi, TaskStore, TaskWorker, accept_event,
-    accept_knowledge_event, answer_knowledge_event, append_runtime_event,
+    accept_knowledge_event, answer_knowledge_event, append_runtime_event, describe_message_event,
     CONTROL_PATH, PID_PATH, cleanup_expired, is_bot_enabled, load_bot_defaults, load_credentials,
 )
 
@@ -66,12 +66,24 @@ def main() -> int:
     threading.Thread(target=control_loop, name="feishu-control", daemon=True).start()
 
     def handle_message(data):
+        message_context = ""
+
+        def event_context() -> str:
+            nonlocal message_context
+            if not message_context:
+                message_context = describe_message_event(data, feishu)
+            return message_context
+
         try:
             knowledge = accept_knowledge_event(data, store, feishu)
             if knowledge is not None:
                 append_runtime_event(
                     "knowledge",
-                    "收到知识库问题，已进入查询" if not knowledge.get("duplicate") else "收到重复知识库事件，已忽略重复处理",
+                    (
+                        "收到知识库问题，已进入查询"
+                        if not knowledge.get("duplicate")
+                        else "收到重复知识库事件，已忽略重复处理"
+                    ) + f"｜{event_context()}",
                     profile_id=profile_id,
                 )
                 if not knowledge.get("duplicate"):
@@ -86,17 +98,30 @@ def main() -> int:
             if result.get("task_id"):
                 append_runtime_event(
                     "message",
-                    "收到 Excel 文件消息，任务已进入顺序队列" if result.get("created") else "收到重复文件事件，未重复创建任务",
+                    (
+                        "收到 Excel 文件消息，任务已进入顺序队列"
+                        if result.get("created")
+                        else "收到重复文件事件，未重复创建任务"
+                    ) + f"｜{event_context()}",
                     level="success" if result.get("created") else "warning",
                     task_id=str(result.get("task_id") or ""),
                     profile_id=profile_id,
                 )
             elif result.get("pending"):
-                append_runtime_event("message", "收到收件指令，已开启 5 分钟文件接收窗口", profile_id=profile_id)
+                append_runtime_event(
+                    "message",
+                    f"收到收件指令，已开启 5 分钟文件接收窗口｜{event_context()}",
+                    profile_id=profile_id,
+                )
         except IgnoreEvent:
             return
         except ValueError as exc:
-            append_runtime_event("message", f"收到消息但未通过任务校验：{exc}", level="warning", profile_id=profile_id)
+            append_runtime_event(
+                "message",
+                f"收到消息但未通过任务校验：{exc}｜{event_context()}",
+                level="warning",
+                profile_id=profile_id,
+            )
             raw = data.to_dict() if hasattr(data, "to_dict") else {}
             chat_id = (((raw.get("event") or {}).get("message") or {}).get("chat_id") or "")
             if chat_id:

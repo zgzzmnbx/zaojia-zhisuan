@@ -10054,9 +10054,15 @@ tbody tr:hover .row-ai-cell {
   gap: 8px;
 }
 
-.shell.layout-daweiba .daweiba-collaboration-status .ghost-button {
-  min-height: 30px;
+.shell.layout-daweiba .daweiba-collaboration-status-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin-left: auto;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-status-actions .ghost-button {
+  min-height: 30px;
   padding: 0 10px;
 }
 
@@ -10096,8 +10102,71 @@ tbody tr:hover .row-ai-cell {
 .shell.layout-daweiba .daweiba-feishu-app-metrics strong { color:var(--db-text-strong); font-size:20px; }
 @media (max-width:900px) { .shell.layout-daweiba .daweiba-feishu-app-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 
-.shell.layout-daweiba .daweiba-bot-console-panel {
-  grid-column: 1 / -1;
+.daweiba-bot-console-backdrop {
+  z-index: 30;
+  background: rgb(15 23 42 / 42%);
+  backdrop-filter: blur(2px);
+}
+
+.settings-modal.daweiba-bot-console-modal {
+  grid-template-rows: auto auto minmax(260px, 1fr) auto;
+  width: min(980px, 100%);
+  height: min(78vh, 720px);
+  max-height: calc(100vh - 36px);
+  overflow: hidden;
+  border: 1px solid var(--db-border);
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: var(--db-shadow-dialog);
+}
+
+.daweiba-bot-console-modal-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--db-border-soft);
+}
+
+.daweiba-bot-console-modal-head p,
+.daweiba-bot-console-modal-head h2,
+.daweiba-bot-console-modal-head small {
+  margin: 0;
+}
+
+.daweiba-bot-console-modal-head p {
+  color: var(--db-primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.daweiba-bot-console-modal-head h2 {
+  margin-top: 3px;
+  color: var(--db-text-strong);
+  font-size: 20px;
+}
+
+.daweiba-bot-console-modal-head small {
+  display: block;
+  margin-top: 6px;
+  color: var(--db-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.daweiba-bot-console-modal-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.daweiba-bot-console-modal-actions .ghost-button {
+  min-height: 32px;
+  padding: 0 12px;
 }
 
 .shell.layout-daweiba .daweiba-bot-console-summary {
@@ -10131,7 +10200,7 @@ tbody tr:hover .row-ai-cell {
 }
 
 .shell.layout-daweiba .daweiba-bot-console {
-  height: 286px;
+  height: 100%;
   min-height: 180px;
   overflow: auto;
   padding: 9px 0;
@@ -10553,6 +10622,19 @@ tbody tr:hover .row-ai-cell {
   .shell.layout-daweiba .daweiba-collaboration-title-actions {
     justify-content: flex-start;
     max-width: 100%;
+  }
+
+  .shell.layout-daweiba .daweiba-collaboration-status-actions {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .daweiba-bot-console-modal-head {
+    display: grid;
+  }
+
+  .daweiba-bot-console-modal-actions {
+    justify-content: flex-start;
   }
 
   .shell.layout-daweiba .daweiba-bot-console-line {

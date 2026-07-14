@@ -35,6 +35,12 @@ class FakeFeishu:
         target.write_bytes(b"xlsx")
         return target
 
+    def resolve_user_name(self, user_id: str) -> str:
+        return {"user-1": "石萌"}.get(user_id, user_id)
+
+    def resolve_chat_name(self, chat_id: str) -> str:
+        return {"chat-1": "造价智算小组"}.get(chat_id, chat_id)
+
 
 def event_payload(*, event_id: str = "evt-1", message_id: str = "msg-1", files=None, mentions=None, text: str = "", sender_id: str = "user-1", chat_type: str = "group"):
     return {
@@ -56,6 +62,18 @@ def test_parse_valid_group_message():
     task = feishu_app_bot.parse_message_event(event_payload())
     assert task.file_name == "控制价.xlsx"
     assert task.chat_id == "chat-1"
+
+
+def test_describe_message_event_contains_business_context_and_marks_missing_ip():
+    detail = feishu_app_bot.describe_message_event(
+        event_payload(text="@知识库：系数如何确定？"),
+        FakeFeishu(),
+    )
+
+    assert "发送人：石萌（user-1）" in detail
+    assert "会话：造价智算小组（群聊；chat-1）" in detail
+    assert "消息：@知识库：系数如何确定？；附件：控制价.xlsx" in detail
+    assert "来源 IP：飞书长连接事件未提供" in detail
 
 
 @pytest.mark.parametrize(
@@ -317,14 +335,14 @@ def test_status_api_does_not_expose_credentials(tmp_path, monkeypatch):
     assert response.json()["configured"] is True
 
 
-def test_console_events_merge_runtime_connection_and_task_logs_without_secrets(tmp_path):
+def test_console_events_keep_business_context_but_hide_runtime_secrets(tmp_path):
     console_path = tmp_path / "console-events.jsonl"
     runner_out = tmp_path / "runner.out.log"
     runner_err = tmp_path / "runner.err.log"
     db_path = tmp_path / "tasks.sqlite3"
     feishu_app_bot.append_runtime_event(
         "message",
-        "收到消息 ticket=private-ticket chat_id=private-chat https://open.feishu.cn/open-apis/private/path",
+        "收到消息 ticket=private-ticket chat_id=private-chat user_id=private-user 消息=系数如何确定 https://open.feishu.cn/open-apis/private/path",
         path=console_path,
     )
     runner_out.write_text(
@@ -347,7 +365,9 @@ def test_console_events_merge_runtime_connection_and_task_logs_without_secrets(t
     serialized = json.dumps(items, ensure_ascii=False)
     assert "private-ticket" not in serialized
     assert "private-key" not in serialized
-    assert "private-chat" not in serialized
+    assert "private-chat" in serialized
+    assert "private-user" in serialized
+    assert "系数如何确定" in serialized
     assert "/ws/v2" not in serialized
     assert any(item["category"] == "connection" and "lark-frontier.weact.pipechina.com.cn" in item["message"] for item in items)
     assert any(item["category"] == "message" for item in items)
@@ -424,6 +444,50 @@ def test_feishu_api_uses_selected_enterprise_domain():
 
     assert api.domain == "https://open.weact.pipechina.com.cn"
     assert api.base_url == "https://open.weact.pipechina.com.cn/open-apis"
+
+
+def test_feishu_api_resolves_and_caches_user_and_chat_names():
+    request_paths: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        request_paths.append(request.url.path)
+        if request.url.path.endswith("/auth/v3/tenant_access_token/internal"):
+            return httpx.Response(200, json={"code": 0, "tenant_access_token": "token", "expire": 7200}, request=request)
+        if "/contact/v3/users/" in request.url.path:
+            assert request.url.params["user_id_type"] == "open_id"
+            return httpx.Response(200, json={"code": 0, "data": {"user": {"name": "石萌"}}}, request=request)
+        if "/im/v1/chats/" in request.url.path:
+            return httpx.Response(200, json={"code": 0, "data": {"name": "造价智算小组"}}, request=request)
+        return httpx.Response(404, request=request)
+
+    api = feishu_app_bot.FeishuApi(
+        "cli_test",
+        "secret-test",
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    assert api.resolve_user_name("ou_sender") == "石萌"
+    assert api.resolve_user_name("ou_sender") == "石萌"
+    assert api.resolve_chat_name("oc_chat") == "造价智算小组"
+    assert api.resolve_chat_name("oc_chat") == "造价智算小组"
+    assert sum("/contact/v3/users/" in path for path in request_paths) == 1
+    assert sum("/im/v1/chats/" in path for path in request_paths) == 1
+
+
+def test_feishu_api_name_resolution_falls_back_to_ids_without_optional_permissions():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/auth/v3/tenant_access_token/internal"):
+            return httpx.Response(200, json={"code": 0, "tenant_access_token": "token", "expire": 7200}, request=request)
+        return httpx.Response(403, json={"code": 41050, "msg": "no authority"}, request=request)
+
+    api = feishu_app_bot.FeishuApi(
+        "cli_test",
+        "secret-test",
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    assert api.resolve_user_name("ou_sender") == "ou_sender"
+    assert api.resolve_chat_name("oc_chat") == "oc_chat"
 
 
 @pytest.mark.parametrize(
