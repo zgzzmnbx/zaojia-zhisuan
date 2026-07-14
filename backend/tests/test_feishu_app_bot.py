@@ -50,14 +50,14 @@ class FakeFeishu:
         return {"chat-1": "造价智算小组"}.get(chat_id, chat_id)
 
 
-def event_payload(*, event_id: str = "evt-1", message_id: str = "msg-1", files=None, mentions=None, text: str = "", sender_id: str = "user-1", chat_type: str = "group"):
+def event_payload(*, event_id: str = "evt-1", message_id: str = "msg-1", files=None, mentions=None, text: str = "", sender_id: str = "user-1", chat_type: str = "group", chat_id: str = "chat-1"):
     return {
         "header": {"event_id": event_id},
         "event": {
             "sender": {"sender_id": {"open_id": sender_id}},
             "message": {
                 "message_id": message_id,
-                "chat_id": "chat-1",
+                "chat_id": chat_id,
                 "chat_type": chat_type,
                 "mentions": [{"name": "机器人"}] if mentions is None else mentions,
                 "content": json.dumps({"text": text, "files": files if files is not None else [{"file_key": "file-1", "file_name": "控制价.xlsx"}]}, ensure_ascii=False),
@@ -363,6 +363,164 @@ def test_group_member_command_in_private_chat_explains_group_only(tmp_path):
     assert "仅适用于群聊" in feishu.texts[0][1]
 
 
+@pytest.mark.parametrize(("command", "kind"), [("帮助", "help"), ("指令！", "help")])
+def test_help_commands_return_deterministic_instruction_list(tmp_path, command, kind):
+    store = feishu_app_bot.TaskStore(tmp_path / f"{len(command)}-tasks.sqlite3")
+    feishu = FakeFeishu()
+
+    result = feishu_app_bot.accept_conversation_event(
+        event_payload(files=[], text=command), store, feishu,
+    )
+
+    assert result["kind"] == kind
+    assert "进度 FS-任务编号" in feishu.texts[0][1]
+    assert "结果 FS-任务编号" in feishu.texts[0][1]
+    assert "只在原任务所在会话内" in feishu.texts[0][1]
+
+
+def test_task_list_only_returns_tasks_from_current_chat(tmp_path):
+    store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
+    current, _ = store.enqueue(
+        event_id="e-current", message_id="m-current", chat_id="chat-1",
+        file_key="f-current", file_name="当前群.xlsx",
+    )
+    other, _ = store.enqueue(
+        event_id="e-other", message_id="m-other", chat_id="chat-2",
+        file_key="f-other", file_name="其他群.xlsx",
+    )
+    feishu = FakeFeishu()
+
+    result = feishu_app_bot.accept_conversation_event(
+        event_payload(event_id="evt-list", files=[], text="最近任务"), store, feishu,
+    )
+
+    assert result["kind"] == "task_list"
+    assert current["task_id"] in feishu.texts[0][1]
+    assert other["task_id"] not in feishu.texts[0][1]
+    assert "其他群.xlsx" not in feishu.texts[0][1]
+
+
+def test_progress_and_risk_commands_are_deterministic(tmp_path):
+    store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
+    task, _ = store.enqueue(
+        event_id="e1", message_id="m1", chat_id="chat-1",
+        file_key="f1", file_name="控制价.xlsx",
+    )
+    store.update(task["task_id"], "completed", "成果已回传", stage="completed", risk_total=4, risk_high=2)
+
+    progress_feishu = FakeFeishu()
+    progress = feishu_app_bot.accept_conversation_event(
+        event_payload(event_id="evt-progress", files=[], text=f"进度 {task['task_id'].lower()}"),
+        store,
+        progress_feishu,
+    )
+    risk_feishu = FakeFeishu()
+    risk = feishu_app_bot.accept_conversation_event(
+        event_payload(event_id="evt-risk", files=[], text=f"风险 {task['task_id']}"),
+        store,
+        risk_feishu,
+    )
+
+    assert progress["kind"] == "progress"
+    assert "当前状态：已完成" in progress_feishu.texts[0][1]
+    assert risk["kind"] == "risk"
+    assert "结构化风险：4 项" in risk_feishu.texts[0][1]
+    assert "高风险：2 项" in risk_feishu.texts[0][1]
+
+
+def test_high_risk_command_only_lists_current_chat(tmp_path):
+    store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
+    current, _ = store.enqueue(
+        event_id="e-current", message_id="m-current", chat_id="chat-1",
+        file_key="f-current", file_name="当前群.xlsx",
+    )
+    store.update(current["task_id"], "completed", stage="completed", risk_total=3, risk_high=1)
+    other, _ = store.enqueue(
+        event_id="e-other", message_id="m-other", chat_id="chat-2",
+        file_key="f-other", file_name="其他群.xlsx",
+    )
+    store.update(other["task_id"], "completed", stage="completed", risk_total=9, risk_high=8)
+    feishu = FakeFeishu()
+
+    result = feishu_app_bot.accept_conversation_event(
+        event_payload(event_id="evt-high", files=[], text="高风险"), store, feishu,
+    )
+
+    assert result["kind"] == "high_risk"
+    assert current["task_id"] in feishu.texts[0][1]
+    assert other["task_id"] not in feishu.texts[0][1]
+
+
+def test_result_command_prepares_background_resend_for_same_chat(tmp_path):
+    store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
+    task, _ = store.enqueue(
+        event_id="e1", message_id="m1", chat_id="chat-1",
+        file_key="f1", file_name="控制价.xlsx",
+    )
+    store.update(task["task_id"], "completed", stage="completed")
+    feishu = FakeFeishu()
+
+    result = feishu_app_bot.accept_conversation_event(
+        event_payload(event_id="evt-result", files=[], text=f"结果 {task['task_id']}"),
+        store,
+        feishu,
+    )
+
+    assert result["kind"] == "result"
+    assert result["task_id"] == task["task_id"]
+    assert "正在重新发送历史成果" in feishu.texts[0][1]
+
+
+def test_result_command_does_not_start_resend_before_completion(tmp_path):
+    store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
+    task, _ = store.enqueue(
+        event_id="e1", message_id="m1", chat_id="chat-1",
+        file_key="f1", file_name="控制价.xlsx",
+    )
+    feishu = FakeFeishu()
+
+    result = feishu_app_bot.accept_conversation_event(
+        event_payload(event_id="evt-result-pending", files=[], text=f"结果 {task['task_id']}"),
+        store,
+        feishu,
+    )
+
+    assert result["kind"] == "result_unavailable"
+    assert "尚无可重新发送的完整成果" in feishu.texts[0][1]
+
+
+def test_task_detail_command_cannot_read_another_chat(tmp_path):
+    store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
+    task, _ = store.enqueue(
+        event_id="e-other", message_id="m-other", chat_id="chat-2",
+        file_key="f-other", file_name="其他群.xlsx",
+    )
+    feishu = FakeFeishu()
+
+    result = feishu_app_bot.accept_conversation_event(
+        event_payload(event_id="evt-cross-chat", files=[], text=f"进度 {task['task_id']}"),
+        store,
+        feishu,
+    )
+
+    assert result["kind"] == "task_missing"
+    assert "当前会话未找到" in feishu.texts[0][1]
+    assert "其他群.xlsx" not in feishu.texts[0][1]
+
+
+@pytest.mark.parametrize("text", ["最近有什么任务", "帮我看一下进度", "这个结果怎么样"])
+def test_similar_task_phrases_fall_back_to_llm(tmp_path, text):
+    store = feishu_app_bot.TaskStore(tmp_path / f"{len(text)}-tasks.sqlite3")
+    feishu = FakeFeishu()
+
+    result = feishu_app_bot.accept_conversation_event(
+        event_payload(files=[], text=text), store, feishu,
+    )
+
+    assert result["kind"] == "chat"
+    assert "大模型" in feishu.texts[0][1]
+
+
 def test_list_chat_members_paginates_and_deduplicates():
     requests: list[httpx.Request] = []
 
@@ -588,6 +746,51 @@ def test_completion_card_has_optional_safe_open_url_button():
     assert card["header"]["title"]["content"] == "造价智算 · 任务处理完成"
     assert "FS-TEST-001" in card["elements"][0]["text"]["content"]
     assert card["elements"][1]["actions"][0]["url"] == "http://127.0.0.1:5174/"
+
+
+def test_answer_task_result_resends_files_and_card_without_mutating_task(tmp_path):
+    store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
+    task, _ = store.enqueue(
+        event_id="e1", message_id="m1", chat_id="chat-1",
+        file_key="f1", file_name="控制价.xlsx",
+    )
+    excel = tmp_path / "result.xlsx"
+    report = tmp_path / "report.docx"
+    excel.write_bytes(b"excel")
+    report.write_bytes(b"word")
+    store.update(
+        task["task_id"], "completed", "成果已回传", stage="completed",
+        output_excel=str(excel), output_report=str(report), risk_total=2, risk_high=1,
+    )
+    before = store.get(task["task_id"])
+    feishu = FakeFeishu()
+
+    feishu_app_bot.answer_task_result_event("chat-1", task["task_id"], store, feishu)
+
+    after = store.get(task["task_id"])
+    assert feishu.files == [("chat-1", excel), ("chat-1", report)]
+    assert len(feishu.cards) == 1
+    assert feishu.cards[0][1]["header"]["template"] == "green"
+    assert after == before
+
+
+def test_answer_task_result_refuses_cross_chat_and_missing_outputs(tmp_path):
+    store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
+    task, _ = store.enqueue(
+        event_id="e1", message_id="m1", chat_id="chat-1",
+        file_key="f1", file_name="控制价.xlsx",
+    )
+    store.update(task["task_id"], "completed", stage="completed", output_excel="missing.xlsx", output_report="missing.docx")
+
+    cross_chat_feishu = FakeFeishu()
+    feishu_app_bot.answer_task_result_event("chat-2", task["task_id"], store, cross_chat_feishu)
+    assert "当前会话未找到" in cross_chat_feishu.texts[0][1]
+    assert cross_chat_feishu.files == []
+
+    missing_feishu = FakeFeishu()
+    feishu_app_bot.answer_task_result_event("chat-1", task["task_id"], store, missing_feishu)
+    assert "历史成果文件已不存在" in missing_feishu.texts[0][1]
+    assert missing_feishu.files == []
 
 
 def test_worker_falls_back_to_text_when_completion_card_fails(tmp_path, monkeypatch):

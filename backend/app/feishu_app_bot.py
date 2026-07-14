@@ -47,16 +47,49 @@ UPLOAD_WINDOW_MINUTES = 1
 UPLOAD_COMMANDS = {"@上传", "@上传文件"}
 GREETING_COMMANDS = {"你好"}
 GROUP_MEMBER_COMMANDS = {"群里有几个人", "群成员", "都有谁"}
+HELP_COMMANDS = {"帮助", "指令"}
+TASK_LIST_COMMANDS = {"任务", "最近任务"}
+HIGH_RISK_COMMANDS = {"高风险"}
+TASK_DETAIL_COMMAND_PATTERN = re.compile(
+    r"^(进度|风险|结果)\s+(FS-\d{8}-\d{6}-[A-Z0-9]{6})$",
+    re.IGNORECASE,
+)
+TASK_STATUS_LABELS = {
+    "queued": "排队中",
+    "downloading": "正在下载文件",
+    "inspecting": "正在识别表格与字段",
+    "matching": "正在批量匹配",
+    "risk": "正在进行风险识别",
+    "report": "正在生成成果",
+    "uploading": "正在回传成果",
+    "completed": "已完成",
+    "needs_manual": "需要人工处理",
+    "retryable_failed": "等待自动重试",
+    "failed": "处理失败",
+}
+TASK_COMMAND_HELP = (
+    "可用指令：\n"
+    "• 任务 / 最近任务：查看当前会话最近 5 个任务；\n"
+    "• 进度 FS-任务编号：查看任务当前阶段；\n"
+    "• 风险 FS-任务编号：查看任务风险统计；\n"
+    "• 高风险：查看当前会话最近的高风险任务；\n"
+    "• 结果 FS-任务编号：重新发送已完成任务的 Excel、Word 和完成卡片；\n"
+    "• @上传 / @上传文件：开启 1 分钟文件接收窗口；\n"
+    "• @知识库：问题：查询本地规则、知识库和依据来源；\n"
+    "• 群成员：在群聊中查询真实人数和名单。\n\n"
+    "群聊请先 @当前机器人；单聊可直接发送。任务信息只在原任务所在会话内可查询。"
+)
 BOT_INTRODUCTION = (
     "你好，我是造价智算机器人，是造价智算在飞书和 WeAct 中的协同助手。\n\n"
-    "我可以提供四类功能：\n"
+    "我可以提供五类功能：\n"
     "1. Excel 自动处理：接收标准 .xlsx，按顺序完成匹配、风险识别，并返回 Excel 和 Word 成果；\n"
     "2. 知识库问答：检索本地规则、知识库和依据来源后回答专业问题；\n"
     "3. 群成员查询：在群聊中询问“群里有几个人”“群成员”或“都有谁”，返回真实人数和名单；\n"
-    "4. 普通智能问答：其他文字问题由大模型提供辅助回答。\n\n"
+    "4. 任务查询与成果重发：查询当前会话的任务进度、风险和历史成果；\n"
+    "5. 普通智能问答：其他文字问题由大模型提供辅助回答。\n\n"
     "使用方法：\n"
-    "• 群聊：先 @机器人，再发送“@上传”“@知识库：问题”“群成员”或其他问题；\n"
-    "• 单聊：直接发送上传、知识库、问候或普通问题；群成员请到目标群中查询；\n"
+    "• 群聊：先 @机器人，再发送“@上传”“@知识库：问题”“任务”“帮助”或其他问题；\n"
+    "• 单聊：直接发送上传、知识库、问候、任务或普通问题；群成员请到目标群中查询；\n"
     "• 上传时请在收到提示后的 1 分钟内发送一个 .xlsx 文件。\n\n"
     "说明：价格和系数仍由造价智算规则与知识库处理，大模型不会直接裁决最终结果。"
 )
@@ -643,9 +676,33 @@ class TaskStore:
             row = connection.execute("SELECT * FROM tasks WHERE task_id=?", (task_id,)).fetchone()
         return dict(row) if row else None
 
+    def get_for_chat(self, task_id: str, chat_id: str) -> dict[str, Any] | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM tasks WHERE task_id=? AND chat_id=?",
+                (task_id, chat_id),
+            ).fetchone()
+        return dict(row) if row else None
+
     def list_tasks(self, limit: int = 30) -> list[dict[str, Any]]:
         with self._connect() as connection:
             rows = connection.execute("SELECT * FROM tasks ORDER BY created_at DESC LIMIT ?", (max(1, min(limit, 100)),)).fetchall()
+        return [dict(row) for row in rows]
+
+    def list_tasks_for_chat(self, chat_id: str, limit: int = 5) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM tasks WHERE chat_id=? ORDER BY created_at DESC LIMIT ?",
+                (chat_id, max(1, min(limit, 30))),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def list_high_risk_tasks_for_chat(self, chat_id: str, limit: int = 5) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM tasks WHERE chat_id=? AND risk_high>0 ORDER BY created_at DESC LIMIT ?",
+                (chat_id, max(1, min(limit, 30))),
+            ).fetchall()
         return [dict(row) for row in rows]
 
     def counts(self) -> dict[str, int]:
@@ -885,6 +942,28 @@ def is_greeting_command(text: str) -> bool:
 
 def is_group_member_command(text: str) -> bool:
     return clean_bot_command_text(text) in GROUP_MEMBER_COMMANDS
+
+
+def parse_task_command(text: str) -> tuple[str, str]:
+    command = clean_bot_command_text(text)
+    if command in HELP_COMMANDS:
+        return "help", ""
+    if command in TASK_LIST_COMMANDS:
+        return "task_list", ""
+    if command in HIGH_RISK_COMMANDS:
+        return "high_risk", ""
+    match = TASK_DETAIL_COMMAND_PATTERN.fullmatch(command)
+    if match:
+        action = {"进度": "progress", "风险": "risk", "结果": "result"}[match.group(1)]
+        return action, match.group(2).upper()
+    if command in {"进度", "风险", "结果"}:
+        return "task_usage", command
+    return "", ""
+
+
+def task_command_kind(text: str) -> str:
+    action, _ = parse_task_command(text)
+    return action or "chat"
 
 
 def parse_knowledge_request(
@@ -1532,6 +1611,117 @@ def answer_knowledge_event(chat_id: str, question: str, feishu: FeishuApi, profe
         feishu.send_text(chat_id, f"知识库查询暂时失败：{sanitize_error(exc)}。请稍后重试，或在造价智算“知识库问答”中查询。")
 
 
+def task_status_label(task: dict[str, Any]) -> str:
+    status = str(task.get("status") or "")
+    return TASK_STATUS_LABELS.get(status, status or "未知状态")
+
+
+def format_task_list(tasks: list[dict[str, Any]]) -> str:
+    if not tasks:
+        return "当前会话还没有任务。发送“@上传”或“@上传文件”后，可在 1 分钟内上传一个 .xlsx 文件。"
+    lines = [f"当前会话最近 {len(tasks)} 个任务："]
+    for index, task in enumerate(tasks, start=1):
+        risk = ""
+        if int(task.get("risk_total") or 0) or task.get("status") == "completed":
+            risk = f"；风险 {int(task.get('risk_total') or 0)} 项 / 高风险 {int(task.get('risk_high') or 0)} 项"
+        lines.append(
+            f"{index}. {task['task_id']}｜{task_status_label(task)}｜{safe_filename(task.get('file_name') or '')}{risk}"
+        )
+    lines.append("发送“进度 FS-任务编号”“风险 FS-任务编号”或“结果 FS-任务编号”可查看详情。")
+    return "\n".join(lines)
+
+
+def format_task_progress(task: dict[str, Any], store: TaskStore) -> str:
+    lines = [
+        f"任务编号：{task['task_id']}",
+        f"文件：{safe_filename(task.get('file_name') or '')}",
+        f"当前状态：{task_status_label(task)}",
+    ]
+    if task.get("status") in {"queued", "retryable_failed"}:
+        lines.append(f"当前全局排队位置：{store.queue_position(task['task_id'])}")
+    if task.get("error"):
+        lines.append(f"说明：{sanitize_error(task['error'])}")
+    lines.append(f"最近更新时间：{task.get('updated_at') or '未记录'}")
+    return "\n".join(lines)
+
+
+def format_task_risk(task: dict[str, Any]) -> str:
+    if task.get("status") not in {"completed", "uploading"}:
+        return f"任务 {task['task_id']} 当前为“{task_status_label(task)}”，风险识别尚未形成最终结果。"
+    return (
+        f"任务 {task['task_id']} 风险统计：\n"
+        f"• 结构化风险：{int(task.get('risk_total') or 0)} 项\n"
+        f"• 高风险：{int(task.get('risk_high') or 0)} 项\n"
+        "详细风险说明请查看该任务的 Word 报告。"
+    )
+
+
+def format_high_risk_tasks(tasks: list[dict[str, Any]]) -> str:
+    if not tasks:
+        return "当前会话的历史任务中，暂未发现已记录的高风险任务。"
+    lines = [f"当前会话最近 {len(tasks)} 个高风险任务："]
+    for index, task in enumerate(tasks, start=1):
+        lines.append(
+            f"{index}. {task['task_id']}｜高风险 {int(task.get('risk_high') or 0)} 项｜"
+            f"总风险 {int(task.get('risk_total') or 0)} 项｜{safe_filename(task.get('file_name') or '')}"
+        )
+    lines.append("发送“风险 FS-任务编号”可查看单个任务风险统计。")
+    return "\n".join(lines)
+
+
+def answer_task_result_event(chat_id: str, task_id: str, store: TaskStore, feishu: FeishuApi) -> None:
+    task = store.get_for_chat(task_id, chat_id)
+    if not task:
+        feishu.send_text(chat_id, "当前会话未找到该任务。请发送“任务”查看本会话可查询的任务编号。")
+        return
+    if task.get("status") != "completed":
+        feishu.send_text(chat_id, f"任务 {task_id} 当前为“{task_status_label(task)}”，尚无可重新发送的完整成果。")
+        return
+    outputs = [Path(str(task.get("output_excel") or "")), Path(str(task.get("output_report") or ""))]
+    if any(not str(path) or not path.is_file() for path in outputs):
+        feishu.send_text(chat_id, f"任务 {task_id} 的历史成果文件已不存在，请在造价智算工作台重新处理原文件。")
+        append_runtime_event(
+            "task", "历史成果重发失败：成果文件不存在", level="warning",
+            task_id=task_id, profile_id=active_profile_id(),
+        )
+        return
+    try:
+        for path in outputs:
+            feishu.send_file(chat_id, path)
+        try:
+            feishu.send_card(
+                chat_id,
+                build_task_completion_card(
+                    task_id=task_id,
+                    file_name=str(task.get("file_name") or ""),
+                    risk_total=int(task.get("risk_total") or 0),
+                    risk_high=int(task.get("risk_high") or 0),
+                    app_url=load_completion_card_app_url(),
+                ),
+            )
+        except Exception as exc:
+            append_runtime_event(
+                "task", f"历史成果完成卡片发送失败，已降级为文字通知：{sanitize_error(exc)}",
+                level="warning", task_id=task_id, profile_id=active_profile_id(),
+            )
+            feishu.send_text(
+                chat_id,
+                f"任务 {task_id} 的 Excel 和 Word 成果已重新发送。结构化风险 "
+                f"{int(task.get('risk_total') or 0)} 项，其中高风险 {int(task.get('risk_high') or 0)} 项。",
+            )
+        append_runtime_event(
+            "task", "历史 Excel、Word 和完成通知已重新发送", level="success",
+            task_id=task_id, profile_id=active_profile_id(),
+        )
+    except Exception as exc:
+        error = sanitize_error(exc)
+        append_runtime_event(
+            "task", f"历史成果重发失败：{error}", level="error",
+            task_id=task_id, profile_id=active_profile_id(),
+        )
+        feishu.send_text(chat_id, f"任务 {task_id} 的成果重新发送失败：{error}。原任务状态和成果记录未被修改。")
+
+
 def accept_conversation_event(
     payload: Any,
     store: TaskStore,
@@ -1551,7 +1741,11 @@ def accept_conversation_event(
         feishu.send_text(envelope.chat_id, BOT_INTRODUCTION)
         return {"handled": True, "duplicate": False, "kind": "greeting"}
     if not store.record_conversation_event(envelope.event_id):
-        duplicate_kind = "greeting" if is_greeting_command(question) else "members" if is_group_member_command(question) else "chat"
+        duplicate_kind = (
+            "greeting" if is_greeting_command(question)
+            else "members" if is_group_member_command(question)
+            else task_command_kind(question)
+        )
         return {"handled": True, "duplicate": True, "kind": duplicate_kind}
     if is_greeting_command(question):
         feishu.send_text(envelope.chat_id, BOT_INTRODUCTION)
@@ -1566,6 +1760,47 @@ def accept_conversation_event(
             "duplicate": False,
             "kind": "members",
             "chat_id": envelope.chat_id,
+        }
+    task_action, task_value = parse_task_command(question)
+    if task_action == "help":
+        feishu.send_text(envelope.chat_id, TASK_COMMAND_HELP)
+        return {"handled": True, "duplicate": False, "kind": "help"}
+    if task_action == "task_list":
+        feishu.send_text(envelope.chat_id, format_task_list(store.list_tasks_for_chat(envelope.chat_id)))
+        return {"handled": True, "duplicate": False, "kind": "task_list"}
+    if task_action == "high_risk":
+        feishu.send_text(
+            envelope.chat_id,
+            format_high_risk_tasks(store.list_high_risk_tasks_for_chat(envelope.chat_id)),
+        )
+        return {"handled": True, "duplicate": False, "kind": "high_risk"}
+    if task_action == "task_usage":
+        feishu.send_text(envelope.chat_id, f"请发送“{task_value} FS-任务编号”。发送“任务”可查看当前会话的任务编号。")
+        return {"handled": True, "duplicate": False, "kind": "task_usage"}
+    if task_action in {"progress", "risk", "result"}:
+        task = store.get_for_chat(task_value, envelope.chat_id)
+        if not task:
+            feishu.send_text(envelope.chat_id, "当前会话未找到该任务。请发送“任务”查看本会话可查询的任务编号。")
+            return {"handled": True, "duplicate": False, "kind": "task_missing"}
+        if task_action == "progress":
+            feishu.send_text(envelope.chat_id, format_task_progress(task, store))
+            return {"handled": True, "duplicate": False, "kind": "progress"}
+        if task_action == "risk":
+            feishu.send_text(envelope.chat_id, format_task_risk(task))
+            return {"handled": True, "duplicate": False, "kind": "risk"}
+        if task.get("status") != "completed":
+            feishu.send_text(
+                envelope.chat_id,
+                f"任务 {task_value} 当前为“{task_status_label(task)}”，尚无可重新发送的完整成果。",
+            )
+            return {"handled": True, "duplicate": False, "kind": "result_unavailable"}
+        feishu.send_text(envelope.chat_id, f"已找到任务 {task_value}，正在重新发送历史成果，请稍候。")
+        return {
+            "handled": True,
+            "duplicate": False,
+            "kind": "result",
+            "chat_id": envelope.chat_id,
+            "task_id": task_value,
         }
     feishu.send_text(envelope.chat_id, "已收到问题，正在由大模型组织回答，请稍候。")
     return {

@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from app.feishu_app_bot import (
     DB_PATH, FeishuApi, IgnoreEvent, ProfessionalApi, TaskStore, TaskWorker, accept_event,
     accept_conversation_event, accept_knowledge_event, acknowledge_message_event, answer_chat_event, answer_group_members_event,
+    answer_task_result_event,
     answer_knowledge_event, append_runtime_event, describe_message_event,
     CONTROL_PATH, PID_PATH, cleanup_expired, is_bot_enabled, load_bot_defaults, load_credentials,
     parse_message_envelope, should_acknowledge_message,
@@ -197,6 +198,15 @@ def main() -> int:
                     "greeting": "收到问候，已回复自我介绍和使用说明",
                     "members": "收到群成员确定性查询指令，已调用群成员接口",
                     "members_private": "收到单聊群成员查询指令，已提示转到目标群聊",
+                    "help": "收到帮助指令，已回复确定性指令清单",
+                    "task_list": "收到任务列表指令，已返回当前会话最近任务",
+                    "progress": "收到任务进度指令，已返回当前会话任务状态",
+                    "risk": "收到任务风险指令，已返回当前会话风险统计",
+                    "high_risk": "收到高风险指令，已返回当前会话高风险任务",
+                    "result": "收到成果重发指令，已进入后台回传",
+                    "result_unavailable": "收到成果重发指令，但任务尚未完成",
+                    "task_usage": "收到不完整任务指令，已提示标准格式",
+                    "task_missing": "收到任务查询指令，但当前会话未找到该任务",
                 }.get(conversation.get("kind"), "收到普通问题，已进入大模型托底问答")
                 append_runtime_event(
                     "message",
@@ -216,6 +226,13 @@ def main() -> int:
                         target=answer_group_members_event,
                         args=(conversation["chat_id"], feishu),
                         name="feishu-group-members",
+                        daemon=True,
+                    ).start()
+                elif conversation.get("kind") == "result" and not conversation.get("duplicate"):
+                    threading.Thread(
+                        target=answer_task_result_event,
+                        args=(conversation["chat_id"], conversation["task_id"], store, feishu),
+                        name="feishu-task-result",
                         daemon=True,
                     ).start()
         except IgnoreEvent:
