@@ -23,6 +23,7 @@ class FakeFeishu:
     def __init__(self):
         self.texts: list[tuple[str, str]] = []
         self.files: list[tuple[str, Path]] = []
+        self.cards: list[tuple[str, dict]] = []
         self.reactions: list[tuple[str, str]] = []
 
     def send_text(self, chat_id: str, text: str) -> None:
@@ -30,6 +31,9 @@ class FakeFeishu:
 
     def send_file(self, chat_id: str, path: Path) -> None:
         self.files.append((chat_id, path))
+
+    def send_card(self, chat_id: str, card: dict) -> None:
+        self.cards.append((chat_id, card))
 
     def add_reaction(self, message_id: str, emoji_type: str) -> None:
         self.reactions.append((message_id, emoji_type))
@@ -564,8 +568,88 @@ def test_worker_completes_and_returns_two_files(tmp_path, monkeypatch):
     assert saved["status"] == "completed"
     assert saved["risk_total"] == 3
     assert len(feishu.files) == 2
+    assert len(feishu.cards) == 1
+    assert feishu.cards[0][1]["header"]["template"] == "green"
+    assert "高风险 **1 项**" in feishu.cards[0][1]["elements"][0]["text"]["content"]
     assert any("批量匹配完成" in text for _, text in feishu.texts)
     assert any("正在生成 Excel 和 Word" in text for _, text in feishu.texts)
+
+
+def test_completion_card_has_optional_safe_open_url_button():
+    card = feishu_app_bot.build_task_completion_card(
+        task_id="FS-TEST-001",
+        file_name="控制价.xlsx",
+        risk_total=2,
+        risk_high=1,
+        app_url="http://127.0.0.1:5174/",
+    )
+
+    assert card["config"] == {"wide_screen_mode": True}
+    assert card["header"]["title"]["content"] == "造价智算 · 任务处理完成"
+    assert "FS-TEST-001" in card["elements"][0]["text"]["content"]
+    assert card["elements"][1]["actions"][0]["url"] == "http://127.0.0.1:5174/"
+
+
+def test_worker_falls_back_to_text_when_completion_card_fails(tmp_path, monkeypatch):
+    store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
+    task, _ = store.enqueue(event_id="e1", message_id="m1", chat_id="c", file_key="f", file_name="a.xlsx")
+
+    class CardFailureFeishu(FakeFeishu):
+        def send_card(self, chat_id: str, card: dict) -> None:
+            raise RuntimeError("card unavailable")
+
+    class Professional:
+        def run(self, input_path, task_dir, *, progress=None):
+            output = task_dir / "output"
+            output.mkdir(parents=True, exist_ok=True)
+            excel = output / "result.xlsx"
+            report = output / "report.docx"
+            excel.write_bytes(b"excel")
+            report.write_bytes(b"word")
+            return {
+                "job_id": "job-1", "excel": excel, "report": report, "llm_error": "",
+                "risks": {"summary": {"total": 0, "severity_counts": {"high": 0}}},
+            }
+
+    feishu = CardFailureFeishu()
+    monkeypatch.setattr(feishu_app_bot, "TASKS_ROOT", tmp_path / "task-files")
+    feishu_app_bot.TaskWorker(store, feishu, Professional()).run_once()
+
+    assert store.get(task["task_id"])["status"] == "completed"
+    assert len(feishu.files) == 2
+    assert "已完成" in feishu.texts[-1][1]
+
+
+def test_worker_stays_completed_when_card_and_fallback_text_both_fail(tmp_path, monkeypatch):
+    store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
+    task, _ = store.enqueue(event_id="e1", message_id="m1", chat_id="c", file_key="f", file_name="a.xlsx")
+
+    class NotificationFailureFeishu(FakeFeishu):
+        def send_card(self, chat_id: str, card: dict) -> None:
+            raise RuntimeError("card unavailable")
+
+        def send_text(self, chat_id: str, text: str) -> None:
+            raise RuntimeError("text unavailable")
+
+    class Professional:
+        def run(self, input_path, task_dir, *, progress=None):
+            output = task_dir / "output"
+            output.mkdir(parents=True, exist_ok=True)
+            excel = output / "result.xlsx"
+            report = output / "report.docx"
+            excel.write_bytes(b"excel")
+            report.write_bytes(b"word")
+            return {
+                "job_id": "job-1", "excel": excel, "report": report, "llm_error": "",
+                "risks": {"summary": {"total": 0, "severity_counts": {"high": 0}}},
+            }
+
+    feishu = NotificationFailureFeishu()
+    monkeypatch.setattr(feishu_app_bot, "TASKS_ROOT", tmp_path / "task-files")
+    feishu_app_bot.TaskWorker(store, feishu, Professional()).run_once()
+
+    assert store.get(task["task_id"])["status"] == "completed"
+    assert len(feishu.files) == 2
 
 
 def test_worker_marks_mapping_problem_needs_manual(tmp_path, monkeypatch):
@@ -768,6 +852,36 @@ def test_feishu_api_adds_get_reaction_to_received_message():
     api.add_reaction("msg-1")
 
     assert requests[-1].url.host == "open.weact.pipechina.com.cn"
+
+
+def test_feishu_api_sends_interactive_card_as_message_content():
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path.endswith("/auth/v3/tenant_access_token/internal"):
+            return httpx.Response(200, json={"code": 0, "tenant_access_token": "token", "expire": 7200}, request=request)
+        body = json.loads(request.content.decode("utf-8"))
+        assert body["receive_id"] == "oc_chat"
+        assert body["msg_type"] == "interactive"
+        assert json.loads(body["content"])["header"]["title"]["content"] == "造价智算 · 任务处理完成"
+        return httpx.Response(200, json={"code": 0, "msg": "success", "data": {}}, request=request)
+
+    api = feishu_app_bot.FeishuApi(
+        "cli_test",
+        "secret-test",
+        domain="https://open.weact.pipechina.com.cn",
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    api.send_card("oc_chat", feishu_app_bot.build_task_completion_card(
+        task_id="FS-TEST-001",
+        file_name="控制价.xlsx",
+        risk_total=2,
+        risk_high=1,
+    ))
+
+    assert requests[-1].url.path == "/open-apis/im/v1/messages"
+    assert requests[-1].url.params["receive_id_type"] == "chat_id"
 
 
 def test_feishu_api_reaction_error_keeps_platform_reason():

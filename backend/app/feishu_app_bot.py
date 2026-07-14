@@ -248,6 +248,15 @@ def load_bot_defaults() -> dict[str, Any]:
     return defaults
 
 
+def load_completion_card_app_url() -> str:
+    value = str(feishu_robot_settings.load_section("webhook").get("app_url") or "").strip()
+    try:
+        parsed = urlparse(value)
+    except ValueError:
+        return ""
+    return value if parsed.scheme in {"http", "https"} and parsed.netloc else ""
+
+
 def _read_credential_store() -> dict[str, Any]:
     if SETTINGS_PATH == feishu_robot_settings.SETTINGS_PATH:
         raw = feishu_robot_settings.load_section("app_bot")
@@ -1091,6 +1100,9 @@ class FeishuApi:
     def send_text(self, chat_id: str, text: str) -> None:
         self._send_message(chat_id, "text", {"text": text})
 
+    def send_card(self, chat_id: str, card: dict[str, Any]) -> None:
+        self._send_message(chat_id, "interactive", card)
+
     def add_reaction(self, message_id: str, emoji_type: str = ACK_REACTION_EMOJI) -> None:
         normalized_message_id = str(message_id or "").strip()
         normalized_emoji_type = str(emoji_type or "").strip()
@@ -1135,10 +1147,15 @@ class FeishuApi:
             params={"receive_id_type": "chat_id"}, headers=self._headers(),
             json={"receive_id": chat_id, "msg_type": msg_type, "content": json.dumps(content, ensure_ascii=False)},
         )
-        response.raise_for_status()
-        payload = response.json()
+        try:
+            payload = response.json()
+        except ValueError:
+            response.raise_for_status()
+            raise RuntimeError("飞书消息接口返回了无法解析的响应")
         if int(payload.get("code") or 0) != 0:
-            raise RuntimeError(payload.get("msg") or "飞书消息发送失败")
+            code = int(payload.get("code") or 0)
+            raise RuntimeError(f"{payload.get('msg') or '飞书消息发送失败'}（错误码 {code}）")
+        response.raise_for_status()
 
 
 class ProfessionalApi:
@@ -1281,6 +1298,51 @@ class IgnoreEvent(ValueError):
     pass
 
 
+def build_task_completion_card(
+    *,
+    task_id: str,
+    file_name: str,
+    risk_total: int,
+    risk_high: int,
+    llm_degraded: bool = False,
+    app_url: str = "",
+) -> dict[str, Any]:
+    risk_line = f"结构化风险 **{risk_total} 项**，其中高风险 **{risk_high} 项**。"
+    if risk_total == 0:
+        risk_line = "本次未识别到结构化风险。"
+    content = (
+        f"**任务编号：** {task_id}\n"
+        f"**输入文件：** {safe_filename(file_name)}\n"
+        f"**处理状态：** 已完成\n\n"
+        f"⚠️ {risk_line}\n"
+        f"📎 Excel 和 Word 成果文件已发送，可在本卡片上方下载。"
+    )
+    if llm_degraded:
+        content += "\n\n> 大模型风险说明本次已降级，结构化结果和成果文件不受影响。"
+    elements: list[dict[str, Any]] = [{
+        "tag": "div",
+        "text": {"tag": "lark_md", "content": content},
+    }]
+    if app_url:
+        elements.append({
+            "tag": "action",
+            "actions": [{
+                "tag": "button",
+                "text": {"tag": "plain_text", "content": "进入造价智算"},
+                "type": "primary",
+                "url": app_url,
+            }],
+        })
+    return {
+        "config": {"wide_screen_mode": True},
+        "header": {
+            "title": {"tag": "plain_text", "content": "造价智算 · 任务处理完成"},
+            "template": "green",
+        },
+        "elements": elements,
+    }
+
+
 class TaskWorker:
     def __init__(self, store: TaskStore, feishu: FeishuApi, professional: ProfessionalApi):
         self.store = store
@@ -1325,9 +1387,38 @@ class TaskWorker:
             total = int(risk_summary.get("total") or 0)
             self.store.update(task_id, "uploading", "回传成果", stage="uploading", backend_job_id=result["job_id"], risk_total=total, risk_high=high)
             degraded = "；大模型风险说明已降级" if result.get("llm_error") else ""
-            self.feishu.send_text(task["chat_id"], f"任务 {task_id} 已完成。结构化风险 {total} 项，其中高风险 {high} 项{degraded}。成果文件如下：")
             self.feishu.send_file(task["chat_id"], result["excel"])
             self.feishu.send_file(task["chat_id"], result["report"])
+            try:
+                self.feishu.send_card(
+                    task["chat_id"],
+                    build_task_completion_card(
+                        task_id=task_id,
+                        file_name=task["file_name"],
+                        risk_total=total,
+                        risk_high=high,
+                        llm_degraded=bool(result.get("llm_error")),
+                        app_url=load_completion_card_app_url(),
+                    ),
+                )
+            except Exception as exc:
+                append_runtime_event(
+                    "task",
+                    f"完成卡片发送失败，已降级为文字通知：{sanitize_error(exc)}",
+                    level="warning",
+                    task_id=task_id,
+                    profile_id=active_profile_id(),
+                )
+                try:
+                    self.feishu.send_text(task["chat_id"], f"任务 {task_id} 已完成。结构化风险 {total} 项，其中高风险 {high} 项{degraded}。Excel 和 Word 成果文件已发送。")
+                except Exception as fallback_exc:
+                    append_runtime_event(
+                        "task",
+                        f"完成文字通知也发送失败，但成果文件已成功回传：{sanitize_error(fallback_exc)}",
+                        level="warning",
+                        task_id=task_id,
+                        profile_id=active_profile_id(),
+                    )
             self.store.update(task_id, "completed", "成果已回传", stage="completed", output_excel=str(result["excel"]), output_report=str(result["report"]), risk_total=total, risk_high=high)
         except NeedsManual as exc:
             self.store.update(task_id, "needs_manual", exc, stage="needs_manual", error=sanitize_error(exc))
