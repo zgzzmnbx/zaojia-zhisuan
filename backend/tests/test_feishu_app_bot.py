@@ -50,18 +50,21 @@ class FakeFeishu:
         return {"chat-1": "造价智算小组"}.get(chat_id, chat_id)
 
 
-def event_payload(*, event_id: str = "evt-1", message_id: str = "msg-1", files=None, mentions=None, text: str = "", sender_id: str = "user-1", chat_type: str = "group", chat_id: str = "chat-1"):
+def event_payload(*, event_id: str = "evt-1", message_id: str = "msg-1", files=None, mentions=None, text: str = "", sender_id: str = "user-1", chat_type: str = "group", chat_id: str = "chat-1", create_time: str | None = None):
+    message = {
+        "message_id": message_id,
+        "chat_id": chat_id,
+        "chat_type": chat_type,
+        "mentions": [{"name": "机器人"}] if mentions is None else mentions,
+        "content": json.dumps({"text": text, "files": files if files is not None else [{"file_key": "file-1", "file_name": "控制价.xlsx"}]}, ensure_ascii=False),
+    }
+    if create_time is not None:
+        message["create_time"] = create_time
     return {
         "header": {"event_id": event_id},
         "event": {
             "sender": {"sender_id": {"open_id": sender_id}},
-            "message": {
-                "message_id": message_id,
-                "chat_id": chat_id,
-                "chat_type": chat_type,
-                "mentions": [{"name": "机器人"}] if mentions is None else mentions,
-                "content": json.dumps({"text": text, "files": files if files is not None else [{"file_key": "file-1", "file_name": "控制价.xlsx"}]}, ensure_ascii=False),
-            }
+            "message": message,
         },
     }
 
@@ -160,8 +163,80 @@ def test_describe_message_event_contains_business_context_and_marks_missing_ip()
 
     assert "发送人：石萌（user-1）" in detail
     assert "会话：造价智算小组（群聊；chat-1）" in detail
+    assert "消息 ID：msg-1" in detail
+    assert "平台创建时间：未提供" in detail
+    assert "本机接收时间：" in detail
     assert "消息：@知识库：系数如何确定？；附件：控制价.xlsx" in detail
     assert "来源 IP：飞书长连接事件未提供" in detail
+
+
+def test_platform_message_time_and_stale_guard_are_backward_compatible():
+    received_at = "2026-07-15T03:30:00+00:00"
+    fresh = feishu_app_bot.parse_message_envelope(
+        event_payload(create_time="1784086170000"),
+    )
+    stale = feishu_app_bot.parse_message_envelope(
+        event_payload(create_time="2026-07-15T03:20:00Z"),
+    )
+    legacy = feishu_app_bot.parse_message_envelope(event_payload())
+
+    assert fresh.message_created_at == "2026-07-15T03:29:30.000+00:00"
+    assert feishu_app_bot.message_is_stale(fresh, received_at=received_at) is False
+    assert feishu_app_bot.message_is_stale(stale, received_at=received_at) is True
+    assert feishu_app_bot.message_is_stale(legacy, received_at=received_at) is False
+    assert feishu_app_bot.should_acknowledge_message(
+        event_payload(create_time="2026-07-15T03:20:00Z"),
+        received_at=received_at,
+    ) is False
+
+
+def test_persistent_inbound_dedup_blocks_event_and_message_replays(tmp_path):
+    store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
+    first = store.record_inbound_message(
+        event_id="evt-1", message_id="msg-1",
+        message_created_at="2026-07-15T03:29:30.000+00:00", received_at="2026-07-15T03:30:00+00:00",
+    )
+    same_event = store.record_inbound_message(
+        event_id="evt-1", message_id="msg-2",
+        message_created_at="", received_at="2026-07-15T03:30:01+00:00",
+    )
+    same_message = store.record_inbound_message(
+        event_id="evt-2", message_id="msg-1",
+        message_created_at="", received_at="2026-07-15T03:30:02+00:00",
+    )
+
+    assert first == (True, "")
+    assert same_event == (False, "event_id")
+    assert same_message == (False, "message_id")
+
+
+def test_task_store_additively_migrates_legacy_event_tables(tmp_path):
+    import sqlite3
+
+    db_path = tmp_path / "legacy.sqlite3"
+    with sqlite3.connect(db_path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE knowledge_events (event_id TEXT PRIMARY KEY, created_at TEXT NOT NULL);
+            CREATE TABLE conversation_events (event_id TEXT PRIMARY KEY, created_at TEXT NOT NULL);
+            INSERT INTO knowledge_events(event_id, created_at) VALUES ('legacy-k', '2026-07-14T00:00:00+00:00');
+            INSERT INTO conversation_events(event_id, created_at) VALUES ('legacy-c', '2026-07-14T00:00:00+00:00');
+            """
+        )
+
+    store = feishu_app_bot.TaskStore(db_path)
+
+    assert store.record_knowledge_event("new-k", "msg-k") is True
+    assert store.record_conversation_event("new-c", "msg-c") is True
+    with store._connect() as connection:
+        knowledge_columns = {row["name"] for row in connection.execute("PRAGMA table_info(knowledge_events)")}
+        conversation_columns = {row["name"] for row in connection.execute("PRAGMA table_info(conversation_events)")}
+        inbound_table = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='inbound_message_events'"
+        ).fetchone()
+    assert "message_id" in knowledge_columns
+    assert "message_id" in conversation_columns
+    assert inbound_table is not None
 
 
 @pytest.mark.parametrize(
@@ -416,7 +491,7 @@ def test_progress_and_risk_commands_are_deterministic(tmp_path):
     )
     risk_feishu = FakeFeishu()
     risk = feishu_app_bot.accept_conversation_event(
-        event_payload(event_id="evt-risk", files=[], text=f"风险 {task['task_id']}"),
+        event_payload(event_id="evt-risk", message_id="msg-risk", files=[], text=f"风险 {task['task_id']}"),
         store,
         risk_feishu,
     )
@@ -602,6 +677,27 @@ def test_other_text_uses_llm_fallback_and_is_idempotent(tmp_path):
     assert "大模型" in feishu.texts[0][1]
 
 
+def test_conversation_reissued_with_new_event_id_same_message_id_is_idempotent(tmp_path):
+    store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
+    feishu = FakeFeishu()
+
+    first = feishu_app_bot.accept_conversation_event(
+        event_payload(event_id="evt-old", message_id="msg-same", files=[], text="你好"),
+        store,
+        feishu,
+    )
+    replay = feishu_app_bot.accept_conversation_event(
+        event_payload(event_id="evt-reissued", message_id="msg-same", files=[], text="你好"),
+        store,
+        feishu,
+    )
+
+    assert first["duplicate"] is False
+    assert replay == {"handled": True, "duplicate": True, "kind": "greeting"}
+    assert len(feishu.texts) == 1
+    assert "我是造价智算机器人" in feishu.texts[0][1]
+
+
 def test_group_conversation_without_bot_mention_is_ignored(tmp_path):
     store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
     with pytest.raises(feishu_app_bot.IgnoreEvent):
@@ -648,6 +744,26 @@ def test_knowledge_question_is_idempotent(tmp_path):
     )
     assert first["duplicate"] is False
     assert second["duplicate"] is True
+    assert len(feishu.texts) == 1
+
+
+def test_knowledge_reissued_with_new_event_id_same_message_id_is_idempotent(tmp_path):
+    store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
+    feishu = FakeFeishu()
+
+    first = feishu_app_bot.accept_knowledge_event(
+        event_payload(event_id="evt-old", message_id="msg-same", files=[], text="@知识库：系数如何确定？"),
+        store,
+        feishu,
+    )
+    replay = feishu_app_bot.accept_knowledge_event(
+        event_payload(event_id="evt-reissued", message_id="msg-same", files=[], text="@知识库：系数如何确定？"),
+        store,
+        feishu,
+    )
+
+    assert first["duplicate"] is False
+    assert replay == {"handled": True, "duplicate": True}
     assert len(feishu.texts) == 1
 
 

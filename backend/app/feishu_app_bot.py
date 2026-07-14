@@ -43,6 +43,7 @@ DEFAULT_PROFILE_ID = "default"
 DEFAULT_FEISHU_DOMAIN = "https://open.feishu.cn"
 ALLOWED_FEISHU_DOMAINS = {"open.feishu.cn", "open.weact.pipechina.com.cn"}
 ACK_REACTION_EMOJI = "Get"
+MESSAGE_MAX_AGE_SECONDS = 5 * 60
 UPLOAD_WINDOW_MINUTES = 1
 UPLOAD_COMMANDS = {"@上传", "@上传文件"}
 GREETING_COMMANDS = {"你好"}
@@ -540,32 +541,84 @@ class TaskStore:
                 );
                 CREATE TABLE IF NOT EXISTS knowledge_events (
                     event_id TEXT PRIMARY KEY,
+                    message_id TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS conversation_events (
                     event_id TEXT PRIMARY KEY,
+                    message_id TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS inbound_message_events (
+                    event_id TEXT PRIMARY KEY,
+                    message_id TEXT NOT NULL UNIQUE,
+                    message_created_at TEXT NOT NULL DEFAULT '',
+                    received_at TEXT NOT NULL
                 );
                 """
             )
 
-    def record_knowledge_event(self, event_id: str) -> bool:
+            # Additive migration for databases created before message-id deduplication.
+            for table_name in ("knowledge_events", "conversation_events"):
+                columns = {
+                    str(row["name"])
+                    for row in connection.execute(f"PRAGMA table_info({table_name})").fetchall()
+                }
+                if "message_id" not in columns:
+                    connection.execute(
+                        f"ALTER TABLE {table_name} ADD COLUMN message_id TEXT NOT NULL DEFAULT ''"
+                    )
+                connection.execute(
+                    f"CREATE UNIQUE INDEX IF NOT EXISTS idx_{table_name}_message_id "
+                    f"ON {table_name}(message_id) WHERE message_id <> ''"
+                )
+
+    def record_inbound_message(
+        self,
+        *,
+        event_id: str,
+        message_id: str,
+        message_created_at: str,
+        received_at: str,
+    ) -> tuple[bool, str]:
+        """Persist both platform identifiers before any side effect is scheduled."""
+        if not event_id or not message_id:
+            return False, "missing_id"
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """INSERT OR IGNORE INTO inbound_message_events
+                (event_id,message_id,message_created_at,received_at) VALUES (?,?,?,?)""",
+                (event_id, message_id, message_created_at, received_at),
+            )
+            if cursor.rowcount == 1:
+                return True, ""
+            if connection.execute(
+                "SELECT 1 FROM inbound_message_events WHERE event_id=?", (event_id,),
+            ).fetchone():
+                return False, "event_id"
+            if connection.execute(
+                "SELECT 1 FROM inbound_message_events WHERE message_id=?", (message_id,),
+            ).fetchone():
+                return False, "message_id"
+        return False, "unknown"
+
+    def record_knowledge_event(self, event_id: str, message_id: str = "") -> bool:
         if not event_id:
             return False
         with self._connect() as connection:
             cursor = connection.execute(
-                "INSERT OR IGNORE INTO knowledge_events(event_id, created_at) VALUES (?, ?)",
-                (event_id, utc_now()),
+                "INSERT OR IGNORE INTO knowledge_events(event_id, message_id, created_at) VALUES (?, ?, ?)",
+                (event_id, message_id, utc_now()),
             )
             return cursor.rowcount == 1
 
-    def record_conversation_event(self, event_id: str) -> bool:
+    def record_conversation_event(self, event_id: str, message_id: str = "") -> bool:
         if not event_id:
             return False
         with self._connect() as connection:
             cursor = connection.execute(
-                "INSERT OR IGNORE INTO conversation_events(event_id, created_at) VALUES (?, ?)",
-                (event_id, utc_now()),
+                "INSERT OR IGNORE INTO conversation_events(event_id, message_id, created_at) VALUES (?, ?, ?)",
+                (event_id, message_id, utc_now()),
             )
             return cursor.rowcount == 1
 
@@ -792,6 +845,7 @@ class MessageEnvelope:
     mentioned: bool
     text: str
     files: list[tuple[str, str]]
+    message_created_at: str = ""
     mention_open_ids: tuple[str, ...] = ()
     mention_names: tuple[str, ...] = ()
 
@@ -838,12 +892,54 @@ def parse_message_envelope(payload: Any) -> MessageEnvelope:
     event_id = str(header.get("event_id") or raw.get("event_id") or "").strip()
     message_id = str(message.get("message_id") or "").strip()
     chat_id = str(message.get("chat_id") or "").strip()
+    message_created_at = normalize_platform_message_time(message.get("create_time"))
     if not event_id or not message_id or not chat_id:
         raise ValueError("飞书消息缺少任务所需标识")
     return MessageEnvelope(
         event_id, message_id, chat_id, chat_type, sender_id, mentioned, text, files,
+        message_created_at,
         tuple(dict.fromkeys(mention_open_ids)), tuple(dict.fromkeys(mention_names)),
     )
+
+
+def normalize_platform_message_time(value: Any) -> str:
+    """Normalize Feishu/WeAct millisecond timestamps without rejecting legacy payloads."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        if re.fullmatch(r"\d+(?:\.\d+)?", text):
+            timestamp = float(text)
+            if timestamp >= 100_000_000_000:
+                timestamp /= 1000
+            parsed = datetime.fromtimestamp(timestamp, timezone.utc)
+        else:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            parsed = parsed.astimezone(timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        return ""
+    return parsed.isoformat(timespec="milliseconds")
+
+
+def message_is_stale(
+    envelope: MessageEnvelope,
+    *,
+    received_at: str | None = None,
+    max_age_seconds: int = MESSAGE_MAX_AGE_SECONDS,
+) -> bool:
+    """Ignore only positively identified stale events; missing timestamps stay compatible."""
+    if not envelope.message_created_at:
+        return False
+    try:
+        created_at = datetime.fromisoformat(envelope.message_created_at)
+        received = datetime.fromisoformat(received_at) if received_at else datetime.now(timezone.utc)
+        if received.tzinfo is None:
+            received = received.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return False
+    return (received.astimezone(timezone.utc) - created_at.astimezone(timezone.utc)).total_seconds() > max_age_seconds
 
 
 def _mentions_current_bot(
@@ -860,7 +956,7 @@ def _mentions_current_bot(
     return bool(normalized_name and normalized_name in envelope.mention_names)
 
 
-def describe_message_event(payload: Any, feishu: "FeishuApi") -> str:
+def describe_message_event(payload: Any, feishu: "FeishuApi", *, received_at: str = "") -> str:
     """Build a readable audit line for a handled event without exposing runtime credentials."""
     try:
         envelope = parse_message_envelope(payload)
@@ -887,6 +983,9 @@ def describe_message_event(payload: Any, feishu: "FeishuApi") -> str:
     return (
         f"发送人：{sender_name}（{sender_identity}）｜"
         f"会话：{chat_name}（{chat_kind}；{envelope.chat_id}）｜"
+        f"消息 ID：{envelope.message_id}｜"
+        f"平台创建时间：{envelope.message_created_at or '未提供'}｜"
+        f"本机接收时间：{received_at or utc_now()}｜"
         f"来源 IP：飞书长连接事件未提供｜消息：{message}"
     )
 
@@ -1576,9 +1675,12 @@ def should_acknowledge_message(
     *,
     bot_open_id: str | None = None,
     bot_name: str | None = None,
+    received_at: str | None = None,
 ) -> bool:
     """Only acknowledge direct messages and group messages that explicitly mention the bot."""
     envelope = parse_message_envelope(payload)
+    if message_is_stale(envelope, received_at=received_at):
+        return False
     is_private = envelope.chat_type in {"p2p", "private", "single"}
     return is_private or _mentions_current_bot(envelope, bot_open_id, bot_name)
 
@@ -1595,7 +1697,7 @@ def accept_knowledge_event(
     if request is None:
         return None
     envelope, question = request
-    if not store.record_knowledge_event(envelope.event_id):
+    if not store.record_knowledge_event(envelope.event_id, envelope.message_id):
         return {"handled": True, "duplicate": True}
     feishu.send_text(envelope.chat_id, "已收到知识库问题，正在检索本地规则、知识库和依据来源，请稍候。")
     return {"handled": True, "duplicate": False, "chat_id": envelope.chat_id, "question": question}
@@ -1737,16 +1839,16 @@ def accept_conversation_event(
     if envelope.files:
         raise IgnoreEvent("文件消息不进入文字问答")
     question = clean_bot_command_text(envelope.text)
-    if not question:
-        feishu.send_text(envelope.chat_id, BOT_INTRODUCTION)
-        return {"handled": True, "duplicate": False, "kind": "greeting"}
-    if not store.record_conversation_event(envelope.event_id):
+    if not store.record_conversation_event(envelope.event_id, envelope.message_id):
         duplicate_kind = (
-            "greeting" if is_greeting_command(question)
+            "greeting" if not question or is_greeting_command(question)
             else "members" if is_group_member_command(question)
             else task_command_kind(question)
         )
         return {"handled": True, "duplicate": True, "kind": duplicate_kind}
+    if not question:
+        feishu.send_text(envelope.chat_id, BOT_INTRODUCTION)
+        return {"handled": True, "duplicate": False, "kind": "greeting"}
     if is_greeting_command(question):
         feishu.send_text(envelope.chat_id, BOT_INTRODUCTION)
         return {"handled": True, "duplicate": False, "kind": "greeting"}
@@ -1871,4 +1973,5 @@ def cleanup_expired(store: TaskStore, tasks_root: Path = TASKS_ROOT, retention_d
     with store._connect() as connection:
         connection.execute("DELETE FROM knowledge_events WHERE created_at < ?", (cutoff.isoformat(timespec="seconds"),))
         connection.execute("DELETE FROM conversation_events WHERE created_at < ?", (cutoff.isoformat(timespec="seconds"),))
+        connection.execute("DELETE FROM inbound_message_events WHERE received_at < ?", (cutoff.isoformat(timespec="seconds"),))
     return removed

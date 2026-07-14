@@ -16,7 +16,7 @@ from app.feishu_app_bot import (
     answer_task_result_event,
     answer_knowledge_event, append_runtime_event, describe_message_event,
     CONTROL_PATH, PID_PATH, cleanup_expired, is_bot_enabled, load_bot_defaults, load_credentials,
-    parse_message_envelope, should_acknowledge_message,
+    message_is_stale, parse_message_envelope, should_acknowledge_message, utc_now,
 )
 
 
@@ -114,12 +114,17 @@ def main() -> int:
             with reaction_lock:
                 reaction_message_ids.pop(message_id, None)
 
-    def schedule_acknowledgement(data) -> None:
+    def schedule_acknowledgement(data, *, received_at: str) -> None:
         try:
             envelope = parse_message_envelope(data)
         except ValueError:
             return
-        if not should_acknowledge_message(data, bot_open_id=bot_open_id, bot_name=bot_name):
+        if not should_acknowledge_message(
+            data,
+            bot_open_id=bot_open_id,
+            bot_name=bot_name,
+            received_at=received_at,
+        ):
             return
         message_id = envelope.message_id
         if not message_id:
@@ -139,15 +144,44 @@ def main() -> int:
 
     def handle_message(data):
         message_context = ""
-        schedule_acknowledgement(data)
+        received_at = utc_now()
 
         def event_context() -> str:
             nonlocal message_context
             if not message_context:
-                message_context = describe_message_event(data, feishu)
+                message_context = describe_message_event(data, feishu, received_at=received_at)
             return message_context
 
         try:
+            envelope = parse_message_envelope(data)
+            accepted, duplicate_key = store.record_inbound_message(
+                event_id=envelope.event_id,
+                message_id=envelope.message_id,
+                message_created_at=envelope.message_created_at,
+                received_at=received_at,
+            )
+            if not accepted:
+                reason = {
+                    "event_id": "事件 ID",
+                    "message_id": "消息 ID",
+                    "missing_id": "消息标识",
+                }.get(duplicate_key, "持久去重记录")
+                append_runtime_event(
+                    "message",
+                    f"重复消息已静默拦截（{reason}命中）｜{event_context()}",
+                    level="warning",
+                    profile_id=profile_id,
+                )
+                return
+            if message_is_stale(envelope, received_at=received_at):
+                append_runtime_event(
+                    "message",
+                    "过期消息已静默拦截（平台创建时间超过 5 分钟）｜" + event_context(),
+                    level="warning",
+                    profile_id=profile_id,
+                )
+                return
+            schedule_acknowledgement(data, received_at=received_at)
             knowledge = accept_knowledge_event(
                 data, store, feishu, bot_open_id=bot_open_id, bot_name=bot_name,
             )
