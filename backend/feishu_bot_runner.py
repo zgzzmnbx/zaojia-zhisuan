@@ -12,9 +12,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from app.feishu_app_bot import (
     DB_PATH, FeishuApi, IgnoreEvent, ProfessionalApi, TaskStore, TaskWorker, accept_event,
-    accept_knowledge_event, acknowledge_message_event, answer_knowledge_event, append_runtime_event, describe_message_event,
+    accept_conversation_event, accept_knowledge_event, acknowledge_message_event, answer_chat_event,
+    answer_knowledge_event, append_runtime_event, describe_message_event,
     CONTROL_PATH, PID_PATH, cleanup_expired, is_bot_enabled, load_bot_defaults, load_credentials,
-    parse_message_envelope,
+    parse_message_envelope, should_acknowledge_message,
 )
 
 
@@ -91,9 +92,12 @@ def main() -> int:
 
     def schedule_acknowledgement(data) -> None:
         try:
-            message_id = parse_message_envelope(data).message_id
+            envelope = parse_message_envelope(data)
         except ValueError:
             return
+        if not should_acknowledge_message(data):
+            return
+        message_id = envelope.message_id
         if not message_id:
             return
         with reaction_lock:
@@ -140,7 +144,7 @@ def main() -> int:
                     ).start()
                 return
             result = accept_event(data, store, feishu)
-            if result.get("task_id"):
+            if result and result.get("task_id"):
                 append_runtime_event(
                     "message",
                     (
@@ -152,12 +156,31 @@ def main() -> int:
                     task_id=str(result.get("task_id") or ""),
                     profile_id=profile_id,
                 )
-            elif result.get("pending"):
+            elif result and result.get("pending"):
                 append_runtime_event(
                     "message",
-                    f"收到收件指令，已开启 5 分钟文件接收窗口｜{event_context()}",
+                    f"收到收件指令，已开启 1 分钟文件接收窗口｜{event_context()}",
                     profile_id=profile_id,
                 )
+            else:
+                conversation = accept_conversation_event(data, store, feishu)
+                append_runtime_event(
+                    "message",
+                    (
+                        "收到问候，已回复自我介绍和使用说明"
+                        if conversation.get("kind") == "greeting"
+                        else "收到普通问题，已进入大模型托底问答"
+                    ) + f"｜{event_context()}",
+                    level="warning" if conversation.get("duplicate") else "info",
+                    profile_id=profile_id,
+                )
+                if conversation.get("kind") == "chat" and not conversation.get("duplicate"):
+                    threading.Thread(
+                        target=answer_chat_event,
+                        args=(conversation["chat_id"], conversation["question"], feishu, professional),
+                        name="feishu-llm-chat",
+                        daemon=True,
+                    ).start()
         except IgnoreEvent:
             return
         except ValueError as exc:

@@ -91,6 +91,14 @@ def test_acknowledge_message_event_supports_sdk_event_body_shape():
     assert feishu.reactions == [("msg-1", "Get")]
 
 
+def test_acknowledgement_is_limited_to_mentioned_group_messages_and_private_chat():
+    assert feishu_app_bot.should_acknowledge_message(event_payload()) is True
+    assert feishu_app_bot.should_acknowledge_message(event_payload(mentions=[])) is False
+    assert feishu_app_bot.should_acknowledge_message(
+        event_payload(chat_type="p2p", mentions=[]),
+    ) is True
+
+
 def test_describe_message_event_contains_business_context_and_marks_missing_ip():
     detail = feishu_app_bot.describe_message_event(
         event_payload(text="@知识库：系数如何确定？"),
@@ -133,23 +141,25 @@ def test_enqueue_is_idempotent_and_fifo(tmp_path):
 def test_accept_event_replies_once_for_duplicate(tmp_path):
     store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
     feishu = FakeFeishu()
-    first = feishu_app_bot.accept_event(event_payload(), store, feishu)
-    second = feishu_app_bot.accept_event(event_payload(), store, feishu)
+    feishu_app_bot.accept_event(event_payload(files=[], text="@上传", message_id="upload-command"), store, feishu)
+    file_payload = event_payload(mentions=[])
+    first = feishu_app_bot.accept_event(file_payload, store, feishu)
+    second = feishu_app_bot.accept_event(file_payload, store, feishu)
     assert first["created"] is True
     assert second["created"] is False
-    assert len(feishu.texts) == 1
-    assert first["task_id"] in feishu.texts[0][1]
+    assert len(feishu.texts) == 2
+    assert first["task_id"] in feishu.texts[1][1]
 
 
 def test_at_then_separate_file_message_creates_task(tmp_path):
     store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
     feishu = FakeFeishu()
-    pending = feishu_app_bot.accept_event(event_payload(files=[], message_id="mention"), store, feishu)
+    pending = feishu_app_bot.accept_event(event_payload(files=[], text="@上传", message_id="mention"), store, feishu)
     file_message = event_payload(event_id="evt-file", message_id="file-message", mentions=[])
     created = feishu_app_bot.accept_event(file_message, store, feishu)
     assert pending["pending"] is True
     assert created["created"] is True
-    assert "5 分钟" in feishu.texts[0][1]
+    assert "1 分钟" in feishu.texts[0][1]
 
 
 def test_unrelated_file_message_is_ignored(tmp_path):
@@ -160,7 +170,7 @@ def test_unrelated_file_message_is_ignored(tmp_path):
 
 def test_pending_upload_is_bound_to_sender(tmp_path):
     store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
-    feishu_app_bot.accept_event(event_payload(files=[], sender_id="user-a"), store, FakeFeishu())
+    feishu_app_bot.accept_event(event_payload(files=[], text="@上传", sender_id="user-a"), store, FakeFeishu())
     with pytest.raises(feishu_app_bot.IgnoreEvent):
         feishu_app_bot.accept_event(event_payload(mentions=[], sender_id="user-b"), store, FakeFeishu())
 
@@ -168,7 +178,7 @@ def test_pending_upload_is_bound_to_sender(tmp_path):
 def test_group_file_uses_only_pending_window_when_sender_id_is_missing(tmp_path):
     store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
     feishu = FakeFeishu()
-    feishu_app_bot.accept_event(event_payload(files=[], sender_id="user-a"), store, feishu)
+    feishu_app_bot.accept_event(event_payload(files=[], text="@上传文件", sender_id="user-a"), store, feishu)
     result = feishu_app_bot.accept_event(
         event_payload(event_id="file-event", message_id="file-message", mentions=[], sender_id=""),
         store,
@@ -177,18 +187,77 @@ def test_group_file_uses_only_pending_window_when_sender_id_is_missing(tmp_path)
     assert result["created"] is True
 
 
-def test_private_chat_accepts_file_without_at(tmp_path):
+def test_private_chat_requires_upload_command_before_file(tmp_path):
     store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
-    result = feishu_app_bot.accept_event(event_payload(chat_type="p2p", mentions=[]), store, FakeFeishu())
+    feishu = FakeFeishu()
+    with pytest.raises(ValueError, match="@上传"):
+        feishu_app_bot.accept_event(event_payload(chat_type="p2p", mentions=[]), store, feishu)
+    pending = feishu_app_bot.accept_event(
+        event_payload(chat_type="p2p", files=[], mentions=[], text="@上传"), store, feishu,
+    )
+    result = feishu_app_bot.accept_event(
+        event_payload(event_id="evt-file", message_id="msg-file", chat_type="p2p", mentions=[]), store, feishu,
+    )
+    assert pending["pending"] is True
     assert result["created"] is True
 
 
-def test_private_text_prompts_for_xlsx(tmp_path):
+def test_non_upload_text_is_not_treated_as_upload_command(tmp_path):
     store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
     feishu = FakeFeishu()
-    result = feishu_app_bot.accept_event(event_payload(chat_type="p2p", files=[], mentions=[]), store, feishu)
+    result = feishu_app_bot.accept_event(
+        event_payload(chat_type="p2p", files=[], mentions=[], text="帮我分析一下"), store, feishu,
+    )
+    assert result is None
+    assert feishu.texts == []
+
+
+@pytest.mark.parametrize("command", ["@上传", "@上传文件", "@_user_ @上传！"])
+def test_only_explicit_upload_commands_open_one_minute_window(tmp_path, command):
+    store = feishu_app_bot.TaskStore(tmp_path / f"{len(command)}-tasks.sqlite3")
+    feishu = FakeFeishu()
+    result = feishu_app_bot.accept_event(event_payload(files=[], text=command), store, feishu)
     assert result["pending"] is True
-    assert ".xlsx" in feishu.texts[0][1]
+    assert "1 分钟" in feishu.texts[0][1]
+
+
+@pytest.mark.parametrize("text", ["上传", "请上传", "@上传一下", "我要@上传文件了"])
+def test_similar_phrases_do_not_open_upload_window(tmp_path, text):
+    store = feishu_app_bot.TaskStore(tmp_path / f"{len(text)}-tasks.sqlite3")
+    assert feishu_app_bot.accept_event(event_payload(files=[], text=text), store, FakeFeishu()) is None
+
+
+def test_greeting_returns_introduction_and_usage(tmp_path):
+    store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
+    feishu = FakeFeishu()
+    result = feishu_app_bot.accept_conversation_event(
+        event_payload(files=[], text="你好！"), store, feishu,
+    )
+    assert result["kind"] == "greeting"
+    assert "我是造价智算机器人" in feishu.texts[0][1]
+    assert "@上传" in feishu.texts[0][1]
+    assert "@知识库" in feishu.texts[0][1]
+
+
+def test_other_text_uses_llm_fallback_and_is_idempotent(tmp_path):
+    store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
+    feishu = FakeFeishu()
+    payload = event_payload(files=[], text="请介绍一下工程造价")
+    first = feishu_app_bot.accept_conversation_event(payload, store, feishu)
+    second = feishu_app_bot.accept_conversation_event(payload, store, feishu)
+    assert first["kind"] == "chat"
+    assert first["question"] == "请介绍一下工程造价"
+    assert second["duplicate"] is True
+    assert len(feishu.texts) == 1
+    assert "大模型" in feishu.texts[0][1]
+
+
+def test_group_conversation_without_bot_mention_is_ignored(tmp_path):
+    store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
+    with pytest.raises(feishu_app_bot.IgnoreEvent):
+        feishu_app_bot.accept_conversation_event(
+            event_payload(files=[], mentions=[], text="大家好"), store, FakeFeishu(),
+        )
 
 
 def test_group_knowledge_question_requires_bot_mention(tmp_path):
@@ -264,6 +333,19 @@ def test_professional_api_knowledge_query_uses_existing_endpoint():
     assert "技术工作费按规则表解释" in answer
     assert "规则说明.md / 第一层规则" in answer
     assert "不改变程序填价结果" in answer
+
+
+def test_professional_api_chat_fallback_uses_existing_llm_endpoint():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/llm-chat"
+        assert "message=%E8%AF%B7%E4%BB%8B%E7%BB%8D" in request.content.decode("utf-8")
+        return httpx.Response(200, json={"answer": "我是大模型托底回答。"}, request=request)
+
+    professional = feishu_app_bot.ProfessionalApi(
+        "http://professional.local",
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    assert professional.ask_chat("请介绍") == "我是大模型托底回答。"
 
 
 def test_worker_completes_and_returns_two_files(tmp_path, monkeypatch):

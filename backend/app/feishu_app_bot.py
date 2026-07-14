@@ -43,6 +43,17 @@ DEFAULT_PROFILE_ID = "default"
 DEFAULT_FEISHU_DOMAIN = "https://open.feishu.cn"
 ALLOWED_FEISHU_DOMAINS = {"open.feishu.cn", "open.weact.pipechina.com.cn"}
 ACK_REACTION_EMOJI = "Get"
+UPLOAD_WINDOW_MINUTES = 1
+UPLOAD_COMMANDS = {"@上传", "@上传文件"}
+GREETING_COMMANDS = {"你好"}
+BOT_INTRODUCTION = (
+    "你好，我是造价智算机器人，可以协助完成工程造价文件处理和专业问答。\n\n"
+    "使用方法：\n"
+    "1. 发送“@上传”或“@上传文件”，并在 1 分钟内发送一个 .xlsx 文件；\n"
+    "2. 发送“@知识库：问题”，查询本地规则、知识库和依据来源；\n"
+    "3. 直接发送其他文字问题，由大模型提供辅助回答。\n\n"
+    "说明：机器人不会用大模型直接裁决最终价格或系数。"
+)
 
 
 def normalize_feishu_domain(value: object) -> str:
@@ -483,6 +494,10 @@ class TaskStore:
                     event_id TEXT PRIMARY KEY,
                     created_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS conversation_events (
+                    event_id TEXT PRIMARY KEY,
+                    created_at TEXT NOT NULL
+                );
                 """
             )
 
@@ -496,7 +511,17 @@ class TaskStore:
             )
             return cursor.rowcount == 1
 
-    def open_upload_window(self, chat_id: str, sender_id: str, minutes: int = 5) -> None:
+    def record_conversation_event(self, event_id: str) -> bool:
+        if not event_id:
+            return False
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "INSERT OR IGNORE INTO conversation_events(event_id, created_at) VALUES (?, ?)",
+                (event_id, utc_now()),
+            )
+            return cursor.rowcount == 1
+
+    def open_upload_window(self, chat_id: str, sender_id: str, minutes: int = UPLOAD_WINDOW_MINUTES) -> None:
         now = datetime.now(timezone.utc)
         with self._connect() as connection:
             connection.execute(
@@ -524,6 +549,14 @@ class TaskStore:
             if row:
                 connection.execute("DELETE FROM pending_uploads WHERE chat_id=? AND sender_id=?", (chat_id, row["sender_id"]))
         return bool(row and str(row["expires_at"]) >= now)
+
+    def find_task(self, *, event_id: str, message_id: str, file_key: str) -> dict[str, Any] | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM tasks WHERE event_id=? OR (message_id=? AND file_key=?) ORDER BY created_at LIMIT 1",
+                (event_id, message_id, file_key),
+            ).fetchone()
+        return dict(row) if row else None
 
     def enqueue(self, *, event_id: str, message_id: str, chat_id: str, file_key: str, file_name: str) -> tuple[dict[str, Any], bool]:
         now = utc_now()
@@ -785,6 +818,20 @@ def extract_knowledge_question(text: str) -> str:
         question = clean[index + len(prefix):].lstrip(" \t\r\n:：,，.。;；")
         return question.strip()
     return ""
+
+
+def clean_bot_command_text(text: str) -> str:
+    clean = re.sub(r"<at[^>]*>.*?</at>", " ", str(text or ""), flags=re.IGNORECASE)
+    clean = clean.replace("@_user_", " ").replace("@机器人", " ").strip()
+    return clean.rstrip(" \t\r\n。.!！?？")
+
+
+def is_upload_command(text: str) -> bool:
+    return clean_bot_command_text(text) in UPLOAD_COMMANDS
+
+
+def is_greeting_command(text: str) -> bool:
+    return clean_bot_command_text(text) in GREETING_COMMANDS
 
 
 def parse_knowledge_request(payload: Any) -> tuple[MessageEnvelope, str] | None:
@@ -1079,6 +1126,15 @@ class ProfessionalApi:
             answer += "\n\n提示：本回答只解释依据，不改变程序填价结果。"
         return answer[:7000]
 
+    def ask_chat(self, question: str) -> str:
+        payload = self._get_json(
+            "POST",
+            "/api/llm-chat",
+            data={"message": question},
+        )
+        answer = str(payload.get("answer") or "大模型暂未返回有效回答，请稍后重试。").strip()
+        return answer[:7000]
+
     def _post_file(self, path: str, file_path: Path, *, data: dict[str, str]) -> dict[str, Any]:
         with file_path.open("rb") as stream:
             response = self.client.post(f"{self.base_url}{path}", data=data, files={"file": (file_path.name, stream, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
@@ -1189,22 +1245,32 @@ class TaskWorker:
                 pass
 
 
-def accept_event(payload: Any, store: TaskStore, feishu: FeishuApi) -> dict[str, Any]:
+def accept_event(payload: Any, store: TaskStore, feishu: FeishuApi) -> dict[str, Any] | None:
     envelope = parse_message_envelope(payload)
     is_private = envelope.chat_type in {"p2p", "private", "single"}
-    if is_private and not envelope.files:
-        feishu.send_text(envelope.chat_id, "请直接拖入并发送一个 .xlsx 文件，我会自动完成匹配、风险识别、Excel 和 Word 输出。")
-        return {"pending": True}
-    if envelope.mentioned and not envelope.files:
+    if not envelope.files:
+        if not is_upload_command(envelope.text):
+            return None
+        if not is_private and not envelope.mentioned:
+            raise IgnoreEvent("非机器人上传指令")
         if not envelope.sender_id:
-            raise ValueError("无法识别发起人，请重新 @机器人")
+            raise ValueError("无法识别发起人，请重新发送 @上传")
         store.open_upload_window(envelope.chat_id, envelope.sender_id)
-        feishu.send_text(envelope.chat_id, "已进入收件状态，请在 5 分钟内直接拖入并发送一个 .xlsx 文件。")
+        feishu.send_text(envelope.chat_id, "已进入收件状态，请在 1 分钟内直接拖入并发送一个 .xlsx 文件。")
         return {"pending": True}
-    if not is_private and not envelope.mentioned:
-        if not envelope.files or not store.consume_upload_window(envelope.chat_id, envelope.sender_id):
-            raise IgnoreEvent("非机器人任务消息")
+
     incoming = _incoming_task(envelope)
+    existing = store.find_task(
+        event_id=incoming.event_id,
+        message_id=incoming.message_id,
+        file_key=incoming.file_key,
+    )
+    if existing:
+        return {"task_id": existing["task_id"], "created": False}
+    if not store.consume_upload_window(envelope.chat_id, envelope.sender_id):
+        if not is_private and not envelope.mentioned:
+            raise IgnoreEvent("非机器人任务消息")
+        raise ValueError("请先发送“@上传”或“@上传文件”，再在 1 分钟内发送一个 .xlsx 文件")
     task, created = store.enqueue(
         event_id=incoming.event_id, message_id=incoming.message_id, chat_id=incoming.chat_id,
         file_key=incoming.file_key, file_name=incoming.file_name,
@@ -1220,6 +1286,13 @@ def acknowledge_message_event(payload: Any, feishu: FeishuApi) -> str:
     envelope = parse_message_envelope(payload)
     feishu.add_reaction(envelope.message_id, ACK_REACTION_EMOJI)
     return envelope.message_id
+
+
+def should_acknowledge_message(payload: Any) -> bool:
+    """Only acknowledge direct messages and group messages that explicitly mention the bot."""
+    envelope = parse_message_envelope(payload)
+    is_private = envelope.chat_type in {"p2p", "private", "single"}
+    return is_private or envelope.mentioned
 
 
 def accept_knowledge_event(payload: Any, store: TaskStore, feishu: FeishuApi) -> dict[str, Any] | None:
@@ -1243,6 +1316,42 @@ def answer_knowledge_event(chat_id: str, question: str, feishu: FeishuApi, profe
         feishu.send_text(chat_id, f"知识库查询暂时失败：{sanitize_error(exc)}。请稍后重试，或在造价智算“知识库问答”中查询。")
 
 
+def accept_conversation_event(payload: Any, store: TaskStore, feishu: FeishuApi) -> dict[str, Any]:
+    envelope = parse_message_envelope(payload)
+    is_private = envelope.chat_type in {"p2p", "private", "single"}
+    if not is_private and not envelope.mentioned:
+        raise IgnoreEvent("非机器人对话消息")
+    if envelope.files:
+        raise IgnoreEvent("文件消息不进入文字问答")
+    question = clean_bot_command_text(envelope.text)
+    if not question:
+        feishu.send_text(envelope.chat_id, BOT_INTRODUCTION)
+        return {"handled": True, "duplicate": False, "kind": "greeting"}
+    if not store.record_conversation_event(envelope.event_id):
+        return {"handled": True, "duplicate": True, "kind": "greeting" if is_greeting_command(question) else "chat"}
+    if is_greeting_command(question):
+        feishu.send_text(envelope.chat_id, BOT_INTRODUCTION)
+        return {"handled": True, "duplicate": False, "kind": "greeting"}
+    feishu.send_text(envelope.chat_id, "已收到问题，正在由大模型组织回答，请稍候。")
+    return {
+        "handled": True,
+        "duplicate": False,
+        "kind": "chat",
+        "chat_id": envelope.chat_id,
+        "question": question,
+    }
+
+
+def answer_chat_event(chat_id: str, question: str, feishu: FeishuApi, professional: ProfessionalApi) -> None:
+    try:
+        answer = professional.ask_chat(question)
+        feishu.send_text(chat_id, answer)
+        append_runtime_event("message", "大模型托底问答完成并已回复", level="success", profile_id=active_profile_id())
+    except Exception as exc:
+        append_runtime_event("message", f"大模型托底问答失败：{sanitize_error(exc)}", level="error", profile_id=active_profile_id())
+        feishu.send_text(chat_id, f"大模型问答暂时失败：{sanitize_error(exc)}。请稍后重试。")
+
+
 def cleanup_expired(store: TaskStore, tasks_root: Path = TASKS_ROOT, retention_days: int | None = None) -> int:
     days = retention_days or int(load_bot_defaults().get("retentionDays") or 30)
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
@@ -1264,4 +1373,5 @@ def cleanup_expired(store: TaskStore, tasks_root: Path = TASKS_ROOT, retention_d
                 removed += 1
     with store._connect() as connection:
         connection.execute("DELETE FROM knowledge_events WHERE created_at < ?", (cutoff.isoformat(timespec="seconds"),))
+        connection.execute("DELETE FROM conversation_events WHERE created_at < ?", (cutoff.isoformat(timespec="seconds"),))
     return removed
