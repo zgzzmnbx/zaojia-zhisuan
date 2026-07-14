@@ -23,12 +23,16 @@ class FakeFeishu:
     def __init__(self):
         self.texts: list[tuple[str, str]] = []
         self.files: list[tuple[str, Path]] = []
+        self.reactions: list[tuple[str, str]] = []
 
     def send_text(self, chat_id: str, text: str) -> None:
         self.texts.append((chat_id, text))
 
     def send_file(self, chat_id: str, path: Path) -> None:
         self.files.append((chat_id, path))
+
+    def add_reaction(self, message_id: str, emoji_type: str) -> None:
+        self.reactions.append((message_id, emoji_type))
 
     def download_file(self, message_id: str, file_key: str, target: Path) -> Path:
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -62,6 +66,15 @@ def test_parse_valid_group_message():
     task = feishu_app_bot.parse_message_event(event_payload())
     assert task.file_name == "控制价.xlsx"
     assert task.chat_id == "chat-1"
+
+
+def test_acknowledge_message_event_uses_get_reaction():
+    feishu = FakeFeishu()
+
+    message_id = feishu_app_bot.acknowledge_message_event(event_payload(), feishu)
+
+    assert message_id == "msg-1"
+    assert feishu.reactions == [("msg-1", "Get")]
 
 
 def test_describe_message_event_contains_business_context_and_marks_missing_ip():
@@ -444,6 +457,53 @@ def test_feishu_api_uses_selected_enterprise_domain():
 
     assert api.domain == "https://open.weact.pipechina.com.cn"
     assert api.base_url == "https://open.weact.pipechina.com.cn/open-apis"
+
+
+def test_feishu_api_adds_get_reaction_to_received_message():
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path.endswith("/auth/v3/tenant_access_token/internal"):
+            return httpx.Response(200, json={"code": 0, "tenant_access_token": "token", "expire": 7200}, request=request)
+        if request.url.path.endswith("/im/v1/messages/msg-1/reactions"):
+            assert request.headers["Authorization"] == "Bearer token"
+            assert json.loads(request.content.decode("utf-8")) == {
+                "reaction_type": {"emoji_type": "Get"},
+            }
+            return httpx.Response(200, json={"code": 0, "msg": "success", "data": {}}, request=request)
+        return httpx.Response(404, request=request)
+
+    api = feishu_app_bot.FeishuApi(
+        "cli_test",
+        "secret-test",
+        domain="https://open.weact.pipechina.com.cn",
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    api.add_reaction("msg-1")
+
+    assert requests[-1].url.host == "open.weact.pipechina.com.cn"
+
+
+def test_feishu_api_reaction_error_keeps_platform_reason():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/auth/v3/tenant_access_token/internal"):
+            return httpx.Response(200, json={"code": 0, "tenant_access_token": "token", "expire": 7200}, request=request)
+        return httpx.Response(
+            400,
+            json={"code": 99991672, "msg": "Access denied: im:message.reactions:write_only"},
+            request=request,
+        )
+
+    api = feishu_app_bot.FeishuApi(
+        "cli_test",
+        "secret-test",
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    with pytest.raises(RuntimeError, match="im:message.reactions:write_only.*99991672"):
+        api.add_reaction("msg-1")
 
 
 def test_feishu_api_resolves_and_caches_user_and_chat_names():

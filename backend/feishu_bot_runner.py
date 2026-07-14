@@ -5,13 +5,14 @@ import os
 import sys
 import threading
 import time
+from collections import OrderedDict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from app.feishu_app_bot import (
     DB_PATH, FeishuApi, IgnoreEvent, ProfessionalApi, TaskStore, TaskWorker, accept_event,
-    accept_knowledge_event, answer_knowledge_event, append_runtime_event, describe_message_event,
+    accept_knowledge_event, acknowledge_message_event, answer_knowledge_event, append_runtime_event, describe_message_event,
     CONTROL_PATH, PID_PATH, cleanup_expired, is_bot_enabled, load_bot_defaults, load_credentials,
 )
 
@@ -65,8 +66,58 @@ def main() -> int:
     threading.Thread(target=worker_loop, name="feishu-task-worker", daemon=True).start()
     threading.Thread(target=control_loop, name="feishu-control", daemon=True).start()
 
+    reaction_lock = threading.Lock()
+    reaction_message_ids: OrderedDict[str, None] = OrderedDict()
+
+    def acknowledge_in_background(data) -> None:
+        try:
+            acknowledge_message_event(data, feishu)
+            append_runtime_event(
+                "message",
+                "已向收到的消息添加“了解”表情回应",
+                level="success",
+                profile_id=profile_id,
+            )
+        except Exception as exc:
+            append_runtime_event(
+                "message",
+                f"添加“了解”表情回应失败：{exc}",
+                level="warning",
+                profile_id=profile_id,
+            )
+            try:
+                raw = data.to_dict() if hasattr(data, "to_dict") else data
+                message_id = str((((raw.get("event") or {}).get("message") or {}).get("message_id") or ""))
+            except (AttributeError, TypeError):
+                message_id = ""
+            if message_id:
+                with reaction_lock:
+                    reaction_message_ids.pop(message_id, None)
+
+    def schedule_acknowledgement(data) -> None:
+        try:
+            raw = data.to_dict() if hasattr(data, "to_dict") else data
+            message_id = str((((raw.get("event") or {}).get("message") or {}).get("message_id") or "")).strip()
+        except (AttributeError, TypeError):
+            return
+        if not message_id:
+            return
+        with reaction_lock:
+            if message_id in reaction_message_ids:
+                return
+            reaction_message_ids[message_id] = None
+            while len(reaction_message_ids) > 2000:
+                reaction_message_ids.popitem(last=False)
+        threading.Thread(
+            target=acknowledge_in_background,
+            args=(data,),
+            name="feishu-message-reaction",
+            daemon=True,
+        ).start()
+
     def handle_message(data):
         message_context = ""
+        schedule_acknowledgement(data)
 
         def event_context() -> str:
             nonlocal message_context

@@ -42,6 +42,7 @@ ACTIVE_STATES = {"downloading", "inspecting", "matching", "risk", "report", "upl
 DEFAULT_PROFILE_ID = "default"
 DEFAULT_FEISHU_DOMAIN = "https://open.feishu.cn"
 ALLOWED_FEISHU_DOMAINS = {"open.feishu.cn", "open.weact.pipechina.com.cn"}
+ACK_REACTION_EMOJI = "Get"
 
 
 def normalize_feishu_domain(value: object) -> str:
@@ -937,6 +938,27 @@ class FeishuApi:
     def send_text(self, chat_id: str, text: str) -> None:
         self._send_message(chat_id, "text", {"text": text})
 
+    def add_reaction(self, message_id: str, emoji_type: str = ACK_REACTION_EMOJI) -> None:
+        normalized_message_id = str(message_id or "").strip()
+        normalized_emoji_type = str(emoji_type or "").strip()
+        if not normalized_message_id or not normalized_emoji_type:
+            raise ValueError("消息 ID 和表情类型不能为空")
+        response = self.client.post(
+            f"{self.base_url}/im/v1/messages/{quote(normalized_message_id, safe='')}/reactions",
+            headers=self._headers(),
+            json={"reaction_type": {"emoji_type": normalized_emoji_type}},
+        )
+        try:
+            payload = response.json()
+        except ValueError:
+            response.raise_for_status()
+            raise RuntimeError("飞书消息表情回复返回了无法解析的响应")
+        if int(payload.get("code") or 0) != 0:
+            code = int(payload.get("code") or 0)
+            message = str(payload.get("msg") or "飞书消息表情回复失败")
+            raise RuntimeError(f"{message}（错误码 {code}）")
+        response.raise_for_status()
+
     def upload_file(self, path: Path) -> str:
         with path.open("rb") as stream:
             response = self.client.post(
@@ -1191,6 +1213,13 @@ def accept_event(payload: Any, store: TaskStore, feishu: FeishuApi) -> dict[str,
         position = store.queue_position(task["task_id"])
         feishu.send_text(incoming.chat_id, f"已收件。任务编号：{task['task_id']}，当前排队位置：{position}。系统将按顺序完成匹配、风险识别、Excel 和 Word 输出。")
     return {"task_id": task["task_id"], "created": created}
+
+
+def acknowledge_message_event(payload: Any, feishu: FeishuApi) -> str:
+    """Add the lightweight “了解” reaction to one received user message."""
+    envelope = parse_message_envelope(payload)
+    feishu.add_reaction(envelope.message_id, ACK_REACTION_EMOJI)
+    return envelope.message_id
 
 
 def accept_knowledge_event(payload: Any, store: TaskStore, feishu: FeishuApi) -> dict[str, Any] | None:
