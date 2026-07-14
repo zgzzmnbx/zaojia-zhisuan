@@ -724,6 +724,8 @@ class MessageEnvelope:
     mentioned: bool
     text: str
     files: list[tuple[str, str]]
+    mention_open_ids: tuple[str, ...] = ()
+    mention_names: tuple[str, ...] = ()
 
 
 def parse_message_event(payload: Any) -> IncomingFileTask:
@@ -747,6 +749,18 @@ def parse_message_envelope(payload: Any) -> MessageEnvelope:
     mentions = message.get("mentions") or []
     content_text = str(message.get("content") or "")
     mentioned = bool(mentions or "@_user_" in content_text or "@机器人" in content_text)
+    mention_open_ids: list[str] = []
+    mention_names: list[str] = []
+    for mention in mentions if isinstance(mentions, list) else []:
+        if not isinstance(mention, dict):
+            continue
+        mention_id = mention.get("id") if isinstance(mention.get("id"), dict) else {}
+        open_id = str(mention_id.get("open_id") or mention.get("open_id") or "").strip()
+        name = str(mention.get("name") or "").strip()
+        if open_id:
+            mention_open_ids.append(open_id)
+        if name:
+            mention_names.append(name)
     try:
         content = json.loads(content_text) if isinstance(message.get("content"), str) else message.get("content")
     except json.JSONDecodeError:
@@ -758,7 +772,24 @@ def parse_message_envelope(payload: Any) -> MessageEnvelope:
     chat_id = str(message.get("chat_id") or "").strip()
     if not event_id or not message_id or not chat_id:
         raise ValueError("飞书消息缺少任务所需标识")
-    return MessageEnvelope(event_id, message_id, chat_id, chat_type, sender_id, mentioned, text, files)
+    return MessageEnvelope(
+        event_id, message_id, chat_id, chat_type, sender_id, mentioned, text, files,
+        tuple(dict.fromkeys(mention_open_ids)), tuple(dict.fromkeys(mention_names)),
+    )
+
+
+def _mentions_current_bot(
+    envelope: MessageEnvelope,
+    bot_open_id: str | None = None,
+    bot_name: str | None = None,
+) -> bool:
+    if bot_open_id is None and bot_name is None:
+        return envelope.mentioned
+    normalized_id = str(bot_open_id or "").strip()
+    normalized_name = str(bot_name or "").strip()
+    if normalized_id:
+        return normalized_id in envelope.mention_open_ids
+    return bool(normalized_name and normalized_name in envelope.mention_names)
 
 
 def describe_message_event(payload: Any, feishu: "FeishuApi") -> str:
@@ -841,13 +872,18 @@ def is_greeting_command(text: str) -> bool:
     return clean_bot_command_text(text) in GREETING_COMMANDS
 
 
-def parse_knowledge_request(payload: Any) -> tuple[MessageEnvelope, str] | None:
+def parse_knowledge_request(
+    payload: Any,
+    *,
+    bot_open_id: str | None = None,
+    bot_name: str | None = None,
+) -> tuple[MessageEnvelope, str] | None:
     envelope = parse_message_envelope(payload)
     question = extract_knowledge_question(envelope.text)
     if not question:
         return None
     is_private = envelope.chat_type in {"p2p", "private", "single"}
-    if not is_private and not envelope.mentioned:
+    if not is_private and not _mentions_current_bot(envelope, bot_open_id, bot_name):
         raise IgnoreEvent("非机器人知识库消息")
     if envelope.files:
         raise ValueError("知识库问答请先发送文字问题，不要同时上传文件")
@@ -911,6 +947,7 @@ class FeishuApi:
         self._token_expires_at = 0.0
         self._user_name_cache: dict[str, str] = {}
         self._chat_name_cache: dict[str, str] = {}
+        self._bot_identity_cache: tuple[str, str] | None = None
 
     def token(self) -> str:
         if self._token and time.time() < self._token_expires_at:
@@ -978,6 +1015,24 @@ class FeishuApi:
         resolved = name or normalized
         self._chat_name_cache[normalized] = resolved
         return resolved
+
+    def resolve_bot_identity(self) -> tuple[str, str]:
+        if self._bot_identity_cache is not None:
+            return self._bot_identity_cache
+        response = self.client.get(f"{self.base_url}/bot/v3/info", headers=self._headers())
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict) or int(payload.get("code") or 0) != 0:
+            raise RuntimeError(str(payload.get("msg") if isinstance(payload, dict) else "") or "获取当前机器人身份失败")
+        bot = payload.get("bot") if isinstance(payload.get("bot"), dict) else {}
+        if not bot and isinstance(payload.get("data"), dict):
+            data = payload["data"]
+            bot = data.get("bot") if isinstance(data.get("bot"), dict) else data
+        identity = (str(bot.get("open_id") or "").strip(), str(bot.get("app_name") or bot.get("name") or "").strip())
+        if not identity[0] and not identity[1]:
+            raise RuntimeError("飞书未返回当前机器人身份")
+        self._bot_identity_cache = identity
+        return identity
 
     def download_file(self, message_id: str, file_key: str, target: Path) -> Path:
         response = self.client.get(
@@ -1252,13 +1307,20 @@ class TaskWorker:
                 pass
 
 
-def accept_event(payload: Any, store: TaskStore, feishu: FeishuApi) -> dict[str, Any] | None:
+def accept_event(
+    payload: Any,
+    store: TaskStore,
+    feishu: FeishuApi,
+    *,
+    bot_open_id: str | None = None,
+    bot_name: str | None = None,
+) -> dict[str, Any] | None:
     envelope = parse_message_envelope(payload)
     is_private = envelope.chat_type in {"p2p", "private", "single"}
     if not envelope.files:
         if not is_upload_command(envelope.text):
             return None
-        if not is_private and not envelope.mentioned:
+        if not is_private and not _mentions_current_bot(envelope, bot_open_id, bot_name):
             raise IgnoreEvent("非机器人上传指令")
         if not envelope.sender_id:
             raise ValueError("无法识别发起人，请重新发送 @上传")
@@ -1275,7 +1337,7 @@ def accept_event(payload: Any, store: TaskStore, feishu: FeishuApi) -> dict[str,
     if existing:
         return {"task_id": existing["task_id"], "created": False}
     if not store.consume_upload_window(envelope.chat_id, envelope.sender_id):
-        if not is_private and not envelope.mentioned:
+        if not is_private and not _mentions_current_bot(envelope, bot_open_id, bot_name):
             raise IgnoreEvent("非机器人任务消息")
         raise ValueError("请先发送“@上传”或“@上传文件”，再在 1 分钟内发送一个 .xlsx 文件")
     task, created = store.enqueue(
@@ -1295,15 +1357,27 @@ def acknowledge_message_event(payload: Any, feishu: FeishuApi) -> str:
     return envelope.message_id
 
 
-def should_acknowledge_message(payload: Any) -> bool:
+def should_acknowledge_message(
+    payload: Any,
+    *,
+    bot_open_id: str | None = None,
+    bot_name: str | None = None,
+) -> bool:
     """Only acknowledge direct messages and group messages that explicitly mention the bot."""
     envelope = parse_message_envelope(payload)
     is_private = envelope.chat_type in {"p2p", "private", "single"}
-    return is_private or envelope.mentioned
+    return is_private or _mentions_current_bot(envelope, bot_open_id, bot_name)
 
 
-def accept_knowledge_event(payload: Any, store: TaskStore, feishu: FeishuApi) -> dict[str, Any] | None:
-    request = parse_knowledge_request(payload)
+def accept_knowledge_event(
+    payload: Any,
+    store: TaskStore,
+    feishu: FeishuApi,
+    *,
+    bot_open_id: str | None = None,
+    bot_name: str | None = None,
+) -> dict[str, Any] | None:
+    request = parse_knowledge_request(payload, bot_open_id=bot_open_id, bot_name=bot_name)
     if request is None:
         return None
     envelope, question = request
@@ -1323,10 +1397,17 @@ def answer_knowledge_event(chat_id: str, question: str, feishu: FeishuApi, profe
         feishu.send_text(chat_id, f"知识库查询暂时失败：{sanitize_error(exc)}。请稍后重试，或在造价智算“知识库问答”中查询。")
 
 
-def accept_conversation_event(payload: Any, store: TaskStore, feishu: FeishuApi) -> dict[str, Any]:
+def accept_conversation_event(
+    payload: Any,
+    store: TaskStore,
+    feishu: FeishuApi,
+    *,
+    bot_open_id: str | None = None,
+    bot_name: str | None = None,
+) -> dict[str, Any]:
     envelope = parse_message_envelope(payload)
     is_private = envelope.chat_type in {"p2p", "private", "single"}
-    if not is_private and not envelope.mentioned:
+    if not is_private and not _mentions_current_bot(envelope, bot_open_id, bot_name):
         raise IgnoreEvent("非机器人对话消息")
     if envelope.files:
         raise IgnoreEvent("文件消息不进入文字问答")

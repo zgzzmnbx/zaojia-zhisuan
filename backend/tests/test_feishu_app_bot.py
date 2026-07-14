@@ -99,6 +99,55 @@ def test_acknowledgement_is_limited_to_mentioned_group_messages_and_private_chat
     ) is True
 
 
+def test_group_message_only_acknowledges_current_bot_mention():
+    current_bot = [{"key": "@_user_1", "id": {"open_id": "ou_current_bot"}, "name": "当前机器人"}]
+    other_user = [{"key": "@_user_1", "id": {"open_id": "ou_other"}, "name": "其他人"}]
+
+    assert feishu_app_bot.should_acknowledge_message(
+        event_payload(mentions=current_bot, text="@_user_1 你好"),
+        bot_open_id="ou_current_bot",
+        bot_name="当前机器人",
+    ) is True
+    assert feishu_app_bot.should_acknowledge_message(
+        event_payload(mentions=other_user, text="@_user_1 你好"),
+        bot_open_id="ou_current_bot",
+        bot_name="当前机器人",
+    ) is False
+    assert feishu_app_bot.should_acknowledge_message(
+        event_payload(mentions=other_user, text="@_user_1 你好"),
+        bot_open_id="",
+        bot_name="",
+    ) is False
+
+
+def test_group_mentions_of_other_people_are_ignored_by_all_message_routes(tmp_path):
+    store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
+    mentions = [{"key": "@_user_1", "id": {"open_id": "ou_other"}, "name": "其他人"}]
+    identity = {"bot_open_id": "ou_current_bot", "bot_name": "当前机器人"}
+
+    with pytest.raises(feishu_app_bot.IgnoreEvent):
+        feishu_app_bot.accept_event(
+            event_payload(files=[], mentions=mentions, text="@_user_1 @上传"),
+            store,
+            FakeFeishu(),
+            **identity,
+        )
+    with pytest.raises(feishu_app_bot.IgnoreEvent):
+        feishu_app_bot.accept_knowledge_event(
+            event_payload(files=[], mentions=mentions, text="@_user_1 @知识库：系数如何确定"),
+            store,
+            FakeFeishu(),
+            **identity,
+        )
+    with pytest.raises(feishu_app_bot.IgnoreEvent):
+        feishu_app_bot.accept_conversation_event(
+            event_payload(files=[], mentions=mentions, text="@_user_1 你好"),
+            store,
+            FakeFeishu(),
+            **identity,
+        )
+
+
 def test_describe_message_event_contains_business_context_and_marks_missing_ip():
     detail = feishu_app_bot.describe_message_event(
         event_payload(text="@知识库：系数如何确定？"),
@@ -245,7 +294,15 @@ def test_weact_numbered_mention_still_triggers_greeting(tmp_path):
     store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
     feishu = FakeFeishu()
     result = feishu_app_bot.accept_conversation_event(
-        event_payload(files=[], text="@_user_1  你好"), store, feishu,
+        event_payload(
+            files=[],
+            mentions=[{"key": "@_user_1", "id": {"open_id": "ou_current_bot"}, "name": "当前机器人"}],
+            text="@_user_1  你好",
+        ),
+        store,
+        feishu,
+        bot_open_id="ou_current_bot",
+        bot_name="当前机器人",
     )
     assert result["kind"] == "greeting"
     assert "我是造价智算机器人" in feishu.texts[0][1]
@@ -640,6 +697,32 @@ def test_feishu_api_resolves_and_caches_user_and_chat_names():
     assert api.resolve_chat_name("oc_chat") == "造价智算小组"
     assert sum("/contact/v3/users/" in path for path in request_paths) == 1
     assert sum("/im/v1/chats/" in path for path in request_paths) == 1
+
+
+def test_feishu_api_resolves_and_caches_current_bot_identity():
+    request_paths: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        request_paths.append(request.url.path)
+        if request.url.path.endswith("/auth/v3/tenant_access_token/internal"):
+            return httpx.Response(200, json={"code": 0, "tenant_access_token": "token", "expire": 7200}, request=request)
+        if request.url.path.endswith("/bot/v3/info"):
+            return httpx.Response(
+                200,
+                json={"code": 0, "msg": "ok", "bot": {"open_id": "ou_current_bot", "app_name": "当前机器人"}},
+                request=request,
+            )
+        return httpx.Response(404, request=request)
+
+    api = feishu_app_bot.FeishuApi(
+        "cli_test",
+        "secret-test",
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    assert api.resolve_bot_identity() == ("ou_current_bot", "当前机器人")
+    assert api.resolve_bot_identity() == ("ou_current_bot", "当前机器人")
+    assert sum(path.endswith("/bot/v3/info") for path in request_paths) == 1
 
 
 def test_feishu_api_name_resolution_falls_back_to_ids_without_optional_permissions():

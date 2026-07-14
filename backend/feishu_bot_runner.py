@@ -47,6 +47,29 @@ def main() -> int:
     if recovered:
         append_runtime_event("task", f"发现 {recovered} 个中断任务，已进入恢复队列", level="warning", profile_id=profile_id)
     feishu = FeishuApi(credentials["app_id"], credentials["app_secret"], domain=domain)
+    bot_open_id = ""
+    bot_name = ""
+    for attempt in range(3):
+        try:
+            bot_open_id, bot_name = feishu.resolve_bot_identity()
+            break
+        except Exception as exc:
+            if attempt == 2:
+                append_runtime_event(
+                    "connection",
+                    f"无法确认当前机器人身份，群聊消息将保持静默：{exc}",
+                    level="error",
+                    profile_id=profile_id,
+                )
+            else:
+                time.sleep(attempt + 1)
+    if bot_open_id or bot_name:
+        append_runtime_event(
+            "connection",
+            f"当前机器人身份已确认：{bot_name or '未命名机器人'}",
+            level="success",
+            profile_id=profile_id,
+        )
     professional = ProfessionalApi(str(defaults.get("apiBaseUrl") or "http://127.0.0.1:8000"))
     worker = TaskWorker(store, feishu, professional)
     PID_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -95,7 +118,7 @@ def main() -> int:
             envelope = parse_message_envelope(data)
         except ValueError:
             return
-        if not should_acknowledge_message(data):
+        if not should_acknowledge_message(data, bot_open_id=bot_open_id, bot_name=bot_name):
             return
         message_id = envelope.message_id
         if not message_id:
@@ -124,7 +147,9 @@ def main() -> int:
             return message_context
 
         try:
-            knowledge = accept_knowledge_event(data, store, feishu)
+            knowledge = accept_knowledge_event(
+                data, store, feishu, bot_open_id=bot_open_id, bot_name=bot_name,
+            )
             if knowledge is not None:
                 append_runtime_event(
                     "knowledge",
@@ -143,7 +168,9 @@ def main() -> int:
                         daemon=True,
                     ).start()
                 return
-            result = accept_event(data, store, feishu)
+            result = accept_event(
+                data, store, feishu, bot_open_id=bot_open_id, bot_name=bot_name,
+            )
             if result and result.get("task_id"):
                 append_runtime_event(
                     "message",
@@ -163,7 +190,9 @@ def main() -> int:
                     profile_id=profile_id,
                 )
             else:
-                conversation = accept_conversation_event(data, store, feishu)
+                conversation = accept_conversation_event(
+                    data, store, feishu, bot_open_id=bot_open_id, bot_name=bot_name,
+                )
                 append_runtime_event(
                     "message",
                     (
