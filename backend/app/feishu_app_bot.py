@@ -47,12 +47,16 @@ UPLOAD_WINDOW_MINUTES = 1
 UPLOAD_COMMANDS = {"@上传", "@上传文件"}
 GREETING_COMMANDS = {"你好"}
 BOT_INTRODUCTION = (
-    "你好，我是造价智算机器人，可以协助完成工程造价文件处理和专业问答。\n\n"
+    "你好，我是造价智算机器人，是造价智算在飞书和 WeAct 中的协同助手。\n\n"
+    "我可以提供三类功能：\n"
+    "1. Excel 自动处理：接收标准 .xlsx，按顺序完成匹配、风险识别，并返回 Excel 和 Word 成果；\n"
+    "2. 知识库问答：检索本地规则、知识库和依据来源后回答专业问题；\n"
+    "3. 普通智能问答：其他文字问题由大模型提供辅助回答。\n\n"
     "使用方法：\n"
-    "1. 发送“@上传”或“@上传文件”，并在 1 分钟内发送一个 .xlsx 文件；\n"
-    "2. 发送“@知识库：问题”，查询本地规则、知识库和依据来源；\n"
-    "3. 直接发送其他文字问题，由大模型提供辅助回答。\n\n"
-    "说明：机器人不会用大模型直接裁决最终价格或系数。"
+    "• 群聊：先 @机器人，再发送“@上传”“@知识库：问题”或其他问题；\n"
+    "• 单聊：直接发送上述指令或问题；\n"
+    "• 上传时请在收到提示后的 1 分钟内发送一个 .xlsx 文件。\n\n"
+    "说明：价格和系数仍由造价智算规则与知识库处理，大模型不会直接裁决最终结果。"
 )
 
 
@@ -807,10 +811,15 @@ def _message_text(value: Any) -> str:
     return ""
 
 
+def _strip_bot_mentions(text: str) -> str:
+    clean = re.sub(r"<at[^>]*>.*?</at>", " ", str(text or ""), flags=re.IGNORECASE)
+    clean = re.sub(r"@_user_(?:\d+)?", " ", clean, flags=re.IGNORECASE)
+    return clean.replace("@机器人", " ").strip()
+
+
 def extract_knowledge_question(text: str) -> str:
     """Extract an explicit @知识库 question while tolerating the bot mention before it."""
-    clean = re.sub(r"<at[^>]*>.*?</at>", " ", str(text or ""), flags=re.IGNORECASE)
-    clean = clean.replace("@_user_", " ").replace("@机器人", " ").strip()
+    clean = _strip_bot_mentions(text)
     for prefix in ("@知识库", "#知识库", "查库：", "查库:"):
         index = clean.find(prefix)
         if index < 0:
@@ -821,9 +830,7 @@ def extract_knowledge_question(text: str) -> str:
 
 
 def clean_bot_command_text(text: str) -> str:
-    clean = re.sub(r"<at[^>]*>.*?</at>", " ", str(text or ""), flags=re.IGNORECASE)
-    clean = clean.replace("@_user_", " ").replace("@机器人", " ").strip()
-    return clean.rstrip(" \t\r\n。.!！?？")
+    return _strip_bot_mentions(text).rstrip(" \t\r\n。.!！?？")
 
 
 def is_upload_command(text: str) -> bool:

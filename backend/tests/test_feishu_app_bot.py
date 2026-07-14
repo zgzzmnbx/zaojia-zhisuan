@@ -212,7 +212,7 @@ def test_non_upload_text_is_not_treated_as_upload_command(tmp_path):
     assert feishu.texts == []
 
 
-@pytest.mark.parametrize("command", ["@上传", "@上传文件", "@_user_ @上传！"])
+@pytest.mark.parametrize("command", ["@上传", "@上传文件", "@_user_ @上传！", "@_user_1  @上传"])
 def test_only_explicit_upload_commands_open_one_minute_window(tmp_path, command):
     store = feishu_app_bot.TaskStore(tmp_path / f"{len(command)}-tasks.sqlite3")
     feishu = FakeFeishu()
@@ -237,6 +237,18 @@ def test_greeting_returns_introduction_and_usage(tmp_path):
     assert "我是造价智算机器人" in feishu.texts[0][1]
     assert "@上传" in feishu.texts[0][1]
     assert "@知识库" in feishu.texts[0][1]
+    assert "Excel 自动处理" in feishu.texts[0][1]
+    assert "普通智能问答" in feishu.texts[0][1]
+
+
+def test_weact_numbered_mention_still_triggers_greeting(tmp_path):
+    store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
+    feishu = FakeFeishu()
+    result = feishu_app_bot.accept_conversation_event(
+        event_payload(files=[], text="@_user_1  你好"), store, feishu,
+    )
+    assert result["kind"] == "greeting"
+    assert "我是造价智算机器人" in feishu.texts[0][1]
 
 
 def test_other_text_uses_llm_fallback_and_is_idempotent(tmp_path):

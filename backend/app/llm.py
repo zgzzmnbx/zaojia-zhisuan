@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import ssl
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -20,6 +22,8 @@ DEFAULT_MODEL = "deepseek-v4-flash"
 DEFAULT_BASE_URL = "https://api.deepseek.com"
 DEFAULT_TEMPERATURE = 0.2
 DEFAULT_MAX_TOKENS = 1800
+NETWORK_ATTEMPTS = 3
+NETWORK_RETRY_DELAYS = (0.5, 1.5)
 
 
 @dataclass(frozen=True)
@@ -85,14 +89,24 @@ def call_chat_completion(config: LlmConfig, messages: list[dict[str, str]]) -> s
         method="POST",
     )
 
-    try:
-        with urlopen(request, timeout=90) as response:
-            data = json.loads(response.read().decode("utf-8"))
-    except HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="ignore")
-        raise RuntimeError(f"大模型接口返回错误：HTTP {exc.code} {detail}") from exc
-    except URLError as exc:
-        raise RuntimeError(f"大模型接口连接失败：{exc.reason}") from exc
+    data: dict[str, Any] | None = None
+    last_network_error: BaseException | None = None
+    for attempt in range(NETWORK_ATTEMPTS):
+        try:
+            with urlopen(request, timeout=90) as response:
+                data = json.loads(response.read().decode("utf-8"))
+            break
+        except HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="ignore")
+            raise RuntimeError(f"大模型接口返回错误：HTTP {exc.code} {detail}") from exc
+        except (URLError, TimeoutError, ConnectionError, ssl.SSLError) as exc:
+            last_network_error = exc
+            if attempt + 1 < NETWORK_ATTEMPTS:
+                time.sleep(NETWORK_RETRY_DELAYS[attempt])
+
+    if data is None:
+        reason = last_network_error.reason if isinstance(last_network_error, URLError) else last_network_error
+        raise RuntimeError(f"大模型接口连接失败（已重试 {NETWORK_ATTEMPTS} 次）：{reason}") from last_network_error
 
     try:
         return str(data["choices"][0]["message"]["content"]).strip()
