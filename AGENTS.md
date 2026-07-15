@@ -107,6 +107,7 @@
 - 正式 Word 模板含页码文本框，它会使每页 `scrollHeight` 固定多出约 `98px`；File Viewer 报告预览应设置高于该装饰误差的 `paginationTolerance`，并保留有上限的动态分页，不能再次用 `maxDynamicPaginationPasses: 0` 关闭正文自动续页。回归时至少核对正式 3 页样例、一个 5 页以上显式分页样例和一个由长正文自动续排到 7 页左右的实际报告。
 - 统信 UOS 兼容性准备当前只是未来迁移预案，不是日常开发主线；`python tools/check_platform_compat.py` 只在统信/Linux 相关修改、路径/启动/打包规则调整或明确要求兼容性复核时手动运行，不挂入平时启动、`npm run build`、`python -m pytest backend/tests -v`、代码存档或 Windows 绿色版默认流程，避免拖慢当前 Windows 开发。
 - 同一飞书应用的多个长连接实例采用随机集群分发而非广播；本地与服务器迁移时必须只启用一个第二层机器人实例，使用智能协同页“启用接收”开关切换，避免任务、队列和成果随机分裂到不同环境。
+- 云端第二层机器人可能由页面 API 拉起为 uvicorn 子进程，此时 `zaojiazhisuan-feishu-bot.service` 可显示 `inactive`，但真实 `feishu_bot_runner.py` 仍在运行。云端发布不得只看 systemd 状态；切换前同时核对真实进程数，停止主服务后确认 runner 归零，切换后由专用 systemd 单元接管，并验证服务 `active`、WeAct WebSocket 已连接且 runner 恰好一个。
 - 第一层 Webhook 与第二层企业应用机器人的运行秘密统一保存在 `Codex-Temp/runtime/feishu-robot-settings.json`，分别使用 `webhook` 和 `app_bot` 分区；新增机器人配置时只维护这个文件，旧版 `feishu-webhook-settings.json` / `feishu-app-settings.json` 仅用于自动迁移兼容，不再作为现行配置入口。
 - Windows 上不能用 `os.kill(pid, 0)` 判断长连接进程是否存在（会返回无效参数）；第二层机器人状态应使用 Windows 进程句柄检测，否则页面可能误报未运行并重复拉起实例。
 - 云端 FastAPI 固定监听 `1285`，而本机默认监听 `8000`；服务器运行第二层机器人时，`feishuAppBot.apiBaseUrl` 必须在服务器运行时配置为 `http://127.0.0.1:1285`，不能直接沿用本机默认值，否则任务处理和知识库问答都会报 `[Errno 111] Connection refused`。
