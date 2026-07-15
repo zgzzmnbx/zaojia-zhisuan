@@ -113,6 +113,7 @@
 - 云端 FastAPI 固定监听 `1285`，而本机默认监听 `8000`；服务器运行第二层机器人时，`feishuAppBot.apiBaseUrl` 必须在服务器运行时配置为 `http://127.0.0.1:1285`，不能直接沿用本机默认值，否则任务处理和知识库问答都会报 `[Errno 111] Connection refused`。
 - 企业 WeAct 第二层机器人不能沿用 SDK 默认公网飞书域名；对应配置必须保存 `domain=https://open.weact.pipechina.com.cn`，并让 REST API 客户端和 WebSocket 客户端同时使用该域名。连接成功标志是进入 `wss://lark-frontier.weact.pipechina.com.cn/ws/v2`；省略域名会反复报 `1000040343: internal error`。
 - 企业 WeAct 第二层正式试点使用已完成群聊、单聊、消息事件和回复端到端验证的应用 A，App ID 为 `cli_a961a5cb3ab8d353`；曾使用的应用 B `cli_a961b94ee4b8d353` 只验证过 WebSocket 建连，不能作为已验证的消息处理配置。App Secret 仍只保存在 Git 忽略的 `Codex-Temp/runtime/feishu-robot-settings.json`，不得写入项目文档或代码仓库。
+- 第二层普通飞书与企业 WeAct 的预期 App ID / 域名必须集中登记在 `config/project-default-settings.json` 的 `feishuAppBot.expectedProfiles`；本地与云端读取同一登记并使用同一 WeAct App ID。页面启用、后端子进程拉起和独立运行器都必须拒绝与登记不一致的配置；不得为了临时建连绕过校验。更换正式应用时同步更新登记、回归测试和两端运行秘密，App Secret 仍不得进入默认配置或 Git。
 - 第二层机器人控制台不得直接回显 `runner.out.log` / `runner.err.log` 原文；SDK 连接 URL 含短期票据，只能解析并返回时间、状态和节点域名。当前试点经用户明确授权，业务消息日志可记录发送人名称与 ID、群名与会话 ID、消息正文和附件名；仍不得记录 App Secret、访问令牌、连接票据、文件 Key 或完整 WebSocket 地址。飞书长连接事件不提供发送者来源 IP，界面必须明确标注“平台未提供”，不得伪造。
 - 第二层机器人订阅“获取群组中所有消息”后会收到群内普通聊天；“了解”表情必须在业务分流前先校验消息范围，只允许机器人单聊或群聊明确 @机器人时发送，绝不能对群内普通消息或未 @ 的独立文件消息回应。
 - 普通飞书与企业 WeAct 的机器人提及文本不能只按固定 `@_user_` 清理；WeAct 实际事件可能使用 `@_user_1`、`@_user_2` 等编号化占位符。上传口令、`你好` 和知识库分流前必须统一正则剥离动态提及，并用真实事件形态做回归测试。

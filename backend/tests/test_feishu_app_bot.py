@@ -1028,6 +1028,7 @@ def test_cleanup_only_removes_expired_terminal_task_files(tmp_path):
 def test_status_api_does_not_expose_credentials(tmp_path, monkeypatch):
     monkeypatch.setattr(feishu_app_bot, "DB_PATH", tmp_path / "tasks.sqlite3")
     monkeypatch.setattr(feishu_app_bot, "load_credentials", lambda: {"app_id": "app", "app_secret": "secret"})
+    monkeypatch.setattr(feishu_app_bot, "credential_configuration_issue", lambda *args, **kwargs: "")
     response = TestClient(app).get("/api/collaboration/feishu-app-bot/status")
     assert response.status_code == 200
     text = response.text
@@ -1106,6 +1107,7 @@ def test_start_bot_process_records_child_pid_immediately(tmp_path, monkeypatch):
         "load_credentials",
         lambda: {"app_id": "app", "app_secret": "secret", "domain": "https://open.weact.pipechina.com.cn"},
     )
+    monkeypatch.setattr(feishu_app_bot, "credential_configuration_issue", lambda *args, **kwargs: "")
     monkeypatch.setattr(feishu_app_bot.subprocess, "Popen", lambda *args, **kwargs: SimpleNamespace(pid=4321))
 
     assert feishu_app_bot.start_bot_process() is True
@@ -1328,7 +1330,12 @@ def test_app_bot_profile_switch_persists_and_starts_selected_profile(tmp_path, m
         },
     }), encoding="utf-8")
     control_path = tmp_path / "control.json"
+    defaults_path = tmp_path / "project-default-settings.json"
+    defaults_path.write_text(json.dumps({"feishuAppBot": {"expectedProfiles": {
+        "weact_cost": {"appId": "cli_weact", "domain": "https://open.weact.pipechina.com.cn"},
+    }}}), encoding="utf-8")
     monkeypatch.setattr(feishu_app_bot, "SETTINGS_PATH", settings_path)
+    monkeypatch.setattr(feishu_app_bot, "PROJECT_DEFAULT_SETTINGS_PATH", defaults_path)
     monkeypatch.setattr(feishu_app_bot, "CONTROL_PATH", control_path)
     monkeypatch.setattr(feishu_app_bot, "DB_PATH", tmp_path / "tasks.sqlite3")
     monkeypatch.setattr(feishu_app_bot, "bot_process_running", lambda: False)
@@ -1345,6 +1352,71 @@ def test_app_bot_profile_switch_persists_and_starts_selected_profile(tmp_path, m
     assert response.json()["configured"] is True
     assert json.loads(control_path.read_text(encoding="utf-8"))["enabled"] is True
     assert started == [True]
+
+
+def test_app_bot_rejects_registered_profile_app_id_mismatch(tmp_path, monkeypatch):
+    settings_path = tmp_path / "feishu-app-settings.json"
+    settings_path.write_text(json.dumps({
+        "active_profile": "weact_cost",
+        "profiles": {
+            "weact_cost": {
+                "label": "Weact机器人（管网内网）",
+                "app_id": "cli_wrong",
+                "app_secret": "secret-weact",
+                "domain": "https://open.weact.pipechina.com.cn",
+            },
+        },
+    }), encoding="utf-8")
+    defaults_path = tmp_path / "project-default-settings.json"
+    defaults_path.write_text(json.dumps({"feishuAppBot": {"expectedProfiles": {
+        "weact_cost": {"appId": "cli_verified", "domain": "https://open.weact.pipechina.com.cn"},
+    }}}), encoding="utf-8")
+    control_path = tmp_path / "control.json"
+    monkeypatch.setattr(feishu_app_bot, "SETTINGS_PATH", settings_path)
+    monkeypatch.setattr(feishu_app_bot, "PROJECT_DEFAULT_SETTINGS_PATH", defaults_path)
+    monkeypatch.setattr(feishu_app_bot, "CONTROL_PATH", control_path)
+    monkeypatch.setattr(feishu_app_bot, "DB_PATH", tmp_path / "tasks.sqlite3")
+    monkeypatch.setattr(feishu_app_bot, "bot_process_running", lambda: False)
+    monkeypatch.setattr(feishu_app_bot, "start_bot_process", lambda: pytest.fail("配置不一致时不应启动"))
+
+    response = TestClient(app).post(
+        "/api/collaboration/feishu-app-bot/settings",
+        json={"enabled": True, "profile_id": "weact_cost"},
+    )
+
+    assert response.status_code == 409
+    assert "cli_verified" in response.json()["detail"]
+    assert json.loads(control_path.read_text(encoding="utf-8"))["enabled"] is False
+    status = TestClient(app).get("/api/collaboration/feishu-app-bot/status").json()
+    assert status["configured"] is False
+    assert status["profile_consistent"] is False
+    assert "cli_verified" in status["configuration_error"]
+
+
+def test_app_bot_rejects_registered_profile_domain_mismatch(tmp_path, monkeypatch):
+    settings_path = tmp_path / "feishu-app-settings.json"
+    settings_path.write_text(json.dumps({
+        "active_profile": "weact_cost",
+        "profiles": {
+            "weact_cost": {
+                "label": "Weact机器人（管网内网）",
+                "app_id": "cli_verified",
+                "app_secret": "secret-weact",
+                "domain": "https://open.feishu.cn",
+            },
+        },
+    }), encoding="utf-8")
+    defaults_path = tmp_path / "project-default-settings.json"
+    defaults_path.write_text(json.dumps({"feishuAppBot": {"expectedProfiles": {
+        "weact_cost": {"appId": "cli_verified", "domain": "https://open.weact.pipechina.com.cn"},
+    }}}), encoding="utf-8")
+    monkeypatch.setattr(feishu_app_bot, "SETTINGS_PATH", settings_path)
+    monkeypatch.setattr(feishu_app_bot, "PROJECT_DEFAULT_SETTINGS_PATH", defaults_path)
+
+    issue = feishu_app_bot.credential_configuration_issue()
+
+    assert "域名" in issue
+    assert "open.weact.pipechina.com.cn" in issue
 
 
 def test_app_bot_switch_can_disable_without_starting(tmp_path, monkeypatch):

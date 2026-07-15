@@ -10464,6 +10464,10 @@ tbody tr:hover .row-ai-cell {
   line-height: 1.5;
 }
 
+.shell.layout-daweiba .daweiba-collaboration-feedback.is-error {
+  color: #b91c1c;
+}
+
 .shell.layout-daweiba .daweiba-collaboration-security-note {
   display: flex;
   align-items: start;

@@ -265,6 +265,7 @@ def load_bot_defaults() -> dict[str, Any]:
         "allowedExtensions": [".xlsx"],
         "maxFileSizeMb": 50,
         "apiBaseUrl": "http://127.0.0.1:8000",
+        "expectedProfiles": {},
         "enableLlmRiskNarrative": True,
         "retryCount": 2,
         "retryDelaySeconds": 2,
@@ -352,7 +353,31 @@ def load_credentials(profile_id: str | None = None) -> dict[str, str]:
     }
 
 
-def credential_profiles() -> list[dict[str, str]]:
+def credential_configuration_issue(
+    profile_id: str | None = None,
+    credentials: dict[str, str] | None = None,
+) -> str:
+    selected_profile = str(profile_id or active_profile_id() or "").strip()
+    expected_profiles = load_bot_defaults().get("expectedProfiles")
+    if not selected_profile or not isinstance(expected_profiles, dict) or not expected_profiles:
+        return ""
+    expected = expected_profiles.get(selected_profile)
+    if not isinstance(expected, dict):
+        return f"当前机器人配置未在项目默认设置中登记：{selected_profile}"
+    selected = credentials if credentials is not None else load_credentials(selected_profile)
+    actual_app_id = str(selected.get("app_id") or "").strip()
+    expected_app_id = str(expected.get("appId") or "").strip()
+    if expected_app_id and actual_app_id and actual_app_id != expected_app_id:
+        return f"当前机器人 App ID 与项目登记不一致，{selected_profile} 应使用 {expected_app_id}"
+    actual_domain = normalize_feishu_domain(selected.get("domain"))
+    expected_domain_raw = str(expected.get("domain") or "").strip()
+    expected_domain = normalize_feishu_domain(expected_domain_raw)
+    if expected_domain_raw and actual_domain != expected_domain:
+        return f"当前机器人域名与项目登记不一致，{selected_profile} 应使用 {expected_domain}"
+    return ""
+
+
+def credential_profiles() -> list[dict[str, Any]]:
     store = _read_credential_store()
     profiles = store.get("profiles") if isinstance(store.get("profiles"), dict) else {}
     return [
@@ -361,6 +386,7 @@ def credential_profiles() -> list[dict[str, str]]:
             "label": str(value.get("label") or profile_id),
             "app_id_suffix": str(value.get("app_id") or "")[-4:],
             "domain_host": urlparse(normalize_feishu_domain(value.get("domain"))).hostname or "",
+            "configuration_ok": not bool(credential_configuration_issue(profile_id, value)),
         }
         for profile_id, value in profiles.items()
         if isinstance(value, dict)
@@ -431,6 +457,15 @@ def start_bot_process() -> bool:
     credentials = load_credentials()
     if not credentials.get("app_id") or not credentials.get("app_secret"):
         return False
+    configuration_issue = credential_configuration_issue(credentials=credentials)
+    if configuration_issue:
+        append_runtime_event(
+            "config",
+            configuration_issue,
+            level="error",
+            profile_id=str(credentials.get("profile_id") or ""),
+        )
+        return False
     runner = PROJECT_ROOT / "backend" / "feishu_bot_runner.py"
     log_dir = RUNTIME_ROOT / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -464,9 +499,12 @@ def bot_status(db_path: Path | None = None) -> dict[str, Any]:
     store = TaskStore(db_path or DB_PATH)
     counts = store.counts()
     current = store.current_task()
+    configuration_issue = credential_configuration_issue(credentials=credentials)
     return {
         "enabled": is_bot_enabled(),
-        "configured": bool(credentials.get("app_id") and credentials.get("app_secret")),
+        "configured": bool(credentials.get("app_id") and credentials.get("app_secret") and not configuration_issue),
+        "profile_consistent": not bool(configuration_issue),
+        "configuration_error": configuration_issue,
         "active_profile": active_profile_id(),
         "profiles": credential_profiles(),
         "running": bot_process_running(),

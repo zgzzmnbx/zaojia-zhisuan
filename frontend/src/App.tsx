@@ -41,7 +41,7 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.8.17";
+const APP_VERSION = "v5.8.18";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const KNOWLEDGE_QA_ENTRY_COUNT = 3922;
 const KNOWLEDGE_QA_SOURCE_COUNT = 17;
@@ -130,7 +130,7 @@ const EMPTY_ELEMENT_COLUMN = "空元素列";
 const OUTPUT_ROW_FILTER_STORAGE_KEY = "guankanzhisuan-output-row-filter-settings";
 const WELCOME_SCREEN_HIDDEN_STORAGE_KEY = "guankanzhisuan-welcome-screen-hidden";
 const WELCOME_SCREEN_VERSION_STORAGE_KEY = "guankanzhisuan-welcome-screen-version";
-const WELCOME_SCREEN_VERSION = "brand-v5.8.17";
+const WELCOME_SCREEN_VERSION = "brand-v5.8.18";
 const ZHISUAN_QUICK_SETTINGS_VERSION = 2;
 const LEFT_COLUMN_COLLAPSED_STORAGE_KEY = "guankanzhisuan-left-column-collapsed";
 type MappingField = (typeof MAPPING_FIELDS)[number];
@@ -334,9 +334,9 @@ type FeishuWebhookStatus = {
   last_delivery?: FeishuDeliveryRecord | null;
 };
 type FeishuWebhookProfile = { profile_id: string; label: string; host?: string; security_enabled?: boolean };
-type FeishuAppBotProfile = { profile_id: string; label: string; app_id_suffix?: string; domain_host?: string };
+type FeishuAppBotProfile = { profile_id: string; label: string; app_id_suffix?: string; domain_host?: string; configuration_ok?: boolean };
 type FeishuAppBotTask = { task_id: string; file_name: string; status: string; stage: string; error?: string; created_at: string; updated_at: string; risk_total?: number; risk_high?: number; };
-type FeishuAppBotStatus = { configured: boolean; enabled: boolean; running: boolean; active_profile: string; profiles: FeishuAppBotProfile[]; connection_mode: string; concurrency: number; retention_days: number; counts: Record<string, number>; current_task?: FeishuAppBotTask | null; recent_tasks: FeishuAppBotTask[]; };
+type FeishuAppBotStatus = { configured: boolean; profile_consistent?: boolean; configuration_error?: string; enabled: boolean; running: boolean; active_profile: string; profiles: FeishuAppBotProfile[]; connection_mode: string; concurrency: number; retention_days: number; counts: Record<string, number>; current_task?: FeishuAppBotTask | null; recent_tasks: FeishuAppBotTask[]; };
 type FeishuBotConsoleEvent = {
   timestamp: string;
   level: "info" | "success" | "warning" | "error";
@@ -7898,10 +7898,11 @@ function DaweibaApp() {
                     <span>启用接收</span>
                   </label>
                   <span className={`daweiba-collaboration-badge ${feishuAppBotStatus?.enabled && feishuAppBotStatus.running ? "is-success" : feishuAppBotStatus?.enabled ? "is-warning" : "is-muted"}`}>
-                    {!feishuAppBotStatus?.configured ? "凭证未配置" : feishuAppBotStatus.enabled ? feishuAppBotStatus.running ? "运行中" : isTogglingFeishuAppBot ? "正在启动" : "启用但未运行" : "已关闭"}
+                    {feishuAppBotStatus?.configuration_error ? "配置不一致" : !feishuAppBotStatus?.configured ? "凭证未配置" : feishuAppBotStatus.enabled ? feishuAppBotStatus.running ? "运行中" : isTogglingFeishuAppBot ? "正在启动" : "启用但未运行" : "已关闭"}
                   </span>
                 </div>
               </div>
+              {feishuAppBotStatus?.configuration_error && <p className="daweiba-collaboration-feedback is-error">{feishuAppBotStatus.configuration_error}，已阻止启动。</p>}
               <div className="daweiba-feishu-app-metrics"><span><strong>{feishuAppBotStatus?.concurrency ?? 1}</strong>并发任务</span><span><strong>{feishuAppBotStatus?.counts?.queued ?? 0}</strong>等待中</span><span><strong>{feishuAppBotStatus?.counts?.completed ?? 0}</strong>已完成</span><span><strong>{feishuAppBotStatus?.retention_days ?? 30}</strong>天留存</span></div>
               {feishuAppBotStatus?.current_task && <p className="daweiba-collaboration-feedback">正在处理：{feishuAppBotStatus.current_task.task_id} · {feishuAppBotStatus.current_task.file_name} · {feishuAppBotStatus.current_task.stage}</p>}
               {feishuAppBotStatus?.recent_tasks?.length ? <div className="daweiba-collaboration-history-table" role="table"><div className="is-header" role="row"><span>任务</span><span>文件</span><span>状态</span><span>风险</span></div>{feishuAppBotStatus.recent_tasks.slice(0, 8).map((task) => <div role="row" key={task.task_id}><span title={task.task_id}>{task.task_id}</span><span title={task.file_name}>{task.file_name}</span><span>{task.status}</span><span>{task.risk_total ?? 0} 项 / 高 {task.risk_high ?? 0}</span></div>)}</div> : <p className="daweiba-collaboration-empty">暂无第二层任务。应用凭证只保存在本机运行目录，不会回显到前端。</p>}

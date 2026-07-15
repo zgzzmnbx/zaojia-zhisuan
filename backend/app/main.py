@@ -101,7 +101,7 @@ from .paths import (
 from .report import append_risk_report, write_report
 
 
-APP_VERSION = "v5.8.17"
+APP_VERSION = "v5.8.18"
 OUTPUT_FILE_PREFIX = "【输出】"
 TEMP_FILE_PREFIX = "【临时】"
 PROCESS_STATE_FILENAME = "process-state.json"
@@ -344,6 +344,10 @@ def update_feishu_app_bot_settings(payload: dict[str, object] = Body(...)) -> di
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
     feishu_app_bot.save_bot_enabled(enabled)
     if enabled:
+        configuration_issue = feishu_app_bot.credential_configuration_issue()
+        if configuration_issue:
+            feishu_app_bot.save_bot_enabled(False)
+            raise HTTPException(status_code=409, detail=configuration_issue)
         feishu_app_bot.start_bot_process()
     return feishu_app_bot.bot_status()
 

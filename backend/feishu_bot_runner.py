@@ -15,7 +15,7 @@ from app.feishu_app_bot import (
     accept_conversation_event, accept_knowledge_event, acknowledge_message_event, answer_chat_event, answer_group_members_event,
     answer_task_result_event,
     answer_knowledge_event, append_runtime_event, describe_message_event,
-    CONTROL_PATH, PID_PATH, cleanup_expired, is_bot_enabled, load_bot_defaults, load_credentials,
+    CONTROL_PATH, PID_PATH, cleanup_expired, credential_configuration_issue, is_bot_enabled, load_bot_defaults, load_credentials,
     message_is_stale, parse_message_envelope, should_acknowledge_message, utc_now,
 )
 
@@ -29,6 +29,16 @@ def main() -> int:
     if not credentials.get("app_id") or not credentials.get("app_secret"):
         print("第二层飞书机器人未配置本机应用凭证。")
         return 0
+    configuration_issue = credential_configuration_issue(credentials=credentials)
+    if configuration_issue:
+        append_runtime_event(
+            "config",
+            configuration_issue,
+            level="error",
+            profile_id=str(credentials.get("profile_id") or ""),
+        )
+        print(configuration_issue)
+        return 3
     try:
         import lark_oapi as lark
     except ImportError:
