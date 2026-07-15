@@ -7879,7 +7879,7 @@ function DaweibaApp() {
           </div>
 
           <div className="daweiba-collaboration-body">
-            <section className="daweiba-collaboration-settings" aria-label="第二层企业应用机器人状态">
+            <section className="daweiba-collaboration-settings is-second-layer" aria-label="第二层企业应用机器人状态">
               <div className="daweiba-collaboration-section-title">
                 <div><h3>第二层 · 企业应用长连接机器人</h3><p>群聊先 @机器人再发送 .xlsx；单聊可直接发送。群聊 @机器人或单聊后输入“@知识库：问题”，会自动查询本地知识库。服务器与本机只能选择一个实例启用。</p></div>
                 <div className="daweiba-collaboration-title-actions">
@@ -7907,7 +7907,7 @@ function DaweibaApp() {
               {feishuAppBotStatus?.recent_tasks?.length ? <div className="daweiba-collaboration-history-table" role="table"><div className="is-header" role="row"><span>任务</span><span>文件</span><span>状态</span><span>风险</span></div>{feishuAppBotStatus.recent_tasks.slice(0, 8).map((task) => <div role="row" key={task.task_id}><span title={task.task_id}>{task.task_id}</span><span title={task.file_name}>{task.file_name}</span><span>{task.status}</span><span>{task.risk_total ?? 0} 项 / 高 {task.risk_high ?? 0}</span></div>)}</div> : <p className="daweiba-collaboration-empty">暂无第二层任务。应用凭证只保存在本机运行目录，不会回显到前端。</p>}
             </section>
 
-            <section className="daweiba-collaboration-settings" aria-label="Webhook 设置">
+            <section className="daweiba-collaboration-settings is-webhook-layer" aria-label="Webhook 设置">
               <div className="daweiba-collaboration-section-title">
                 <div>
                   <h3>第一层：Webhook</h3>
@@ -7976,7 +7976,7 @@ function DaweibaApp() {
               </div>
 
               <div className="daweiba-collaboration-actions">
-                <button className="primary-button" type="button" disabled={isSavingFeishuWebhook} onClick={() => void saveFeishuWebhookSettings()}>
+                <button className="ghost-button" type="button" disabled={isSavingFeishuWebhook} onClick={() => void saveFeishuWebhookSettings()}>
                   {isSavingFeishuWebhook ? <Loader2 size={16} className="spin" /> : <ShieldCheck size={16} />}
                   保存设置
                 </button>
@@ -8000,7 +8000,7 @@ function DaweibaApp() {
               </p>
             </section>
 
-            <section className="daweiba-collaboration-rules" aria-label="通知规则">
+            <section className="daweiba-collaboration-rules is-notification-rules" aria-label="通知规则">
               <div className="daweiba-collaboration-section-title">
                 <div>
                   <h3>通知规则</h3>

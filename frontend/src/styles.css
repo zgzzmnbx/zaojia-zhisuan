@@ -9956,6 +9956,8 @@ tbody tr:hover .row-ai-cell {
   border: 1px solid var(--db-border);
   border-radius: 10px;
   background: #ffffff;
+  container-name: collaboration-workspace;
+  container-type: inline-size;
 }
 
 .shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-digital-project-assistant > .daweiba-digital-project-assistant-module {
@@ -10274,12 +10276,25 @@ tbody tr:hover .row-ai-cell {
 
 .shell.layout-daweiba .daweiba-collaboration-body {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.65fr);
+  grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.75fr);
   gap: 14px;
+  align-content: start;
   min-width: 0;
   min-height: 0;
   overflow: auto;
   padding-right: 3px;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-settings.is-second-layer {
+  grid-column: 1 / -1;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-settings.is-webhook-layer {
+  grid-column: 1;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-rules.is-notification-rules {
+  grid-column: 2;
 }
 
 .shell.layout-daweiba .daweiba-collaboration-settings,
@@ -10596,12 +10611,21 @@ tbody tr:hover .row-ai-cell {
     text-align: left;
   }
 
+}
+
+@container collaboration-workspace (max-width: 760px) {
   .shell.layout-daweiba .daweiba-collaboration-body {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .shell.layout-daweiba .daweiba-collaboration-settings.is-second-layer,
+  .shell.layout-daweiba .daweiba-collaboration-settings.is-webhook-layer,
+  .shell.layout-daweiba .daweiba-collaboration-rules.is-notification-rules,
   .shell.layout-daweiba .daweiba-collaboration-history {
-    grid-column: auto;
+    grid-column: 1;
+  }
+
+  .shell.layout-daweiba .daweiba-collaboration-history {
     overflow-x: auto;
   }
 }
@@ -10617,6 +10641,17 @@ tbody tr:hover .row-ai-cell {
 
   .shell.layout-daweiba .daweiba-collaboration-form-grid label.is-wide {
     grid-column: auto;
+  }
+
+  .shell.layout-daweiba .daweiba-collaboration-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .shell.layout-daweiba .daweiba-collaboration-settings.is-second-layer,
+  .shell.layout-daweiba .daweiba-collaboration-settings.is-webhook-layer,
+  .shell.layout-daweiba .daweiba-collaboration-rules.is-notification-rules,
+  .shell.layout-daweiba .daweiba-collaboration-history {
+    grid-column: 1;
   }
 
   .shell.layout-daweiba .daweiba-collaboration-title-actions {
