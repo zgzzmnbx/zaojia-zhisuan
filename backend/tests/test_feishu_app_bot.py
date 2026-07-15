@@ -814,6 +814,32 @@ def test_professional_api_chat_fallback_uses_existing_llm_endpoint():
     assert professional.ask_chat("请介绍") == "我是大模型托底回答。"
 
 
+def test_professional_api_health_check_requires_ok_status():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/health"
+        return httpx.Response(200, json={"status": "ok"}, request=request)
+
+    professional = feishu_app_bot.ProfessionalApi(
+        "http://professional.local",
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    professional.health_check()
+
+
+def test_professional_api_health_check_rejects_non_ok_status():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"status": "starting"}, request=request)
+
+    professional = feishu_app_bot.ProfessionalApi(
+        "http://professional.local",
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    with pytest.raises(RuntimeError, match="未返回 ok"):
+        professional.health_check()
+
+
 def test_worker_completes_and_returns_two_files(tmp_path, monkeypatch):
     store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
     task, _ = store.enqueue(event_id="e1", message_id="m1", chat_id="c", file_key="f", file_name="a.xlsx")
@@ -1034,6 +1060,17 @@ def test_status_api_does_not_expose_credentials(tmp_path, monkeypatch):
     text = response.text
     assert "secret" not in text
     assert response.json()["configured"] is True
+
+
+def test_load_bot_defaults_allows_cloud_api_base_url_environment_override(tmp_path, monkeypatch):
+    defaults_path = tmp_path / "project-default-settings.json"
+    defaults_path.write_text(json.dumps({
+        "feishuAppBot": {"apiBaseUrl": "http://127.0.0.1:8000"},
+    }), encoding="utf-8")
+    monkeypatch.setattr(feishu_app_bot, "PROJECT_DEFAULT_SETTINGS_PATH", defaults_path)
+    monkeypatch.setenv("FEISHU_APP_BOT_API_BASE_URL", "http://127.0.0.1:1285")
+
+    assert feishu_app_bot.load_bot_defaults()["apiBaseUrl"] == "http://127.0.0.1:1285"
 
 
 def test_console_events_keep_business_context_but_hide_runtime_secrets(tmp_path):

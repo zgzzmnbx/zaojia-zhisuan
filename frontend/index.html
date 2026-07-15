@@ -3,7 +3,21 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>造价智算</title>
+    <title>造价智算（本地）</title>
+    <script>
+      (() => {
+        const hostname = window.location.hostname.toLowerCase();
+        const isLocal =
+          window.location.protocol === "tauri:" ||
+          hostname === "localhost" ||
+          hostname.endsWith(".localhost") ||
+          hostname === "0.0.0.0" ||
+          hostname === "::1" ||
+          hostname === "[::1]" ||
+          /^127\./.test(hostname);
+        document.title = `造价智算（${isLocal ? "本地" : "云端"}）`;
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

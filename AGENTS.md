@@ -110,7 +110,7 @@
 - 云端第二层机器人可能由页面 API 拉起为 uvicorn 子进程，此时 `zaojiazhisuan-feishu-bot.service` 可显示 `inactive`，但真实 `feishu_bot_runner.py` 仍在运行。云端发布不得只看 systemd 状态；切换前同时核对真实进程数，停止主服务后确认 runner 归零，切换后由专用 systemd 单元接管，并验证服务 `active`、WeAct WebSocket 已连接且 runner 恰好一个。
 - 第一层 Webhook 与第二层企业应用机器人的运行秘密统一保存在 `Codex-Temp/runtime/feishu-robot-settings.json`，分别使用 `webhook` 和 `app_bot` 分区；新增机器人配置时只维护这个文件，旧版 `feishu-webhook-settings.json` / `feishu-app-settings.json` 仅用于自动迁移兼容，不再作为现行配置入口。
 - Windows 上不能用 `os.kill(pid, 0)` 判断长连接进程是否存在（会返回无效参数）；第二层机器人状态应使用 Windows 进程句柄检测，否则页面可能误报未运行并重复拉起实例。
-- 云端 FastAPI 固定监听 `1285`，而本机默认监听 `8000`；服务器运行第二层机器人时，`feishuAppBot.apiBaseUrl` 必须在服务器运行时配置为 `http://127.0.0.1:1285`，不能直接沿用本机默认值，否则任务处理和知识库问答都会报 `[Errno 111] Connection refused`。
+- 云端 FastAPI 固定监听 `1285`，而本机默认监听 `8000`；服务器第二层机器人 systemd 必须通过 `FEISHU_APP_BOT_API_BASE_URL=http://127.0.0.1:1285` 覆盖项目默认值，不能只手改发布目录里的 JSON，否则后续发布仍可能覆盖并导致任务处理、知识库问答报 `[Errno 111] Connection refused`。机器人运行器建立业务接收前必须通过专业服务健康预检。
 - 企业 WeAct 第二层机器人不能沿用 SDK 默认公网飞书域名；对应配置必须保存 `domain=https://open.weact.pipechina.com.cn`，并让 REST API 客户端和 WebSocket 客户端同时使用该域名。连接成功标志是进入 `wss://lark-frontier.weact.pipechina.com.cn/ws/v2`；省略域名会反复报 `1000040343: internal error`。
 - 企业 WeAct 第二层正式试点使用已完成群聊、单聊、消息事件和回复端到端验证的应用 A，App ID 为 `cli_a961a5cb3ab8d353`；曾使用的应用 B `cli_a961b94ee4b8d353` 只验证过 WebSocket 建连，不能作为已验证的消息处理配置。App Secret 仍只保存在 Git 忽略的 `Codex-Temp/runtime/feishu-robot-settings.json`，不得写入项目文档或代码仓库。
 - 第二层普通飞书与企业 WeAct 的预期 App ID / 域名必须集中登记在 `config/project-default-settings.json` 的 `feishuAppBot.expectedProfiles`；本地与云端读取同一登记并使用同一 WeAct App ID。页面启用、后端子进程拉起和独立运行器都必须拒绝与登记不一致的配置；不得为了临时建连绕过校验。更换正式应用时同步更新登记、回归测试和两端运行秘密，App Secret 仍不得进入默认配置或 Git。

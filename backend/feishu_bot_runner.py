@@ -57,6 +57,18 @@ def main() -> int:
     )
     if recovered:
         append_runtime_event("task", f"发现 {recovered} 个中断任务，已进入恢复队列", level="warning", profile_id=profile_id)
+    professional = ProfessionalApi(str(defaults.get("apiBaseUrl") or "http://127.0.0.1:8000"))
+    try:
+        professional.health_check()
+    except Exception as exc:
+        append_runtime_event(
+            "connection",
+            f"专业服务连接失败，机器人未启动业务接收：{professional.base_url}（{exc}）",
+            level="error",
+            profile_id=profile_id,
+        )
+        print(f"专业服务连接失败：{professional.base_url}（{exc}）")
+        return 4
     feishu = FeishuApi(credentials["app_id"], credentials["app_secret"], domain=domain)
     bot_open_id = ""
     bot_name = ""
@@ -81,7 +93,6 @@ def main() -> int:
             level="success",
             profile_id=profile_id,
         )
-    professional = ProfessionalApi(str(defaults.get("apiBaseUrl") or "http://127.0.0.1:8000"))
     worker = TaskWorker(store, feishu, professional)
     PID_PATH.parent.mkdir(parents=True, exist_ok=True)
     PID_PATH.write_text(str(os.getpid()), encoding="utf-8")

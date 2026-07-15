@@ -270,15 +270,20 @@ def load_bot_defaults() -> dict[str, Any]:
         "retryCount": 2,
         "retryDelaySeconds": 2,
     }
+    api_base_url_override = str(os.getenv("FEISHU_APP_BOT_API_BASE_URL") or "").strip()
     try:
         raw = json.loads(PROJECT_DEFAULT_SETTINGS_PATH.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
+        if api_base_url_override:
+            defaults["apiBaseUrl"] = api_base_url_override
         return defaults
     section = raw.get("feishuAppBot", {}) if isinstance(raw, dict) else {}
     if isinstance(section, dict):
         for key in defaults:
             if key in section:
                 defaults[key] = section[key]
+    if api_base_url_override:
+        defaults["apiBaseUrl"] = api_base_url_override
     defaults["concurrency"] = 1
     return defaults
 
@@ -1378,6 +1383,12 @@ class ProfessionalApi:
     def __init__(self, base_url: str, *, client: httpx.Client | None = None):
         self.base_url = base_url.rstrip("/")
         self.client = client or httpx.Client(timeout=600)
+
+    def health_check(self) -> None:
+        response = self.client.get(f"{self.base_url}/api/health", timeout=10)
+        payload = self._response_json(response)
+        if str(payload.get("status") or "").strip().lower() != "ok":
+            raise RuntimeError("专业服务健康检查未返回 ok")
 
     def run(self, input_path: Path, task_dir: Path, *, progress: Callable[[str], None] | None = None) -> dict[str, Any]:
         notify = progress or (lambda _stage: None)
