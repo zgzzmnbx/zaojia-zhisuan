@@ -44,6 +44,7 @@ DEFAULT_FEISHU_DOMAIN = "https://open.feishu.cn"
 ALLOWED_FEISHU_DOMAINS = {"open.feishu.cn", "open.weact.pipechina.com.cn"}
 ACK_REACTION_EMOJI = "Get"
 MESSAGE_MAX_AGE_SECONDS = 5 * 60
+DELAYED_FILE_MAX_AGE_SECONDS = 15 * 60
 UPLOAD_WINDOW_MINUTES = 1
 UPLOAD_COMMANDS = {"@上传", "@上传文件"}
 GREETING_COMMANDS = {"你好"}
@@ -674,25 +675,50 @@ class TaskStore:
                 (chat_id, sender_id, now.isoformat(timespec="seconds"), (now + timedelta(minutes=minutes)).isoformat(timespec="seconds")),
             )
 
-    def consume_upload_window(self, chat_id: str, sender_id: str) -> bool:
-        now = utc_now()
+    @staticmethod
+    def _matching_upload_window(
+        connection: sqlite3.Connection,
+        chat_id: str,
+        sender_id: str,
+        reference_at: str,
+    ) -> sqlite3.Row | None:
+        if sender_id:
+            candidates = connection.execute(
+                "SELECT sender_id,created_at,expires_at FROM pending_uploads WHERE chat_id=? AND sender_id=?",
+                (chat_id, sender_id),
+            ).fetchall()
+        else:
+            candidates = connection.execute(
+                "SELECT sender_id,created_at,expires_at FROM pending_uploads WHERE chat_id=? ORDER BY created_at DESC LIMIT 2",
+                (chat_id,),
+            ).fetchall()
+        matches = [
+            row for row in candidates
+            if str(row["created_at"]) <= reference_at <= str(row["expires_at"])
+        ]
+        return matches[0] if len(matches) == 1 else None
+
+    def matches_upload_window(self, chat_id: str, sender_id: str, reference_at: str) -> bool:
         with self._connect() as connection:
-            row = None
-            if sender_id:
-                row = connection.execute(
-                    "SELECT sender_id,expires_at FROM pending_uploads WHERE chat_id=? AND sender_id=?",
-                    (chat_id, sender_id),
-                ).fetchone()
-            if not row and not sender_id:
-                candidates = connection.execute(
-                    "SELECT sender_id,expires_at FROM pending_uploads WHERE chat_id=? AND expires_at>=? ORDER BY created_at DESC LIMIT 2",
-                    (chat_id, now),
-                ).fetchall()
-                if len(candidates) == 1:
-                    row = candidates[0]
+            return self._matching_upload_window(
+                connection, chat_id, sender_id, reference_at,
+            ) is not None
+
+    def consume_upload_window(
+        self,
+        chat_id: str,
+        sender_id: str,
+        *,
+        reference_at: str | None = None,
+    ) -> bool:
+        reference = reference_at or utc_now()
+        with self._connect() as connection:
+            row = self._matching_upload_window(
+                connection, chat_id, sender_id, reference,
+            )
             if row:
                 connection.execute("DELETE FROM pending_uploads WHERE chat_id=? AND sender_id=?", (chat_id, row["sender_id"]))
-        return bool(row and str(row["expires_at"]) >= now)
+        return bool(row)
 
     def find_task(self, *, event_id: str, message_id: str, file_key: str) -> dict[str, Any] | None:
         with self._connect() as connection:
@@ -983,6 +1009,39 @@ def message_is_stale(
     except ValueError:
         return False
     return (received.astimezone(timezone.utc) - created_at.astimezone(timezone.utc)).total_seconds() > max_age_seconds
+
+
+def delayed_file_matches_pending_window(
+    envelope: MessageEnvelope,
+    store: TaskStore,
+    *,
+    received_at: str,
+    max_delivery_delay_seconds: int = DELAYED_FILE_MAX_AGE_SECONDS,
+) -> bool:
+    """Allow only delayed .xlsx events that were sent inside an existing one-minute window."""
+    if len(envelope.files) != 1 or not envelope.message_created_at:
+        return False
+    if Path(envelope.files[0][1]).suffix.lower() != ".xlsx":
+        return False
+    try:
+        created = datetime.fromisoformat(envelope.message_created_at)
+        received = datetime.fromisoformat(received_at)
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        if received.tzinfo is None:
+            received = received.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return False
+    delivery_delay = (
+        received.astimezone(timezone.utc) - created.astimezone(timezone.utc)
+    ).total_seconds()
+    if delivery_delay <= MESSAGE_MAX_AGE_SECONDS or delivery_delay > max_delivery_delay_seconds:
+        return False
+    return store.matches_upload_window(
+        envelope.chat_id,
+        envelope.sender_id,
+        envelope.message_created_at,
+    )
 
 
 def _mentions_current_bot(
@@ -1698,7 +1757,11 @@ def accept_event(
     )
     if existing:
         return {"task_id": existing["task_id"], "created": False}
-    if not store.consume_upload_window(envelope.chat_id, envelope.sender_id):
+    if not store.consume_upload_window(
+        envelope.chat_id,
+        envelope.sender_id,
+        reference_at=envelope.message_created_at or None,
+    ):
         if not is_private and not _mentions_current_bot(envelope, bot_open_id, bot_name):
             raise IgnoreEvent("非机器人任务消息")
         raise ValueError("请先发送“@上传”或“@上传文件”，再在 1 分钟内发送一个 .xlsx 文件")
@@ -1725,13 +1788,23 @@ def should_acknowledge_message(
     bot_open_id: str | None = None,
     bot_name: str | None = None,
     received_at: str | None = None,
+    validated_pending_file: bool = False,
 ) -> bool:
     """Only acknowledge direct messages and group messages that explicitly mention the bot."""
     envelope = parse_message_envelope(payload)
-    if message_is_stale(envelope, received_at=received_at):
+    is_validated_pending_xlsx = (
+        validated_pending_file
+        and len(envelope.files) == 1
+        and Path(envelope.files[0][1]).suffix.lower() == ".xlsx"
+    )
+    if message_is_stale(envelope, received_at=received_at) and not is_validated_pending_xlsx:
         return False
     is_private = envelope.chat_type in {"p2p", "private", "single"}
-    return is_private or _mentions_current_bot(envelope, bot_open_id, bot_name)
+    return (
+        is_private
+        or _mentions_current_bot(envelope, bot_open_id, bot_name)
+        or is_validated_pending_xlsx
+    )
 
 
 def accept_knowledge_event(

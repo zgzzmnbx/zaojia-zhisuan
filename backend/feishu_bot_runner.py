@@ -16,7 +16,8 @@ from app.feishu_app_bot import (
     answer_task_result_event,
     answer_knowledge_event, append_runtime_event, describe_message_event,
     CONTROL_PATH, PID_PATH, cleanup_expired, credential_configuration_issue, is_bot_enabled, load_bot_defaults, load_credentials,
-    message_is_stale, parse_message_envelope, should_acknowledge_message, utc_now,
+    delayed_file_matches_pending_window, message_is_stale, parse_message_envelope,
+    should_acknowledge_message, utc_now,
 )
 
 
@@ -135,7 +136,12 @@ def main() -> int:
             with reaction_lock:
                 reaction_message_ids.pop(message_id, None)
 
-    def schedule_acknowledgement(data, *, received_at: str) -> None:
+    def schedule_acknowledgement(
+        data,
+        *,
+        received_at: str,
+        validated_pending_file: bool = False,
+    ) -> None:
         try:
             envelope = parse_message_envelope(data)
         except ValueError:
@@ -145,6 +151,7 @@ def main() -> int:
             bot_open_id=bot_open_id,
             bot_name=bot_name,
             received_at=received_at,
+            validated_pending_file=validated_pending_file,
         ):
             return
         message_id = envelope.message_id
@@ -194,7 +201,13 @@ def main() -> int:
                     profile_id=profile_id,
                 )
                 return
-            if message_is_stale(envelope, received_at=received_at):
+            stale = message_is_stale(envelope, received_at=received_at)
+            delayed_pending_file = stale and delayed_file_matches_pending_window(
+                envelope,
+                store,
+                received_at=received_at,
+            )
+            if stale and not delayed_pending_file:
                 append_runtime_event(
                     "message",
                     "过期消息已静默拦截（平台创建时间超过 5 分钟）｜" + event_context(),
@@ -202,7 +215,23 @@ def main() -> int:
                     profile_id=profile_id,
                 )
                 return
-            schedule_acknowledgement(data, received_at=received_at)
+            if delayed_pending_file:
+                append_runtime_event(
+                    "message",
+                    "平台延迟文件事件已通过原 1 分钟收件窗口校验｜" + event_context(),
+                    level="warning",
+                    profile_id=profile_id,
+                )
+            pending_file = bool(envelope.files) and store.matches_upload_window(
+                envelope.chat_id,
+                envelope.sender_id,
+                envelope.message_created_at or received_at,
+            )
+            schedule_acknowledgement(
+                data,
+                received_at=received_at,
+                validated_pending_file=pending_file,
+            )
             knowledge = accept_knowledge_event(
                 data, store, feishu, bot_open_id=bot_open_id, bot_name=bot_name,
             )

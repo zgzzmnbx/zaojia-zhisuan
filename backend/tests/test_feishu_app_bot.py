@@ -106,6 +106,41 @@ def test_acknowledgement_is_limited_to_mentioned_group_messages_and_private_chat
     ) is True
 
 
+def test_group_file_acknowledgement_requires_validated_pending_window():
+    file_message = event_payload(mentions=[])
+
+    assert feishu_app_bot.should_acknowledge_message(file_message) is False
+    assert feishu_app_bot.should_acknowledge_message(
+        file_message,
+        validated_pending_file=True,
+    ) is True
+
+
+def test_validated_delayed_group_file_can_be_acknowledged():
+    delayed_file = event_payload(
+        mentions=[],
+        create_time="2026-07-15T04:30:38.530Z",
+    )
+
+    assert feishu_app_bot.should_acknowledge_message(
+        delayed_file,
+        received_at="2026-07-15T04:35:55+00:00",
+        validated_pending_file=True,
+    ) is True
+
+
+def test_pending_flag_does_not_acknowledge_non_xlsx_group_file():
+    xls_file = event_payload(
+        mentions=[],
+        files=[{"file_key": "file-1", "file_name": "控制价.xls"}],
+    )
+
+    assert feishu_app_bot.should_acknowledge_message(
+        xls_file,
+        validated_pending_file=True,
+    ) is False
+
+
 def test_group_message_only_acknowledges_current_bot_mention():
     current_bot = [{"key": "@_user_1", "id": {"open_id": "ou_current_bot"}, "name": "当前机器人"}]
     other_user = [{"key": "@_user_1", "id": {"open_id": "ou_other"}, "name": "其他人"}]
@@ -187,6 +222,84 @@ def test_platform_message_time_and_stale_guard_are_backward_compatible():
     assert feishu_app_bot.should_acknowledge_message(
         event_payload(create_time="2026-07-15T03:20:00Z"),
         received_at=received_at,
+    ) is False
+
+
+def test_delayed_xlsx_sent_inside_pending_window_is_allowed(tmp_path):
+    store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
+    feishu = FakeFeishu()
+    with store._connect() as connection:
+        connection.execute(
+            "INSERT INTO pending_uploads(chat_id,sender_id,created_at,expires_at) VALUES (?,?,?,?)",
+            (
+                "chat-1",
+                "user-1",
+                "2026-07-15T04:30:30+00:00",
+                "2026-07-15T04:31:30+00:00",
+            ),
+        )
+    payload = event_payload(
+        event_id="delayed-file",
+        message_id="delayed-file-message",
+        mentions=[],
+        create_time="2026-07-15T04:30:38.530Z",
+    )
+    envelope = feishu_app_bot.parse_message_envelope(payload)
+
+    assert feishu_app_bot.delayed_file_matches_pending_window(
+        envelope,
+        store,
+        received_at="2026-07-15T04:35:55+00:00",
+    ) is True
+    result = feishu_app_bot.accept_event(payload, store, feishu)
+    assert result["created"] is True
+
+
+def test_delayed_file_outside_original_window_remains_blocked(tmp_path):
+    store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
+    with store._connect() as connection:
+        connection.execute(
+            "INSERT INTO pending_uploads(chat_id,sender_id,created_at,expires_at) VALUES (?,?,?,?)",
+            (
+                "chat-1",
+                "user-1",
+                "2026-07-15T04:30:30+00:00",
+                "2026-07-15T04:31:30+00:00",
+            ),
+        )
+    envelope = feishu_app_bot.parse_message_envelope(event_payload(
+        mentions=[],
+        create_time="2026-07-15T04:31:31Z",
+    ))
+
+    assert feishu_app_bot.delayed_file_matches_pending_window(
+        envelope,
+        store,
+        received_at="2026-07-15T04:36:48+00:00",
+    ) is False
+
+
+def test_delayed_file_over_fifteen_minutes_remains_blocked(tmp_path):
+    store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
+    with store._connect() as connection:
+        connection.execute(
+            "INSERT INTO pending_uploads(chat_id,sender_id,created_at,expires_at) VALUES (?,?,?,?)",
+            (
+                "chat-1",
+                "user-1",
+                "2026-07-15T04:30:30+00:00",
+                "2026-07-15T04:31:30+00:00",
+            ),
+        )
+    envelope = feishu_app_bot.parse_message_envelope(event_payload(
+        mentions=[],
+        create_time="2026-07-15T04:30:38.530Z",
+    ))
+
+    assert feishu_app_bot.delayed_file_matches_pending_window(
+        envelope,
+        store,
+        received_at="2026-07-15T04:45:39+00:00",
     ) is False
 
 

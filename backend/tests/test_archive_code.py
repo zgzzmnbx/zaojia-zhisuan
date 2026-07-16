@@ -22,6 +22,7 @@ def test_archive_code_excludes_project_materials(tmp_path):
         "backend/app/main.py",
         "frontend/src/App.tsx",
         "docs/superpowers/plans/plan.md",
+        "deploy/systemd/feishu-api-base.conf",
         "00-比赛要求与目标/raw.docx",
         "01-weagent部分成果/old.zip",
         "03-知识库-二维数据库制作/db.xlsx",
@@ -57,6 +58,7 @@ def test_archive_code_excludes_project_materials(tmp_path):
     assert "backend/app/main.py" in names
     assert "frontend/src/App.tsx" in names
     assert "docs/superpowers/plans/plan.md" in names
+    assert "deploy/systemd/feishu-api-base.conf" in names
     assert "TASKS.md" in names
     assert "03-【匹配规则】-勘察测绘知识库-匹配规则提炼/【重要匹配规则】项目以及总体匹配规则介绍.md" in names
     assert "ARCHIVE_MANIFEST.json" in names

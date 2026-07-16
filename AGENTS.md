@@ -110,12 +110,12 @@
 - 云端第二层机器人可能由页面 API 拉起为 uvicorn 子进程，此时 `zaojiazhisuan-feishu-bot.service` 可显示 `inactive`，但真实 `feishu_bot_runner.py` 仍在运行。云端发布不得只看 systemd 状态；切换前同时核对真实进程数，停止主服务后确认 runner 归零，切换后由专用 systemd 单元接管，并验证服务 `active`、WeAct WebSocket 已连接且 runner 恰好一个。
 - 第一层 Webhook 与第二层企业应用机器人的运行秘密统一保存在 `Codex-Temp/runtime/feishu-robot-settings.json`，分别使用 `webhook` 和 `app_bot` 分区；新增机器人配置时只维护这个文件，旧版 `feishu-webhook-settings.json` / `feishu-app-settings.json` 仅用于自动迁移兼容，不再作为现行配置入口。
 - Windows 上不能用 `os.kill(pid, 0)` 判断长连接进程是否存在（会返回无效参数）；第二层机器人状态应使用 Windows 进程句柄检测，否则页面可能误报未运行并重复拉起实例。
-- 云端 FastAPI 固定监听 `1285`，而本机默认监听 `8000`；服务器第二层机器人 systemd 必须通过 `FEISHU_APP_BOT_API_BASE_URL=http://127.0.0.1:1285` 覆盖项目默认值，不能只手改发布目录里的 JSON，否则后续发布仍可能覆盖并导致任务处理、知识库问答报 `[Errno 111] Connection refused`。机器人运行器建立业务接收前必须通过专业服务健康预检。
+- 云端 FastAPI 固定监听 `1285`，而本机默认监听 `8000`；服务器第二层机器人 systemd 必须通过 `FEISHU_APP_BOT_API_BASE_URL=http://127.0.0.1:1285` 覆盖项目默认值，不能只手改发布目录里的 JSON，否则后续发布仍可能覆盖并导致任务处理、知识库问答报 `[Errno 111] Connection refused`。云端发布必须从仓库执行 `deploy/install_cloud_runtime_guard.sh`，重启后运行 `python tools/check_feishu_deployment.py --mode cloud --check-health`；任一服务缺少覆盖、状态异常或健康检查失败均不得判定上线成功。机器人运行器建立业务接收前必须通过专业服务健康预检。
 - 企业 WeAct 第二层机器人不能沿用 SDK 默认公网飞书域名；对应配置必须保存 `domain=https://open.weact.pipechina.com.cn`，并让 REST API 客户端和 WebSocket 客户端同时使用该域名。连接成功标志是进入 `wss://lark-frontier.weact.pipechina.com.cn/ws/v2`；省略域名会反复报 `1000040343: internal error`。
 - 企业 WeAct 第二层正式试点使用已完成群聊、单聊、消息事件和回复端到端验证的应用 A，App ID 为 `cli_a961a5cb3ab8d353`；曾使用的应用 B `cli_a961b94ee4b8d353` 只验证过 WebSocket 建连，不能作为已验证的消息处理配置。App Secret 仍只保存在 Git 忽略的 `Codex-Temp/runtime/feishu-robot-settings.json`，不得写入项目文档或代码仓库。
 - 第二层普通飞书与企业 WeAct 的预期 App ID / 域名必须集中登记在 `config/project-default-settings.json` 的 `feishuAppBot.expectedProfiles`；本地与云端读取同一登记并使用同一 WeAct App ID。页面启用、后端子进程拉起和独立运行器都必须拒绝与登记不一致的配置；不得为了临时建连绕过校验。更换正式应用时同步更新登记、回归测试和两端运行秘密，App Secret 仍不得进入默认配置或 Git。
 - 第二层机器人控制台不得直接回显 `runner.out.log` / `runner.err.log` 原文；SDK 连接 URL 含短期票据，只能解析并返回时间、状态和节点域名。当前试点经用户明确授权，业务消息日志可记录发送人名称与 ID、群名与会话 ID、消息正文和附件名；仍不得记录 App Secret、访问令牌、连接票据、文件 Key 或完整 WebSocket 地址。飞书长连接事件不提供发送者来源 IP，界面必须明确标注“平台未提供”，不得伪造。
-- 第二层机器人订阅“获取群组中所有消息”后会收到群内普通聊天；“了解”表情必须在业务分流前先校验消息范围，只允许机器人单聊或群聊明确 @机器人时发送，绝不能对群内普通消息或未 @ 的独立文件消息回应。
+- 第二层机器人订阅“获取群组中所有消息”后会收到群内普通聊天；“了解”表情必须在业务分流前先校验消息范围，只允许机器人单聊、群聊明确 @机器人，或同会话同发送人已开启收件窗口且命中原 1 分钟窗口的单个 `.xlsx` 文件消息发送。绝不能对群内普通消息、未开启收件窗口的独立文件或其他格式文件回应。
 - 普通飞书与企业 WeAct 的机器人提及文本不能只按固定 `@_user_` 清理；WeAct 实际事件可能使用 `@_user_1`、`@_user_2` 等编号化占位符。上传口令、`你好` 和知识库分流前必须统一正则剥离动态提及，并用真实事件形态做回归测试。
 - “消息存在 mentions”不等于“@了当前机器人”。第二层启动时必须从 `/bot/v3/info` 取得并缓存本机器人 Open ID，表情、上传、知识库和普通问答统一按 mentions 中的真实 Open ID 判断；身份未确认时群聊必须静默，不能退回“任意 @ 都响应”的宽松逻辑。
 - 飞书 / WeAct Python SDK 的长连接回调 `to_dict()` 在真实运行中可能直接返回事件正文，不一定存在外层 `event`；后续获取消息 ID、会话 ID 或发送人时必须复用 `parse_message_envelope`，不得再硬编码 `event.message` 层级。
@@ -123,4 +123,4 @@
 - 禁止向“[管勘智算]勘察测量投标限价智能体”群发送机器人测试消息；“智算测试”是当前唯一授权的真实机器人测试群，卡片、文字、附件和交互试验只允许投递到该群，找不到唯一同名群时不得发送。
 - 企业 WeAct 当前客户端不展示第二层机器人发送的 `schema 2.0` 卡片，会提示升级客户端；第二层应用消息必须使用经典卡片结构（顶层 `config/header/elements`），且不得发送 `update_multi=false`。
 - 第二层任务查询指令必须走确定性路由并按当前消息 `chat_id` 强制隔离；跨群、跨单聊和群与单聊之间统一返回未找到，不得暴露任务是否存在。历史成果重发只读取 `completed` 任务已保存的 Excel、Word 和经典完成卡片，不重新计算、不修改原任务状态。
-- 第二层长连接入站消息必须在表情、回复和业务分流前同时持久校验事件 ID 与消息 ID；平台创建时间可解析且比本机接收时间早超过 5 分钟时必须静默拦截，不得添加表情、回复文字或创建任务。控制台应记录消息 ID、平台创建时间和本机接收时间；平台未提供或无法解析时间时保持兼容处理，不得误伤历史飞书 / WeAct 事件形态。
+- 第二层长连接入站消息必须在表情、回复和业务分流前同时持久校验事件 ID 与消息 ID；平台创建时间可解析且比本机接收时间早超过 5 分钟时默认静默拦截，不得添加表情、回复文字或创建任务。唯一例外是企业 WeAct 延迟投递的单个 `.xlsx`：平台发送时间必须落在同会话、同发送人的原 1 分钟收件窗口内，且投递延迟不得超过 15 分钟；这只补偿平台延迟，不得延长用户可发送文件的窗口。控制台应记录消息 ID、平台创建时间和本机接收时间；平台未提供或无法解析时间时保持兼容处理，不得误伤历史飞书 / WeAct 事件形态。

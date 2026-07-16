@@ -18,6 +18,7 @@ INCLUDE_DIRS = (
     "backend",
     "frontend",
     "docs",
+    "deploy",
     "tools",
     "scripts",
     "src-tauri",
