@@ -41,12 +41,14 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.8.21";
+const APP_VERSION = "v5.9.0";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const KNOWLEDGE_QA_ENTRY_COUNT = 3922;
 const KNOWLEDGE_QA_SOURCE_COUNT = 17;
 const PRICE_KNOWLEDGE_ROW_COUNT = 560;
 const FORCE_KNOWLEDGE_PREFIXES = ["查库：", "查库:", "@知识库", "#知识库"] as const;
+const KNOWLEDGE_PROJECT_NAME_STORAGE_KEY = "zaojiazhisuan-knowledge-project-name";
+const KNOWLEDGE_PROJECT_KEY_STORAGE_KEY = "zaojiazhisuan-knowledge-project-key";
 const ROW_AI_CONTEXT_FIELD_GROUPS = [
   { label: "匹配状态", aliases: ["匹配状态"] },
   { label: "匹配说明", aliases: ["匹配说明", "填价说明", "匹配报告"] },
@@ -130,7 +132,7 @@ const EMPTY_ELEMENT_COLUMN = "空元素列";
 const OUTPUT_ROW_FILTER_STORAGE_KEY = "guankanzhisuan-output-row-filter-settings";
 const WELCOME_SCREEN_HIDDEN_STORAGE_KEY = "guankanzhisuan-welcome-screen-hidden";
 const WELCOME_SCREEN_VERSION_STORAGE_KEY = "guankanzhisuan-welcome-screen-version";
-const WELCOME_SCREEN_VERSION = "brand-v5.8.21";
+const WELCOME_SCREEN_VERSION = "brand-v5.9.0";
 const ZHISUAN_QUICK_SETTINGS_VERSION = 2;
 const LEFT_COLUMN_COLLAPSED_STORAGE_KEY = "guankanzhisuan-left-column-collapsed";
 type MappingField = (typeof MAPPING_FIELDS)[number];
@@ -433,6 +435,8 @@ type ChatMessage = {
   isTyping?: boolean;
   source?: "model" | "system" | "command" | "thinking";
   rowDetailContext?: RowAiContext;
+  knowledgeCandidate?: KnowledgeCandidateSeed;
+  projectMemories?: ProjectMemory[];
 };
 
 type ZhisuanCommand = "batch-match" | "experience-warning" | "risk-report" | "download-excel" | "download-word";
@@ -567,9 +571,80 @@ type KnowledgeSource = {
   module?: string;
 };
 
+type KnowledgeMemoryStatus = "candidate" | "pending" | "confirmed" | "rejected" | "revoked" | "suspected_stale";
+type ProjectMemory = {
+  id: string;
+  project_key: string;
+  project_name: string;
+  scope_type: "task" | "project";
+  task_id?: string | null;
+  job_id?: string | null;
+  title: string;
+  question: string;
+  conclusion: string;
+  conditions: string;
+  exceptions: string;
+  expires_at?: string | null;
+  source_type: string;
+  source_reference: string;
+  evidence_summary: string;
+  submitter: string;
+  confirmer?: string | null;
+  status: KnowledgeMemoryStatus;
+  version: number;
+  created_at: string;
+  updated_at: string;
+  confirmed_at?: string | null;
+  revoked_at?: string | null;
+  score?: number;
+};
+type KnowledgeCandidateSeed = {
+  title: string;
+  question: string;
+  conclusion: string;
+  sourceType: string;
+  sourceReference: string;
+  evidenceSummary: string;
+  jobId?: string;
+  taskId?: string;
+  sheetName?: string;
+  rowNumber?: number;
+};
+type KnowledgeCandidateDraft = {
+  id?: string;
+  projectName: string;
+  projectKey: string;
+  scopeType: "task" | "project";
+  taskId: string;
+  jobId: string;
+  title: string;
+  question: string;
+  conclusion: string;
+  conditions: string;
+  exceptions: string;
+  expiresAt: string;
+  sourceType: string;
+  sourceReference: string;
+  evidenceSummary: string;
+  submitter: string;
+};
+type KnowledgeAuditRecord = {
+  id: number;
+  action: string;
+  actor: string;
+  reason: string;
+  from_status?: string | null;
+  to_status?: string | null;
+  version: number;
+  created_at: string;
+};
+
 type KnowledgeAskResponse = {
   answer: string;
   sources: KnowledgeSource[];
+  project_memories?: ProjectMemory[];
+  project_key?: string | null;
+  memory_available?: boolean;
   evidence_found: boolean;
   forced_knowledge?: boolean;
   debug?: LlmDebugInfo | null;
@@ -1426,6 +1501,40 @@ function migrateUiText(key: string, value: string): string {
   return value;
 }
 
+function normalizeKnowledgeProjectKey(value: string) {
+  let result = "";
+  let pendingSeparator = false;
+  for (const character of value.trim().toLowerCase()) {
+    if (/[\p{L}\p{N}]/u.test(character)) {
+      if (pendingSeparator && result) result += "-";
+      result += character;
+      pendingSeparator = false;
+    } else {
+      pendingSeparator = true;
+    }
+  }
+  return result.replace(/^-+|-+$/g, "").slice(0, 120);
+}
+
+function readKnowledgeProjectStorage(key: string) {
+  try {
+    return window.localStorage.getItem(key) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function knowledgeStatusLabel(status: KnowledgeMemoryStatus) {
+  return {
+    candidate: "候选",
+    pending: "待确认",
+    confirmed: "已确认",
+    rejected: "已驳回",
+    revoked: "已撤销",
+    suspected_stale: "疑似失效",
+  }[status];
+}
+
 export function App() {
   if (window.location.pathname === "/v2-preview") {
     return <DaweibaLayoutV2 />;
@@ -1535,6 +1644,20 @@ function DaweibaApp() {
   const [isChatInputFocused, setIsChatInputFocused] = useState(false);
   const [avatarSuccessUntil, setAvatarSuccessUntil] = useState(0);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [knowledgeProjectName, setKnowledgeProjectName] = useState(() => readKnowledgeProjectStorage(KNOWLEDGE_PROJECT_NAME_STORAGE_KEY));
+  const [knowledgeProjectKey, setKnowledgeProjectKey] = useState(() => readKnowledgeProjectStorage(KNOWLEDGE_PROJECT_KEY_STORAGE_KEY));
+  const [knowledgeOperator, setKnowledgeOperator] = useState("本机试点用户");
+  const [knowledgeActorRole, setKnowledgeActorRole] = useState("project_owner");
+  const [knowledgeCandidateDraft, setKnowledgeCandidateDraft] = useState<KnowledgeCandidateDraft | null>(null);
+  const [isSavingKnowledgeCandidate, setIsSavingKnowledgeCandidate] = useState(false);
+  const [isKnowledgeMemoryOpen, setIsKnowledgeMemoryOpen] = useState(false);
+  const [knowledgeMemoryItems, setKnowledgeMemoryItems] = useState<ProjectMemory[]>([]);
+  const [knowledgeMemoryStatus, setKnowledgeMemoryStatus] = useState<KnowledgeMemoryStatus | "all">("all");
+  const [knowledgeMemoryQuery, setKnowledgeMemoryQuery] = useState("");
+  const [selectedKnowledgeMemory, setSelectedKnowledgeMemory] = useState<ProjectMemory | null>(null);
+  const [knowledgeMemoryAudit, setKnowledgeMemoryAudit] = useState<KnowledgeAuditRecord[]>([]);
+  const [knowledgeTransitionReason, setKnowledgeTransitionReason] = useState("");
+  const [isKnowledgeMemoryLoading, setIsKnowledgeMemoryLoading] = useState(false);
   const [zhisuanWindowDefaults, setZhisuanWindowDefaults] = useState<ZhisuanWindowSettings>(normalizeZhisuanWindowSettings);
   const [zhisuanChatHeight, setZhisuanChatHeight] = useState(DEFAULT_ZHISUAN_WINDOW_SETTINGS.chatHeight);
   const [zhisuanChatHeightDraft, setZhisuanChatHeightDraft] = useState(String(DEFAULT_ZHISUAN_WINDOW_SETTINGS.chatHeight));
@@ -1632,6 +1755,30 @@ function DaweibaApp() {
     setReportPreviewUpdateMessage("");
     setReportPreviewStatus("idle");
   }, [result?.job_id]);
+
+  useEffect(() => {
+    try {
+      if (knowledgeProjectName) {
+        window.localStorage.setItem(KNOWLEDGE_PROJECT_NAME_STORAGE_KEY, knowledgeProjectName);
+      } else {
+        window.localStorage.removeItem(KNOWLEDGE_PROJECT_NAME_STORAGE_KEY);
+      }
+      if (knowledgeProjectKey) {
+        window.localStorage.setItem(KNOWLEDGE_PROJECT_KEY_STORAGE_KEY, knowledgeProjectKey);
+      } else {
+        window.localStorage.removeItem(KNOWLEDGE_PROJECT_KEY_STORAGE_KEY);
+      }
+    } catch {
+      // Local storage is only a convenience for the active project scope.
+    }
+  }, [knowledgeProjectKey, knowledgeProjectName]);
+
+  useEffect(() => {
+    if (!file || knowledgeProjectName || knowledgeProjectKey) return;
+    const projectName = file.name.replace(/\.[^.]+$/, "").trim();
+    setKnowledgeProjectName(projectName);
+    setKnowledgeProjectKey(normalizeKnowledgeProjectKey(projectName));
+  }, [file, knowledgeProjectKey, knowledgeProjectName]);
 
   useEffect(() => {
     if (reportPreviewStatus === "ready") {
@@ -2269,7 +2416,12 @@ function DaweibaApp() {
   function appendZhisuanMessage(
     content: string,
     source: ChatMessage["source"] = "system",
-    options: { typing?: boolean; rowDetailContext?: RowAiContext } = {},
+    options: {
+      typing?: boolean;
+      rowDetailContext?: RowAiContext;
+      knowledgeCandidate?: KnowledgeCandidateSeed;
+      projectMemories?: ProjectMemory[];
+    } = {},
   ) {
     const id = makeZhisuanMessageId();
     const shouldType = options.typing ?? true;
@@ -2284,6 +2436,8 @@ function DaweibaApp() {
         isTyping: shouldType,
         source,
         rowDetailContext: options.rowDetailContext,
+        knowledgeCandidate: options.knowledgeCandidate,
+        projectMemories: options.projectMemories,
       },
     ]);
     return id;
@@ -2293,7 +2447,12 @@ function DaweibaApp() {
     id: string,
     content: string,
     source: ChatMessage["source"] = "model",
-    options: { typing?: boolean; rowDetailContext?: RowAiContext } = {},
+    options: {
+      typing?: boolean;
+      rowDetailContext?: RowAiContext;
+      knowledgeCandidate?: KnowledgeCandidateSeed;
+      projectMemories?: ProjectMemory[];
+    } = {},
   ) {
     const shouldType = options.typing ?? true;
     setChatMessages((current) =>
@@ -2306,6 +2465,8 @@ function DaweibaApp() {
               isTyping: shouldType,
               source,
               rowDetailContext: options.rowDetailContext ?? message.rowDetailContext,
+              knowledgeCandidate: options.knowledgeCandidate ?? message.knowledgeCandidate,
+              projectMemories: options.projectMemories ?? message.projectMemories,
             }
           : message,
       ),
@@ -2460,26 +2621,255 @@ function DaweibaApp() {
 
   function formatKnowledgeAnswer(payload: KnowledgeAskResponse, options: { forcedKnowledge?: boolean } = {}) {
     const forcedKnowledge = options.forcedKnowledge || Boolean(payload.forced_knowledge);
+    const projectMemories = payload.project_memories ?? [];
     const knowledgeModeLine = forcedKnowledge
       ? "已调用知识库：本次回答先检索本地规则、知识库和当前行上下文。"
       : "";
-    if (!payload.evidence_found || payload.sources.length === 0) {
-      return [knowledgeModeLine, payload.answer].filter(Boolean).join("\n\n");
+    if (!payload.evidence_found) {
+      return [
+        knowledgeModeLine,
+        payload.memory_available === false ? "项目知识记忆暂不可用，已自动降级到现有知识库问答。" : "",
+        payload.answer,
+      ].filter(Boolean).join("\n\n");
     }
     const sourceLines = payload.sources.slice(0, 5).map((source, index) => {
       const title = source.title_path ? ` / ${source.title_path}` : "";
       return `${index + 1}. ${source.source_file}${title}`;
     });
+    const memoryLines = projectMemories.slice(0, 5).map((memory, index) => (
+      `${index + 1}. ${memory.title}｜项目：${memory.project_name}｜确认人：${memory.confirmer || "未记录"}｜确认时间：${memory.confirmed_at || "未记录"}｜适用条件：${memory.conditions || "未填写"}｜来源：${memory.source_reference}`
+    ));
     const hasSourceSection = payload.answer.includes("依据来源");
+    const hasFormalSection = payload.answer.includes("正式依据");
     const hasBoundaryTip = payload.answer.includes("不改变程序填价结果") || payload.answer.includes("不改变填价结果");
     return [
       knowledgeModeLine,
       payload.answer.trim(),
-      hasSourceSection ? "" : `依据来源：\n${sourceLines.join("\n")}`,
+      sourceLines.length === 0 || hasSourceSection || hasFormalSection ? "" : `正式依据：\n${sourceLines.join("\n")}`,
+      memoryLines.length === 0 ? "" : `项目记忆详情：\n${memoryLines.join("\n")}`,
       hasBoundaryTip ? "" : "提示：本回答只解释依据，不改变程序填价结果。",
     ]
       .filter(Boolean)
       .join("\n\n");
+  }
+
+  function defaultKnowledgeProjectName() {
+    if (knowledgeProjectName) return knowledgeProjectName;
+    if (file?.name) return file.name.replace(/\.[^.]+$/, "").trim();
+    if (isDemoMode) return "造价智算演示项目";
+    return "";
+  }
+
+  function openKnowledgeCandidate(seed: KnowledgeCandidateSeed) {
+    const projectName = defaultKnowledgeProjectName();
+    setKnowledgeCandidateDraft({
+      projectName,
+      projectKey: knowledgeProjectKey || normalizeKnowledgeProjectKey(projectName),
+      scopeType: seed.taskId || seed.jobId ? "task" : "project",
+      taskId: seed.taskId ?? "",
+      jobId: seed.jobId ?? result?.job_id ?? "",
+      title: seed.title,
+      question: seed.question,
+      conclusion: seed.conclusion,
+      conditions: "",
+      exceptions: "",
+      expiresAt: "",
+      sourceType: seed.sourceType,
+      sourceReference: seed.sourceReference,
+      evidenceSummary: seed.evidenceSummary,
+      submitter: knowledgeOperator,
+    });
+  }
+
+  function editKnowledgeMemory(item: ProjectMemory) {
+    setKnowledgeCandidateDraft({
+      id: item.id,
+      projectName: item.project_name,
+      projectKey: item.project_key,
+      scopeType: item.scope_type,
+      taskId: item.task_id ?? "",
+      jobId: item.job_id ?? "",
+      title: item.title,
+      question: item.question,
+      conclusion: item.conclusion,
+      conditions: item.conditions,
+      exceptions: item.exceptions,
+      expiresAt: item.expires_at?.slice(0, 16) ?? "",
+      sourceType: item.source_type,
+      sourceReference: item.source_reference,
+      evidenceSummary: item.evidence_summary,
+      submitter: item.submitter,
+    });
+  }
+
+  async function saveKnowledgeCandidate() {
+    if (!knowledgeCandidateDraft) return;
+    const projectName = knowledgeCandidateDraft.projectName.trim();
+    const projectKey = normalizeKnowledgeProjectKey(knowledgeCandidateDraft.projectKey || projectName);
+    if (!projectName || !projectKey) {
+      setError("保存知识候选前必须确认项目名称和项目范围");
+      return;
+    }
+    setIsSavingKnowledgeCandidate(true);
+    setError("");
+    const payload = {
+      project_name: projectName,
+      project_key: projectKey,
+      scope_type: knowledgeCandidateDraft.scopeType,
+      task_id: knowledgeCandidateDraft.taskId || null,
+      job_id: knowledgeCandidateDraft.jobId || null,
+      title: knowledgeCandidateDraft.title,
+      question: knowledgeCandidateDraft.question,
+      conclusion: knowledgeCandidateDraft.conclusion,
+      conditions: knowledgeCandidateDraft.conditions,
+      exceptions: knowledgeCandidateDraft.exceptions,
+      expires_at: knowledgeCandidateDraft.expiresAt || null,
+      source_type: knowledgeCandidateDraft.sourceType,
+      source_reference: knowledgeCandidateDraft.sourceReference,
+      evidence_summary: knowledgeCandidateDraft.evidenceSummary,
+      submitter: knowledgeCandidateDraft.submitter,
+      actor: knowledgeOperator,
+      reason: knowledgeCandidateDraft.id ? "网页编辑知识候选" : "网页创建知识候选",
+    };
+    try {
+      const response = await fetch(
+        knowledgeCandidateDraft.id
+          ? `${API_BASE}/api/knowledge-memory/items/${encodeURIComponent(knowledgeCandidateDraft.id)}`
+          : `${API_BASE}/api/knowledge-memory/candidates`,
+        {
+          method: knowledgeCandidateDraft.id ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+      );
+      if (!response.ok) {
+        const errorPayload = await response.json().catch(() => null);
+        throw new Error(errorPayload?.detail ?? `保存知识候选失败：${response.status}`);
+      }
+      const responsePayload = (await response.json()) as { item: ProjectMemory };
+      setKnowledgeProjectName(responsePayload.item.project_name);
+      setKnowledgeProjectKey(responsePayload.item.project_key);
+      setKnowledgeCandidateDraft(null);
+      appendZhisuanMessage(
+        `${knowledgeCandidateDraft.id ? "知识候选已更新" : "已保存为知识候选"}：${responsePayload.item.title}。当前状态为“${knowledgeStatusLabel(responsePayload.item.status)}”，未经人工确认不会参与正式问答。`,
+        "command",
+        { typing: false },
+      );
+      if (isKnowledgeMemoryOpen) {
+        await loadKnowledgeMemoryItems(responsePayload.item.project_key);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "保存知识候选失败");
+    } finally {
+      setIsSavingKnowledgeCandidate(false);
+    }
+  }
+
+  function applyKnowledgeProjectScope() {
+    const projectName = knowledgeProjectName.trim();
+    const projectKey = normalizeKnowledgeProjectKey(knowledgeProjectKey || projectName);
+    if (!projectName || !projectKey) {
+      setError("请填写项目名称或 project_key");
+      return "";
+    }
+    setKnowledgeProjectName(projectName);
+    setKnowledgeProjectKey(projectKey);
+    return projectKey;
+  }
+
+  async function loadKnowledgeMemoryItems(projectKey = knowledgeProjectKey) {
+    const normalizedKey = normalizeKnowledgeProjectKey(projectKey);
+    if (!normalizedKey) {
+      setKnowledgeMemoryItems([]);
+      setSelectedKnowledgeMemory(null);
+      setKnowledgeMemoryAudit([]);
+      return;
+    }
+    setIsKnowledgeMemoryLoading(true);
+    setError("");
+    try {
+      const params = new URLSearchParams({ project_key: normalizedKey });
+      if (knowledgeMemoryStatus !== "all") params.set("status", knowledgeMemoryStatus);
+      if (knowledgeMemoryQuery.trim()) params.set("query", knowledgeMemoryQuery.trim());
+      const response = await fetch(`${API_BASE}/api/knowledge-memory/items?${params.toString()}`);
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.detail ?? `读取知识记忆失败：${response.status}`);
+      }
+      const payload = (await response.json()) as { items: ProjectMemory[] };
+      setKnowledgeMemoryItems(payload.items);
+      if (selectedKnowledgeMemory) {
+        setSelectedKnowledgeMemory(payload.items.find((item) => item.id === selectedKnowledgeMemory.id) ?? null);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "读取知识记忆失败");
+    } finally {
+      setIsKnowledgeMemoryLoading(false);
+    }
+  }
+
+  async function selectKnowledgeMemory(item: ProjectMemory) {
+    setSelectedKnowledgeMemory(item);
+    setKnowledgeTransitionReason("");
+    try {
+      const params = new URLSearchParams({ project_key: item.project_key });
+      const response = await fetch(
+        `${API_BASE}/api/knowledge-memory/items/${encodeURIComponent(item.id)}/audit?${params.toString()}`,
+      );
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.detail ?? `读取审计记录失败：${response.status}`);
+      }
+      const payload = (await response.json()) as { audit: KnowledgeAuditRecord[] };
+      setKnowledgeMemoryAudit(payload.audit);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "读取审计记录失败");
+      setKnowledgeMemoryAudit([]);
+    }
+  }
+
+  async function openKnowledgeMemory() {
+    setIsKnowledgeMemoryOpen(true);
+    const projectKey = normalizeKnowledgeProjectKey(knowledgeProjectKey || knowledgeProjectName);
+    if (projectKey) await loadKnowledgeMemoryItems(projectKey);
+  }
+
+  async function transitionKnowledgeMemory(action: "submit" | "confirm" | "reject" | "revoke" | "mark-stale") {
+    if (!selectedKnowledgeMemory) return;
+    if (["reject", "revoke", "mark-stale"].includes(action) && !knowledgeTransitionReason.trim()) {
+      setError("驳回、撤销或标记疑似失效必须填写原因");
+      return;
+    }
+    setIsKnowledgeMemoryLoading(true);
+    setError("");
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/knowledge-memory/items/${encodeURIComponent(selectedKnowledgeMemory.id)}/${action}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            project_key: selectedKnowledgeMemory.project_key,
+            actor: knowledgeOperator,
+            actor_role: knowledgeActorRole,
+            reason: knowledgeTransitionReason,
+          }),
+        },
+      );
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.detail ?? `知识状态更新失败：${response.status}`);
+      }
+      const payload = (await response.json()) as { item: ProjectMemory };
+      setSelectedKnowledgeMemory(payload.item);
+      setKnowledgeTransitionReason("");
+      await loadKnowledgeMemoryItems(payload.item.project_key);
+      await selectKnowledgeMemory(payload.item);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "知识状态更新失败");
+    } finally {
+      setIsKnowledgeMemoryLoading(false);
+    }
   }
 
   async function handleZhisuanCommand(command: ZhisuanCommand) {
@@ -4977,6 +5367,7 @@ function DaweibaApp() {
           base_url: llmSettings.baseUrl,
           limit: 8,
           force_knowledge: Boolean(options.forcedKnowledge),
+          project_key: knowledgeProjectKey || null,
         }),
       });
       if (!response.ok) {
@@ -4985,8 +5376,34 @@ function DaweibaApp() {
       }
       const payload = (await response.json()) as KnowledgeAskResponse;
       const answer = formatKnowledgeAnswer(payload, { forcedKnowledge: options.forcedKnowledge });
+      const projectMemories = payload.project_memories ?? [];
+      const sourceReferences = [
+        ...payload.sources.map((source) => `${source.source_file}${source.title_path ? ` / ${source.title_path}` : ""}`),
+        ...projectMemories.map((memory) => `项目记忆 ${memory.id} / ${memory.source_reference}`),
+      ];
+      const evidenceSummary = [
+        ...payload.sources.slice(0, 3).map((source) => source.snippet),
+        ...projectMemories.slice(0, 3).map((memory) => memory.conclusion),
+      ].join("\n");
+      const rowReference = options.rowDetailContext
+        ? `${options.rowDetailContext.sheetName} / 第${options.rowDetailContext.rowNumber}行`
+        : "";
       replaceZhisuanMessage(thinking, answer, payload.evidence_found ? "model" : "command", {
         rowDetailContext: options.rowDetailContext,
+        projectMemories,
+        knowledgeCandidate: payload.evidence_found
+          ? {
+              title: question.length > 30 ? `${question.slice(0, 30)}…` : question,
+              question,
+              conclusion: payload.answer,
+              sourceType: options.rowDetailContext ? "row_review" : "knowledge_answer",
+              sourceReference: [rowReference, ...sourceReferences].filter(Boolean).join("\n"),
+              evidenceSummary,
+              jobId: result?.job_id,
+              sheetName: options.rowDetailContext?.sheetName,
+              rowNumber: options.rowDetailContext?.rowNumber,
+            }
+          : undefined,
       });
       recordLlmDebug(sourceLabel, payload.debug ?? undefined);
       return answer;
@@ -8126,6 +8543,9 @@ function DaweibaApp() {
                   </div>
                 </div>
                 <div className="ai-dock-actions">
+                  <button className="icon-button" type="button" aria-label="知识记忆" title="知识记忆" onClick={() => void openKnowledgeMemory()}>
+                    <Database size={18} />
+                  </button>
                   <button className="icon-button" type="button" aria-label="大模型设置" onClick={() => setIsLlmSettingsOpen(true)}>
                     <Settings size={18} />
                   </button>
@@ -8167,6 +8587,27 @@ function DaweibaApp() {
                             <div className="chat-message-body">
                               {renderZhisuanMessageText(message.role === "assistant" ? (message.displayContent ?? message.content) : message.content)}
                               {message.role === "assistant" && message.isTyping && <i className="typing-caret" />}
+                              {message.role === "assistant" && !message.isTyping && (message.projectMemories?.length ?? 0) > 0 && (
+                                <div className="knowledge-memory-hit-list">
+                                  {message.projectMemories?.map((memory) => (
+                                    <button
+                                      key={memory.id}
+                                      type="button"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        setKnowledgeProjectName(memory.project_name);
+                                        setKnowledgeProjectKey(memory.project_key);
+                                        setIsKnowledgeMemoryOpen(true);
+                                        void selectKnowledgeMemory(memory);
+                                      }}
+                                    >
+                                      <span>项目记忆</span>
+                                      <strong>{memory.title}</strong>
+                                      <small>{memory.project_name} · {memory.confirmer || "未记录确认人"}</small>
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
                               {message.role === "assistant" && !message.isTyping && message.rowDetailContext && (
                                 <div className="zhisuan-message-actions">
                                   <button
@@ -8179,6 +8620,21 @@ function DaweibaApp() {
                                   >
                                     <BookOpen size={14} />
                                     详细情况
+                                  </button>
+                                </div>
+                              )}
+                              {message.role === "assistant" && !message.isTyping && message.knowledgeCandidate && (
+                                <div className="zhisuan-message-actions">
+                                  <button
+                                    className="zhisuan-action-button secondary"
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      openKnowledgeCandidate(message.knowledgeCandidate!);
+                                    }}
+                                  >
+                                    <Database size={14} />
+                                    保存为知识候选
                                   </button>
                                 </div>
                               )}
@@ -9143,6 +9599,263 @@ function DaweibaApp() {
             {isUiPickMode ? "点击页面中带高亮的区域即可选中。" : `设置文件：${uiPreferencesPath || "Codex-Temp/runtime/ui-preferences-【codex】.json"}`}
           </p>
         </aside>
+      )}
+
+      {knowledgeCandidateDraft && (
+        <div className="modal-backdrop knowledge-memory-backdrop" role="presentation" onClick={() => setKnowledgeCandidateDraft(null)}>
+          <div className="settings-modal knowledge-candidate-modal" role="dialog" aria-modal="true" aria-label="保存为知识候选" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-title">
+              <span>
+                <strong>{knowledgeCandidateDraft.id ? "编辑知识候选" : "保存为知识候选"}</strong>
+                <small>保存前请确认内容、来源和项目范围；候选未经确认不会参与正式问答。</small>
+              </span>
+              <button type="button" onClick={() => setKnowledgeCandidateDraft(null)}>关闭</button>
+            </div>
+            <div className="knowledge-memory-form-grid">
+              <label>
+                <span>项目名称</span>
+                <input
+                  value={knowledgeCandidateDraft.projectName}
+                  onChange={(event) => setKnowledgeCandidateDraft((current) => current ? ({
+                    ...current,
+                    projectName: event.target.value,
+                    projectKey: current.projectKey || normalizeKnowledgeProjectKey(event.target.value),
+                  }) : current)}
+                />
+              </label>
+              <label>
+                <span>project_key</span>
+                <input
+                  value={knowledgeCandidateDraft.projectKey}
+                  onChange={(event) => setKnowledgeCandidateDraft((current) => current ? ({ ...current, projectKey: event.target.value }) : current)}
+                />
+              </label>
+              <label>
+                <span>适用范围</span>
+                <select
+                  value={knowledgeCandidateDraft.scopeType}
+                  onChange={(event) => setKnowledgeCandidateDraft((current) => current ? ({ ...current, scopeType: event.target.value as "task" | "project" }) : current)}
+                >
+                  <option value="project">当前项目</option>
+                  <option value="task">当前任务</option>
+                </select>
+              </label>
+              <label>
+                <span>提交人</span>
+                <input
+                  value={knowledgeCandidateDraft.submitter}
+                  onChange={(event) => setKnowledgeCandidateDraft((current) => current ? ({ ...current, submitter: event.target.value }) : current)}
+                />
+              </label>
+              <label>
+                <span>job_id</span>
+                <input
+                  value={knowledgeCandidateDraft.jobId}
+                  onChange={(event) => setKnowledgeCandidateDraft((current) => current ? ({ ...current, jobId: event.target.value }) : current)}
+                />
+              </label>
+              <label>
+                <span>失效时间（可选）</span>
+                <input
+                  type="datetime-local"
+                  value={knowledgeCandidateDraft.expiresAt}
+                  onChange={(event) => setKnowledgeCandidateDraft((current) => current ? ({ ...current, expiresAt: event.target.value }) : current)}
+                />
+              </label>
+            </div>
+            <label>
+              <span>标题</span>
+              <input
+                value={knowledgeCandidateDraft.title}
+                onChange={(event) => setKnowledgeCandidateDraft((current) => current ? ({ ...current, title: event.target.value }) : current)}
+              />
+            </label>
+            <label>
+              <span>原问题</span>
+              <textarea
+                value={knowledgeCandidateDraft.question}
+                onChange={(event) => setKnowledgeCandidateDraft((current) => current ? ({ ...current, question: event.target.value }) : current)}
+              />
+            </label>
+            <label>
+              <span>待确认结论</span>
+              <textarea
+                value={knowledgeCandidateDraft.conclusion}
+                onChange={(event) => setKnowledgeCandidateDraft((current) => current ? ({ ...current, conclusion: event.target.value }) : current)}
+              />
+            </label>
+            <div className="knowledge-memory-form-grid">
+              <label>
+                <span>适用条件</span>
+                <textarea
+                  value={knowledgeCandidateDraft.conditions}
+                  onChange={(event) => setKnowledgeCandidateDraft((current) => current ? ({ ...current, conditions: event.target.value }) : current)}
+                />
+              </label>
+              <label>
+                <span>例外情况</span>
+                <textarea
+                  value={knowledgeCandidateDraft.exceptions}
+                  onChange={(event) => setKnowledgeCandidateDraft((current) => current ? ({ ...current, exceptions: event.target.value }) : current)}
+                />
+              </label>
+            </div>
+            <label>
+              <span>来源定位</span>
+              <textarea
+                value={knowledgeCandidateDraft.sourceReference}
+                onChange={(event) => setKnowledgeCandidateDraft((current) => current ? ({ ...current, sourceReference: event.target.value }) : current)}
+              />
+            </label>
+            <label>
+              <span>证据摘要</span>
+              <textarea
+                value={knowledgeCandidateDraft.evidenceSummary}
+                onChange={(event) => setKnowledgeCandidateDraft((current) => current ? ({ ...current, evidenceSummary: event.target.value }) : current)}
+              />
+            </label>
+            <div className="knowledge-memory-modal-actions">
+              <button className="ghost-button" type="button" onClick={() => setKnowledgeCandidateDraft(null)}>取消</button>
+              <button className="primary-button" type="button" disabled={isSavingKnowledgeCandidate} onClick={() => void saveKnowledgeCandidate()}>
+                {isSavingKnowledgeCandidate ? <Loader2 className="spin" size={16} /> : <Database size={16} />}
+                {knowledgeCandidateDraft.id ? "保存修改" : "创建候选"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isKnowledgeMemoryOpen && (
+        <div className="modal-backdrop knowledge-memory-backdrop" role="presentation" onClick={() => setIsKnowledgeMemoryOpen(false)}>
+          <div className="settings-modal knowledge-memory-modal" role="dialog" aria-modal="true" aria-label="项目知识记忆" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-title">
+              <span>
+                <strong>项目知识记忆</strong>
+                <small>本地试点身份与审计能力；不等于企业级身份认证，不会修改正式知识库和计价规则。</small>
+              </span>
+              <button type="button" onClick={() => setIsKnowledgeMemoryOpen(false)}>关闭</button>
+            </div>
+            <div className="knowledge-memory-scope-grid">
+              <label>
+                <span>当前项目名称</span>
+                <input value={knowledgeProjectName} onChange={(event) => setKnowledgeProjectName(event.target.value)} />
+              </label>
+              <label>
+                <span>project_key</span>
+                <input value={knowledgeProjectKey} onChange={(event) => setKnowledgeProjectKey(event.target.value)} />
+              </label>
+              <label>
+                <span>操作人</span>
+                <input value={knowledgeOperator} onChange={(event) => setKnowledgeOperator(event.target.value)} />
+              </label>
+              <label>
+                <span>本地试点确认角色</span>
+                <select value={knowledgeActorRole} onChange={(event) => setKnowledgeActorRole(event.target.value)}>
+                  <option value="project_owner">项目负责人</option>
+                  <option value="reviewer">复核人</option>
+                  <option value="rule_maintainer">规则维护人</option>
+                  <option value="viewer">普通查看人</option>
+                </select>
+              </label>
+            </div>
+            <div className="knowledge-memory-toolbar">
+              <select value={knowledgeMemoryStatus} onChange={(event) => setKnowledgeMemoryStatus(event.target.value as KnowledgeMemoryStatus | "all")}>
+                <option value="all">全部状态</option>
+                <option value="confirmed">已确认</option>
+                <option value="pending">待确认</option>
+                <option value="candidate">候选</option>
+                <option value="suspected_stale">疑似失效</option>
+                <option value="rejected">已驳回</option>
+                <option value="revoked">已撤销</option>
+              </select>
+              <input placeholder="关键词查询" value={knowledgeMemoryQuery} onChange={(event) => setKnowledgeMemoryQuery(event.target.value)} />
+              <button className="ghost-button" type="button" disabled={isKnowledgeMemoryLoading} onClick={() => {
+                const projectKey = applyKnowledgeProjectScope();
+                if (projectKey) void loadKnowledgeMemoryItems(projectKey);
+              }}>
+                <RefreshCw className={isKnowledgeMemoryLoading ? "spin" : ""} size={16} />
+                查询
+              </button>
+            </div>
+            <div className="knowledge-memory-workspace">
+              <div className="knowledge-memory-list" aria-label="知识记忆列表">
+                {knowledgeMemoryItems.length === 0 ? (
+                  <div className="knowledge-memory-empty">当前项目范围暂无匹配知识。</div>
+                ) : knowledgeMemoryItems.map((item) => (
+                  <button
+                    className={selectedKnowledgeMemory?.id === item.id ? "is-active" : ""}
+                    key={item.id}
+                    type="button"
+                    onClick={() => void selectKnowledgeMemory(item)}
+                  >
+                    <span className={`knowledge-memory-status is-${item.status}`}>{knowledgeStatusLabel(item.status)}</span>
+                    <strong>{item.title}</strong>
+                    <small>v{item.version} · {item.submitter} · {item.updated_at.replace("T", " ")}</small>
+                  </button>
+                ))}
+              </div>
+              <div className="knowledge-memory-detail">
+                {!selectedKnowledgeMemory ? (
+                  <div className="knowledge-memory-empty">选择一条知识查看详情、来源和审计记录。</div>
+                ) : (
+                  <>
+                    <div className="knowledge-memory-detail-head">
+                      <span className={`knowledge-memory-status is-${selectedKnowledgeMemory.status}`}>{knowledgeStatusLabel(selectedKnowledgeMemory.status)}</span>
+                      <strong>{selectedKnowledgeMemory.title}</strong>
+                      <small>{selectedKnowledgeMemory.id} · v{selectedKnowledgeMemory.version}</small>
+                    </div>
+                    <dl>
+                      <div><dt>所属项目</dt><dd>{selectedKnowledgeMemory.project_name}（{selectedKnowledgeMemory.project_key}）</dd></div>
+                      <div><dt>原问题</dt><dd>{selectedKnowledgeMemory.question}</dd></div>
+                      <div><dt>确认结论</dt><dd>{selectedKnowledgeMemory.conclusion}</dd></div>
+                      <div><dt>适用条件</dt><dd>{selectedKnowledgeMemory.conditions || "未填写"}</dd></div>
+                      <div><dt>例外情况</dt><dd>{selectedKnowledgeMemory.exceptions || "未填写"}</dd></div>
+                      <div><dt>来源</dt><dd>{selectedKnowledgeMemory.source_reference}</dd></div>
+                      <div><dt>提交 / 确认</dt><dd>{selectedKnowledgeMemory.submitter} / {selectedKnowledgeMemory.confirmer || "尚未确认"}</dd></div>
+                    </dl>
+                    <label>
+                      <span>状态变更原因</span>
+                      <textarea value={knowledgeTransitionReason} onChange={(event) => setKnowledgeTransitionReason(event.target.value)} placeholder="驳回、撤销或标记疑似失效时必须填写" />
+                    </label>
+                    <div className="knowledge-memory-detail-actions">
+                      {["candidate", "pending"].includes(selectedKnowledgeMemory.status) && (
+                        <button className="ghost-button" type="button" onClick={() => editKnowledgeMemory(selectedKnowledgeMemory)}>编辑候选</button>
+                      )}
+                      {selectedKnowledgeMemory.status === "candidate" && (
+                        <button className="primary-button" type="button" onClick={() => void transitionKnowledgeMemory("submit")}>提交确认</button>
+                      )}
+                      {selectedKnowledgeMemory.status === "pending" && (
+                        <button className="primary-button" type="button" onClick={() => void transitionKnowledgeMemory("confirm")}>确认</button>
+                      )}
+                      {["candidate", "pending"].includes(selectedKnowledgeMemory.status) && (
+                        <button className="ghost-button danger" type="button" onClick={() => void transitionKnowledgeMemory("reject")}>驳回</button>
+                      )}
+                      {selectedKnowledgeMemory.status === "confirmed" && (
+                        <>
+                          <button className="ghost-button danger" type="button" onClick={() => void transitionKnowledgeMemory("mark-stale")}>标记疑似失效</button>
+                          <button className="ghost-button danger" type="button" onClick={() => void transitionKnowledgeMemory("revoke")}>撤销</button>
+                        </>
+                      )}
+                      {selectedKnowledgeMemory.status === "suspected_stale" && (
+                        <button className="ghost-button danger" type="button" onClick={() => void transitionKnowledgeMemory("revoke")}>撤销</button>
+                      )}
+                    </div>
+                    <div className="knowledge-memory-audit">
+                      <strong>审计记录</strong>
+                      {knowledgeMemoryAudit.map((record) => (
+                        <div key={record.id}>
+                          <span>{record.created_at.replace("T", " ")}</span>
+                          <b>{record.actor} · {record.action}</b>
+                          <small>{record.reason || `${record.from_status || "无"} → ${record.to_status || "无"}`}</small>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {isLlmSettingsOpen && (

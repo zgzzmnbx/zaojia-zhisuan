@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 from threading import Lock
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -33,6 +34,15 @@ from .knowledge_qa import (
     is_knowledge_question,
     search_knowledge,
     strip_force_knowledge_prefix,
+)
+from .knowledge_memory import (
+    KnowledgeMemoryConflict,
+    KnowledgeMemoryError,
+    KnowledgeMemoryNotFound,
+    KnowledgeMemoryPermissionError,
+    KnowledgeMemoryStore,
+    normalize_project_key,
+    search_confirmed_project_memory,
 )
 from .experience_warning import (
     DEFAULT_SELECTED_EXPERIENCE_FIELDS,
@@ -89,6 +99,7 @@ from .paths import (
     DEFAULT_EXPERIENCE_WARNING_SETTINGS_PATH,
     DEFAULT_INPUT_FIELD_PREFERENCES_PATH,
     DEFAULT_KB_PATH,
+    DEFAULT_KNOWLEDGE_MEMORY_DB_PATH,
     DEFAULT_PREVIEW_COLUMN_PREFERENCES_PATH,
     DEFAULT_UI_PREFERENCES_PATH,
     DEFAULT_WORKLOAD_FIELD_PREFERENCES_PATH,
@@ -101,7 +112,7 @@ from .paths import (
 from .report import append_risk_report, write_report
 
 
-APP_VERSION = "v5.8.21"
+APP_VERSION = "v5.9.0"
 OUTPUT_FILE_PREFIX = "【输出】"
 TEMP_FILE_PREFIX = "【临时】"
 PROCESS_STATE_FILENAME = "process-state.json"
@@ -1460,13 +1471,22 @@ async def knowledge_search(payload: dict[str, Any] = Body(...)) -> dict[str, obj
     limit = _parse_knowledge_limit(payload.get("limit"))
     row_context = _parse_row_context(payload.get("row_context"))
     results = search_knowledge(question, row_context=row_context, limit=limit)
+    project_key = normalize_project_key(payload.get("project_key"))
+    project_memories, memory_available = _safe_search_project_memories(
+        question,
+        project_key,
+        limit=limit,
+    )
     return {
         "query": question,
+        "project_key": project_key or None,
         "context_type": str(payload.get("context_type") or "general"),
         "knowledge_question": is_knowledge_question(question),
         "forced_knowledge": force_knowledge,
-        "evidence_found": bool(results),
+        "evidence_found": bool(results or project_memories),
         "results": [result.__dict__ for result in results],
+        "project_memories": project_memories,
+        "memory_available": memory_available,
     }
 
 
@@ -1481,10 +1501,19 @@ async def knowledge_ask(payload: dict[str, Any] = Body(...)) -> dict[str, object
     limit = _parse_knowledge_limit(payload.get("limit"))
     row_context = _parse_row_context(payload.get("row_context"))
     results = search_knowledge(question, row_context=row_context, limit=limit)
-    if not results:
+    project_key = normalize_project_key(payload.get("project_key"))
+    project_memories, memory_available = _safe_search_project_memories(
+        question,
+        project_key,
+        limit=limit,
+    )
+    if not results and not project_memories:
         return {
             "answer": NO_EVIDENCE_ANSWER,
             "sources": [],
+            "project_memories": [],
+            "project_key": project_key or None,
+            "memory_available": memory_available,
             "evidence_found": False,
             "forced_knowledge": force_knowledge,
             "debug": None,
@@ -1494,7 +1523,12 @@ async def knowledge_ask(payload: dict[str, Any] = Body(...)) -> dict[str, object
     model = str(payload.get("model") or DEFAULT_MODEL)
     base_url = str(payload.get("base_url") or DEFAULT_BASE_URL)
     config = LlmConfig(provider=provider, model=model, base_url=base_url)
-    messages = build_knowledge_answer_prompt(question, results, row_context=row_context)
+    messages = build_knowledge_answer_prompt(
+        question,
+        results,
+        row_context=row_context,
+        project_memories=project_memories,
+    )
     prompt_path = _write_llm_prompt_markdown("知识库问答", config, messages)
     try:
         answer = call_chat_completion(config, messages)
@@ -1504,10 +1538,185 @@ async def knowledge_ask(payload: dict[str, Any] = Body(...)) -> dict[str, object
     return {
         "answer": answer or NO_EVIDENCE_ANSWER,
         "sources": [result.__dict__ for result in results],
+        "project_memories": project_memories,
+        "project_key": project_key or None,
+        "memory_available": memory_available,
         "evidence_found": True,
         "forced_knowledge": force_knowledge,
         "debug": _build_llm_debug(config, messages, prompt_path),
     }
+
+
+@app.post("/api/knowledge-memory/candidates")
+async def create_knowledge_memory_candidate(
+    payload: dict[str, Any] = Body(...),
+) -> dict[str, object]:
+    try:
+        item = _knowledge_memory_store().create_candidate(payload)
+    except Exception as exc:
+        raise _knowledge_memory_http_error(exc) from exc
+    return {
+        "item": item,
+        "identity_mode": "local_trial",
+        "identity_notice": "当前仅提供本地试点操作人、确认角色和审计留痕，不等于企业级身份认证。",
+    }
+
+
+@app.get("/api/knowledge-memory/items")
+async def list_knowledge_memory_items(
+    project_key: str = Query(...),
+    status: str = Query(default=""),
+    query: str = Query(default=""),
+) -> dict[str, object]:
+    statuses = {item.strip() for item in status.split(",") if item.strip()} or None
+    try:
+        items = _knowledge_memory_store().list_items(
+            project_key,
+            statuses=statuses,
+            query=query,
+        )
+    except Exception as exc:
+        raise _knowledge_memory_http_error(exc) from exc
+    return {"project_key": normalize_project_key(project_key), "items": items}
+
+
+@app.get("/api/knowledge-memory/items/{item_id}")
+async def get_knowledge_memory_item(
+    item_id: str,
+    project_key: str = Query(...),
+) -> dict[str, object]:
+    try:
+        item = _knowledge_memory_store().get_item(item_id, project_key)
+    except Exception as exc:
+        raise _knowledge_memory_http_error(exc) from exc
+    return {"item": item}
+
+
+@app.patch("/api/knowledge-memory/items/{item_id}")
+async def update_knowledge_memory_item(
+    item_id: str,
+    payload: dict[str, Any] = Body(...),
+) -> dict[str, object]:
+    try:
+        item = _knowledge_memory_store().update_item(
+            item_id,
+            str(payload.get("project_key") or ""),
+            payload,
+        )
+    except Exception as exc:
+        raise _knowledge_memory_http_error(exc) from exc
+    return {"item": item}
+
+
+@app.post("/api/knowledge-memory/items/{item_id}/submit")
+async def submit_knowledge_memory_item(
+    item_id: str,
+    payload: dict[str, Any] = Body(...),
+) -> dict[str, object]:
+    return _knowledge_memory_transition(item_id, payload, "submit")
+
+
+@app.post("/api/knowledge-memory/items/{item_id}/confirm")
+async def confirm_knowledge_memory_item(
+    item_id: str,
+    payload: dict[str, Any] = Body(...),
+) -> dict[str, object]:
+    return _knowledge_memory_transition(item_id, payload, "confirm")
+
+
+@app.post("/api/knowledge-memory/items/{item_id}/reject")
+async def reject_knowledge_memory_item(
+    item_id: str,
+    payload: dict[str, Any] = Body(...),
+) -> dict[str, object]:
+    return _knowledge_memory_transition(item_id, payload, "reject")
+
+
+@app.post("/api/knowledge-memory/items/{item_id}/revoke")
+async def revoke_knowledge_memory_item(
+    item_id: str,
+    payload: dict[str, Any] = Body(...),
+) -> dict[str, object]:
+    return _knowledge_memory_transition(item_id, payload, "revoke")
+
+
+@app.post("/api/knowledge-memory/items/{item_id}/mark-stale")
+async def mark_knowledge_memory_item_stale(
+    item_id: str,
+    payload: dict[str, Any] = Body(...),
+) -> dict[str, object]:
+    return _knowledge_memory_transition(item_id, payload, "mark_stale")
+
+
+@app.get("/api/knowledge-memory/items/{item_id}/audit")
+async def get_knowledge_memory_audit(
+    item_id: str,
+    project_key: str = Query(...),
+) -> dict[str, object]:
+    try:
+        audit = _knowledge_memory_store().audit(item_id, project_key)
+    except Exception as exc:
+        raise _knowledge_memory_http_error(exc) from exc
+    return {"item_id": item_id, "audit": audit}
+
+
+def _knowledge_memory_store() -> KnowledgeMemoryStore:
+    return KnowledgeMemoryStore(DEFAULT_KNOWLEDGE_MEMORY_DB_PATH)
+
+
+def _knowledge_memory_transition(
+    item_id: str,
+    payload: dict[str, Any],
+    action: str,
+) -> dict[str, object]:
+    try:
+        item = _knowledge_memory_store().transition(
+            item_id,
+            str(payload.get("project_key") or ""),
+            action,
+            actor=str(payload.get("actor") or ""),
+            reason=str(payload.get("reason") or ""),
+            actor_role=str(payload.get("actor_role") or ""),
+        )
+    except Exception as exc:
+        raise _knowledge_memory_http_error(exc) from exc
+    return {"item": item}
+
+
+def _safe_search_project_memories(
+    question: str,
+    project_key: str,
+    *,
+    limit: int,
+) -> tuple[list[dict[str, Any]], bool]:
+    if not project_key:
+        return [], True
+    try:
+        return (
+            search_confirmed_project_memory(
+                question,
+                project_key,
+                limit=limit,
+                db_path=DEFAULT_KNOWLEDGE_MEMORY_DB_PATH,
+            ),
+            True,
+        )
+    except (OSError, sqlite3.Error):
+        return [], False
+
+
+def _knowledge_memory_http_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, KnowledgeMemoryNotFound):
+        return HTTPException(status_code=404, detail=str(exc))
+    if isinstance(exc, KnowledgeMemoryPermissionError):
+        return HTTPException(status_code=403, detail=str(exc))
+    if isinstance(exc, KnowledgeMemoryConflict):
+        return HTTPException(status_code=409, detail=str(exc))
+    if isinstance(exc, KnowledgeMemoryError):
+        return HTTPException(status_code=400, detail=str(exc))
+    if isinstance(exc, (OSError, sqlite3.Error)):
+        return HTTPException(status_code=503, detail="项目知识记忆暂不可用，现有专业主流程不受影响")
+    return HTTPException(status_code=500, detail="项目知识记忆操作失败")
 
 
 def _parse_knowledge_limit(value: object) -> int:

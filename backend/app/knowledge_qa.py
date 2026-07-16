@@ -200,6 +200,7 @@ def build_knowledge_answer_prompt(
     question: str,
     results: list[KnowledgeSearchResult],
     row_context: dict[str, Any] | None = None,
+    project_memories: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, str]]:
     evidence_blocks = []
     for index, result in enumerate(results, start=1):
@@ -214,6 +215,23 @@ def build_knowledge_answer_prompt(
                 ]
             )
         )
+    memory_blocks = []
+    for index, memory in enumerate(project_memories or [], start=1):
+        memory_blocks.append(
+            "\n".join(
+                [
+                    f"项目记忆{index}：",
+                    f"所属项目：{memory.get('project_name') or memory.get('project_key')}",
+                    f"标题：{memory.get('title')}",
+                    f"确认结论：{memory.get('conclusion')}",
+                    f"适用条件：{memory.get('conditions') or '未填写'}",
+                    f"例外情况：{memory.get('exceptions') or '未填写'}",
+                    f"来源：{memory.get('source_reference')}",
+                    f"确认人：{memory.get('confirmer')}",
+                    f"确认时间：{memory.get('confirmed_at')}",
+                ]
+            )
+        )
     row_context_text = (
         json.dumps(row_context, ensure_ascii=False, indent=2)
         if row_context
@@ -225,12 +243,20 @@ def build_knowledge_answer_prompt(
             question.strip(),
             "【当前行上下文】",
             row_context_text,
-            "【已检索资料】",
-            "\n\n".join(evidence_blocks),
+            "【正式知识与规则依据】",
+            "\n\n".join(evidence_blocks) or "未检索到正式知识与规则依据。",
+            "【当前项目已确认知识记忆】",
+            "\n\n".join(memory_blocks) or "未检索到当前项目已确认知识记忆。",
             "请用以下结构回答：",
             "智算解释：",
-            "依据来源：",
+            "正式依据：",
+            "项目记忆：",
             "提示：本回答只解释依据，不改变程序填价结果。",
+            "项目记忆补充要求：",
+            "1. 正式标准、正式规则和结构化计价库始终优先于项目记忆。",
+            "2. 引用项目记忆时必须明确写“项目记忆”，并说明所属项目、确认人、确认时间、适用条件和来源。",
+            "3. 项目口径不得表述成国家、行业或企业正式标准。",
+            "4. 正式依据与项目记忆同时命中不等于冲突；无法确定冲突时只分区展示并提示人工复核。",
             "价格类问题补充要求：",
             "1. 如果检索资料中有来自 `03-知识库-二维数据库制作/【数据库】【导入】.xlsx` 的明确候选行，优先说明该行的序号、要素1-5、单位、基价和两个调整系数。",
             "2. 如果用户条件不足以唯一确定，但检索资料中有多个相似结构化计价库候选，不要直接说未找到依据；请列出 3-5 个候选项，并提示用户补充复杂程度、单位、比例尺或场景。",
@@ -242,8 +268,10 @@ def build_knowledge_answer_prompt(
             "role": "system",
             "content": (
                 "你是造价智算的依据解释助手。你只能基于【已检索资料】和【当前行上下文】回答。"
+                "本次【已检索资料】由【正式知识与规则依据】和【当前项目已确认知识记忆】分区组成。"
                 "不得编造标准依据。不得直接裁决基价、实物工作费调整系数、技术工作费调整系数。"
                 "不得覆盖结构化规则引擎的结果。如果资料不足，必须明确回答“当前知识库未找到明确依据，需要人工复核”。"
+                "正式依据优先于项目记忆；项目记忆必须显式标注，不能伪装成正式标准。"
                 "你的任务是把检索到的依据解释给业务人员听，并列出来源。"
             ),
         },
