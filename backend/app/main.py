@@ -112,7 +112,7 @@ from .paths import (
 from .report import append_risk_report, write_report
 
 
-APP_VERSION = "v5.9.0"
+APP_VERSION = "v5.9.1"
 OUTPUT_FILE_PREFIX = "【输出】"
 TEMP_FILE_PREFIX = "【临时】"
 PROCESS_STATE_FILENAME = "process-state.json"
@@ -1557,6 +1557,7 @@ async def create_knowledge_memory_candidate(
         raise _knowledge_memory_http_error(exc) from exc
     return {
         "item": item,
+        "auto_approved": item["scope_type"] == "general" and item["status"] == "confirmed",
         "identity_mode": "local_trial",
         "identity_notice": "当前仅提供本地试点操作人、确认角色和审计留痕，不等于企业级身份认证。",
     }
@@ -1689,8 +1690,6 @@ def _safe_search_project_memories(
     *,
     limit: int,
 ) -> tuple[list[dict[str, Any]], bool]:
-    if not project_key:
-        return [], True
     try:
         return (
             search_confirmed_project_memory(

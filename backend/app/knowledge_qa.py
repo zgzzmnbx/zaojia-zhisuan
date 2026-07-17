@@ -217,11 +217,12 @@ def build_knowledge_answer_prompt(
         )
     memory_blocks = []
     for index, memory in enumerate(project_memories or [], start=1):
+        memory_label = "通用知识" if memory.get("scope_type") == "general" else "项目记忆"
         memory_blocks.append(
             "\n".join(
                 [
-                    f"项目记忆{index}：",
-                    f"所属项目：{memory.get('project_name') or memory.get('project_key')}",
+                    f"{memory_label}{index}：",
+                    f"适用范围：{memory.get('project_name') or memory.get('project_key')}",
                     f"标题：{memory.get('title')}",
                     f"确认结论：{memory.get('conclusion')}",
                     f"适用条件：{memory.get('conditions') or '未填写'}",
@@ -245,7 +246,7 @@ def build_knowledge_answer_prompt(
             row_context_text,
             "【正式知识与规则依据】",
             "\n\n".join(evidence_blocks) or "未检索到正式知识与规则依据。",
-            "【当前项目已确认知识记忆】",
+            "【已确认通用与项目知识记忆】",
             "\n\n".join(memory_blocks) or "未检索到当前项目已确认知识记忆。",
             "请用以下结构回答：",
             "智算解释：",
@@ -268,7 +269,7 @@ def build_knowledge_answer_prompt(
             "role": "system",
             "content": (
                 "你是造价智算的依据解释助手。你只能基于【已检索资料】和【当前行上下文】回答。"
-                "本次【已检索资料】由【正式知识与规则依据】和【当前项目已确认知识记忆】分区组成。"
+                "本次【已检索资料】由【正式知识与规则依据】和【已确认通用与项目知识记忆】分区组成。"
                 "不得编造标准依据。不得直接裁决基价、实物工作费调整系数、技术工作费调整系数。"
                 "不得覆盖结构化规则引擎的结果。如果资料不足，必须明确回答“当前知识库未找到明确依据，需要人工复核”。"
                 "正式依据优先于项目记忆；项目记忆必须显式标注，不能伪装成正式标准。"

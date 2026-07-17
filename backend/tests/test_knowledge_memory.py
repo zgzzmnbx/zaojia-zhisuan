@@ -5,7 +5,11 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app.knowledge_memory import KnowledgeMemoryStore
+from app.knowledge_memory import (
+    GENERAL_KNOWLEDGE_AUTO_APPROVER,
+    GENERAL_KNOWLEDGE_PROJECT_KEY,
+    KnowledgeMemoryStore,
+)
 from app.knowledge_qa import KnowledgeSearchResult
 from app.main import app
 
@@ -43,6 +47,36 @@ def confirm_item(store: KnowledgeMemoryStore, item: dict) -> dict:
         actor_role="reviewer",
         reason="已核对项目设计说明",
     )
+
+
+def test_general_candidate_defaults_to_auto_approved_and_is_available_without_project(tmp_path):
+    store = KnowledgeMemoryStore(tmp_path / "knowledge-memory.sqlite3")
+    item = store.create_candidate(
+        candidate_payload(
+            project_name="",
+            project_key="",
+            scope_type="general",
+            task_id="TASK-IGNORED",
+            job_id="JOB-IGNORED",
+            title="通用系数复核知识",
+            question="实物工作费调整系数如何确定？",
+            conclusion="先查正式规则，再按结构化结果解释。",
+        )
+    )
+
+    assert item["project_key"] == GENERAL_KNOWLEDGE_PROJECT_KEY
+    assert item["project_name"] == "通用知识"
+    assert item["status"] == "confirmed"
+    assert item["confirmer"] == GENERAL_KNOWLEDGE_AUTO_APPROVER
+    assert item["task_id"] is None
+    assert item["job_id"] is None
+    assert [record["action"] for record in store.audit(item["id"], item["project_key"])] == [
+        "create",
+        "submit",
+        "confirm",
+    ]
+    assert store.search_confirmed("实物工作费调整系数", "")[0]["id"] == item["id"]
+    assert store.search_confirmed("实物工作费调整系数", "另一个项目")[0]["id"] == item["id"]
 
 
 def test_create_candidate_pending_does_not_search_and_confirmed_same_project_does(tmp_path):
@@ -261,6 +295,43 @@ def test_api_candidate_edit_submit_confirm_list_and_audit(tmp_path, monkeypatch)
     assert [record["action"] for record in audit] == ["create", "edit", "submit", "confirm"]
 
 
+def test_api_general_candidate_auto_approves_without_project_fields(tmp_path, monkeypatch):
+    import app.main as main_module
+
+    monkeypatch.setattr(
+        main_module,
+        "DEFAULT_KNOWLEDGE_MEMORY_DB_PATH",
+        tmp_path / "knowledge-memory.sqlite3",
+    )
+    monkeypatch.setattr(main_module, "search_knowledge", lambda *args, **kwargs: [])
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    monkeypatch.setattr(
+        main_module,
+        "call_chat_completion",
+        lambda config, messages: "智算解释：通用知识可用。",
+    )
+    client = TestClient(app)
+    response = client.post(
+        "/api/knowledge-memory/candidates",
+        json=candidate_payload(project_name="", project_key="", scope_type="general"),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["auto_approved"] is True
+    assert response.json()["item"]["status"] == "confirmed"
+    assert response.json()["item"]["project_key"] == GENERAL_KNOWLEDGE_PROJECT_KEY
+
+    ask_response = client.post(
+        "/api/knowledge/ask",
+        json={"question": "山岭隧道洞身如何复核复杂程度？"},
+    )
+    ask_payload = ask_response.json()
+    assert ask_response.status_code == 200
+    assert ask_payload["evidence_found"] is True
+    assert ask_payload["project_memories"][0]["scope_type"] == "general"
+    assert ask_payload["project_memories"][0]["project_key"] == GENERAL_KNOWLEDGE_PROJECT_KEY
+
+
 def test_knowledge_ask_uses_only_confirmed_same_project_memory_and_displays_metadata(
     tmp_path,
     monkeypatch,
@@ -320,7 +391,7 @@ def test_knowledge_ask_uses_only_confirmed_same_project_memory_and_displays_meta
     assert payload["project_memories"][0]["confirmer"] == "复核人乙"
     assert payload["project_memories"][0]["project_key"] == created["project_key"]
     assert "【正式知识与规则依据】" in captured["messages"][1]["content"]
-    assert "【当前项目已确认知识记忆】" in captured["messages"][1]["content"]
+    assert "【已确认通用与项目知识记忆】" in captured["messages"][1]["content"]
     assert client.post(
         "/api/knowledge/ask",
         json={
@@ -375,7 +446,7 @@ def test_formal_knowledge_is_presented_before_project_memory(monkeypatch):
 
     assert response.status_code == 200
     assert captured["prompt"].index("【正式知识与规则依据】") < captured["prompt"].index(
-        "【当前项目已确认知识记忆】"
+        "【已确认通用与项目知识记忆】"
     )
     assert response.json()["sources"][0]["source_type"] == "standard"
 
@@ -410,3 +481,5 @@ def test_frontend_only_knowledge_messages_expose_candidate_action():
     assert "knowledgeCandidate" in source
     assert "askZhisuanFreeform" in source
     assert "project_memories" in source
+    assert "记住这一条" in source
+    assert 'scopeType: "general"' in source

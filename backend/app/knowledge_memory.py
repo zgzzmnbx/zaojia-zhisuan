@@ -19,7 +19,10 @@ KNOWLEDGE_MEMORY_STATUSES = {
     "revoked",
     "suspected_stale",
 }
-KNOWLEDGE_MEMORY_SCOPE_TYPES = {"task", "project"}
+GENERAL_KNOWLEDGE_PROJECT_KEY = "通用知识"
+GENERAL_KNOWLEDGE_PROJECT_NAME = "通用知识"
+GENERAL_KNOWLEDGE_AUTO_APPROVER = "系统自动审核"
+KNOWLEDGE_MEMORY_SCOPE_TYPES = {"general", "task", "project"}
 CONFIRM_ROLES = {"project_owner", "reviewer", "rule_maintainer", "admin"}
 EDITABLE_FIELDS = {
     "scope_type",
@@ -165,12 +168,19 @@ class KnowledgeMemoryStore:
         )
 
     def create_candidate(self, payload: dict[str, Any]) -> dict[str, Any]:
-        project_key, project_name = resolve_project_scope(payload)
-        scope_type = str(payload.get("scope_type") or "project").strip()
+        scope_type = str(payload.get("scope_type") or "general").strip()
         if scope_type not in KNOWLEDGE_MEMORY_SCOPE_TYPES:
-            raise KnowledgeMemoryError("scope_type 仅支持 task 或 project")
+            raise KnowledgeMemoryError("scope_type 仅支持 general、task 或 project")
+        if scope_type == "general":
+            project_key = GENERAL_KNOWLEDGE_PROJECT_KEY
+            project_name = GENERAL_KNOWLEDGE_PROJECT_NAME
+        else:
+            project_key, project_name = resolve_project_scope(payload)
         task_id = _optional_text(payload.get("task_id"))
         job_id = _optional_text(payload.get("job_id"))
+        if scope_type == "general":
+            task_id = None
+            job_id = None
         if scope_type == "task" and not (task_id or job_id):
             raise KnowledgeMemoryError("任务范围知识必须提供 task_id 或 job_id")
         required = {
@@ -242,6 +252,42 @@ class KnowledgeMemoryStore:
                 from_status=None,
                 to_status="candidate",
             )
+            if scope_type == "general":
+                now = _utc_now()
+                connection.execute(
+                    """
+                    UPDATE knowledge_items
+                    SET status='confirmed',confirmer=?,confirmed_at=?,updated_at=?
+                    WHERE id=?
+                    """,
+                    (GENERAL_KNOWLEDGE_AUTO_APPROVER, now, now, item_id),
+                )
+                self._record_audit(
+                    connection,
+                    item,
+                    action="submit",
+                    actor=values["submitter"],
+                    reason="通用知识候选默认提交",
+                    from_status="candidate",
+                    to_status="pending",
+                )
+                item.update(
+                    {
+                        "status": "confirmed",
+                        "confirmer": GENERAL_KNOWLEDGE_AUTO_APPROVER,
+                        "confirmed_at": now,
+                        "updated_at": now,
+                    }
+                )
+                self._record_audit(
+                    connection,
+                    item,
+                    action="confirm",
+                    actor=GENERAL_KNOWLEDGE_AUTO_APPROVER,
+                    reason="当前阶段通用知识候选默认自动通过",
+                    from_status="pending",
+                    to_status="confirmed",
+                )
         return item
 
     def list_items(
@@ -302,7 +348,11 @@ class KnowledgeMemoryStore:
                 if key == "scope_type":
                     value = str(payload.get(key) or "").strip()
                     if value not in KNOWLEDGE_MEMORY_SCOPE_TYPES:
-                        raise KnowledgeMemoryError("scope_type 仅支持 task 或 project")
+                        raise KnowledgeMemoryError("scope_type 仅支持 general、task 或 project")
+                    if value == "general" and current["scope_type"] != "general":
+                        raise KnowledgeMemoryError("项目或任务候选不能通过编辑改为通用知识，请新建通用候选")
+                    if value != "general" and current["scope_type"] == "general":
+                        raise KnowledgeMemoryError("通用知识不能通过编辑改为项目范围，请新建项目候选")
                 elif key == "expires_at":
                     value = _normalize_optional_datetime(payload.get(key), "expires_at")
                 else:
@@ -421,18 +471,22 @@ class KnowledgeMemoryStore:
         *,
         limit: int = 5,
     ) -> list[dict[str, Any]]:
-        normalized_key = _require_project_key(project_key)
+        normalized_key = normalize_project_key(project_key)
         clean_question = question.strip()
         if not clean_question:
             return []
         with self._connect() as connection:
+            allowed_keys = [GENERAL_KNOWLEDGE_PROJECT_KEY]
+            if normalized_key and normalized_key != GENERAL_KNOWLEDGE_PROJECT_KEY:
+                allowed_keys.append(normalized_key)
+            placeholders = ",".join("?" for _ in allowed_keys)
             rows = connection.execute(
-                """
+                f"""
                 SELECT * FROM knowledge_items
-                WHERE project_key=? AND status='confirmed'
-                ORDER BY updated_at DESC
+                WHERE project_key IN ({placeholders}) AND status='confirmed'
+                ORDER BY CASE WHEN project_key=? THEN 0 ELSE 1 END, updated_at DESC
                 """,
-                (normalized_key,),
+                [*allowed_keys, normalized_key],
             ).fetchall()
             active_rows: list[sqlite3.Row] = []
             now = datetime.now(timezone.utc)
@@ -542,8 +596,6 @@ def search_confirmed_project_memory(
     limit: int = 5,
     db_path: Path = DEFAULT_KNOWLEDGE_MEMORY_DB_PATH,
 ) -> list[dict[str, Any]]:
-    if not normalize_project_key(project_key):
-        return []
     return KnowledgeMemoryStore(db_path).search_confirmed(
         question,
         project_key,
