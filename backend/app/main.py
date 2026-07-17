@@ -36,11 +36,14 @@ from .knowledge_qa import (
     strip_force_knowledge_prefix,
 )
 from .knowledge_memory import (
+    DEFAULT_AUTO_APPROVE_KNOWLEDGE_TYPES,
+    KNOWLEDGE_MEMORY_TYPES,
     KnowledgeMemoryConflict,
     KnowledgeMemoryError,
     KnowledgeMemoryNotFound,
     KnowledgeMemoryPermissionError,
     KnowledgeMemoryStore,
+    classify_knowledge_type,
     normalize_project_key,
     search_confirmed_project_memory,
 )
@@ -112,7 +115,7 @@ from .paths import (
 from .report import append_risk_report, write_report
 
 
-APP_VERSION = "v5.9.1"
+APP_VERSION = "v5.9.2"
 OUTPUT_FILE_PREFIX = "【输出】"
 TEMP_FILE_PREFIX = "【临时】"
 PROCESS_STATE_FILENAME = "process-state.json"
@@ -1551,13 +1554,35 @@ async def knowledge_ask(payload: dict[str, Any] = Body(...)) -> dict[str, object
 async def create_knowledge_memory_candidate(
     payload: dict[str, Any] = Body(...),
 ) -> dict[str, object]:
+    formal_sources: list[dict[str, object]] = []
+    if classify_knowledge_type(payload) in {"price_factor", "standard_policy", "project_rule"}:
+        try:
+            formal_sources = [
+                {
+                    "id": result.id,
+                    "source_file": result.source_file,
+                    "source_type": result.source_type,
+                    "title_path": result.title_path,
+                }
+                for result in search_knowledge(str(payload.get("question") or ""), limit=3)
+            ]
+        except (OSError, ValueError):
+            formal_sources = []
     try:
         item = _knowledge_memory_store().create_candidate(payload)
     except Exception as exc:
         raise _knowledge_memory_http_error(exc) from exc
+    quality_warnings = list(item.get("quality_warnings") or [])
+    if formal_sources and item.get("review_policy") == "manual_review":
+        quality_warnings.append("已检索到正式资料候选，请在确认前核对是否与正式依据一致。")
     return {
         "item": item,
         "auto_approved": item["scope_type"] == "general" and item["status"] == "confirmed",
+        "duplicate_reused": bool(item.get("duplicate_reused")),
+        "quality_warnings": list(dict.fromkeys(quality_warnings)),
+        "similar_items": list(item.get("similar_items") or []),
+        "conflicts": list(item.get("conflicts") or []),
+        "formal_sources": formal_sources,
         "identity_mode": "local_trial",
         "identity_notice": "当前仅提供本地试点操作人、确认角色和审计留痕，不等于企业级身份认证。",
     }
@@ -1607,6 +1632,49 @@ async def update_knowledge_memory_item(
     except Exception as exc:
         raise _knowledge_memory_http_error(exc) from exc
     return {"item": item}
+
+
+@app.post("/api/knowledge-memory/items/{item_id}/revise")
+async def revise_knowledge_memory_item(
+    item_id: str,
+    payload: dict[str, Any] = Body(...),
+) -> dict[str, object]:
+    try:
+        item = _knowledge_memory_store().revise_item(
+            item_id,
+            str(payload.get("project_key") or ""),
+            payload,
+        )
+    except Exception as exc:
+        raise _knowledge_memory_http_error(exc) from exc
+    return {
+        "item": item,
+        "auto_approved": item["scope_type"] == "general" and item["status"] == "confirmed",
+        "duplicate_reused": bool(item.get("duplicate_reused")),
+        "quality_warnings": list(item.get("quality_warnings") or []),
+    }
+
+
+@app.post("/api/knowledge-memory/items/{item_id}/promote-general")
+async def promote_knowledge_memory_item_to_general(
+    item_id: str,
+    payload: dict[str, Any] = Body(...),
+) -> dict[str, object]:
+    try:
+        item = _knowledge_memory_store().promote_to_general(
+            item_id,
+            str(payload.get("project_key") or ""),
+            actor=str(payload.get("actor") or ""),
+            reason=str(payload.get("reason") or ""),
+        )
+    except Exception as exc:
+        raise _knowledge_memory_http_error(exc) from exc
+    return {
+        "item": item,
+        "auto_approved": item["scope_type"] == "general" and item["status"] == "confirmed",
+        "duplicate_reused": bool(item.get("duplicate_reused")),
+        "quality_warnings": list(item.get("quality_warnings") or []),
+    }
 
 
 @app.post("/api/knowledge-memory/items/{item_id}/submit")
@@ -1662,7 +1730,12 @@ async def get_knowledge_memory_audit(
 
 
 def _knowledge_memory_store() -> KnowledgeMemoryStore:
-    return KnowledgeMemoryStore(DEFAULT_KNOWLEDGE_MEMORY_DB_PATH)
+    settings = _project_knowledge_memory_defaults()
+    return KnowledgeMemoryStore(
+        DEFAULT_KNOWLEDGE_MEMORY_DB_PATH,
+        auto_approve_types=set(settings["autoApproveTypes"]),
+        duplicate_threshold=float(settings["duplicateSimilarityThreshold"]),
+    )
 
 
 def _knowledge_memory_transition(
@@ -3045,6 +3118,28 @@ def _project_zhisuan_window_defaults() -> dict[str, object]:
     }
 
 
+def _project_knowledge_memory_defaults() -> dict[str, object]:
+    section = _project_default_section("knowledgeMemory")
+    raw_auto_types = section.get("autoApproveTypes", list(DEFAULT_AUTO_APPROVE_KNOWLEDGE_TYPES))
+    if isinstance(raw_auto_types, list):
+        auto_types = [
+            str(value).strip()
+            for value in raw_auto_types
+            if str(value).strip() in KNOWLEDGE_MEMORY_TYPES
+        ]
+    else:
+        auto_types = list(DEFAULT_AUTO_APPROVE_KNOWLEDGE_TYPES)
+    try:
+        duplicate_threshold = float(section.get("duplicateSimilarityThreshold", 0.92))
+    except (TypeError, ValueError):
+        duplicate_threshold = 0.92
+    return {
+        "autoApproveTypes": auto_types,
+        "manualReviewTypes": sorted(KNOWLEDGE_MEMORY_TYPES - set(auto_types)),
+        "duplicateSimilarityThreshold": max(0.8, min(duplicate_threshold, 1.0)),
+    }
+
+
 def _project_default_settings_payload() -> dict[str, object]:
     return {
         "version": int(_load_project_default_settings().get("version", 1) or 1),
@@ -3053,6 +3148,7 @@ def _project_default_settings_payload() -> dict[str, object]:
         "zhisuanWindow": _project_zhisuan_window_defaults(),
         "inputMapping": _project_input_mapping_defaults(),
         "workloadCapture": _project_workload_capture_defaults(),
+        "knowledgeMemory": _project_knowledge_memory_defaults(),
         "feishuAppBot": feishu_app_bot.load_bot_defaults(),
     }
 

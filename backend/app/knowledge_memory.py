@@ -4,6 +4,7 @@ import json
 import re
 import sqlite3
 from datetime import datetime, timezone
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -23,8 +24,17 @@ GENERAL_KNOWLEDGE_PROJECT_KEY = "通用知识"
 GENERAL_KNOWLEDGE_PROJECT_NAME = "通用知识"
 GENERAL_KNOWLEDGE_AUTO_APPROVER = "系统自动审核"
 KNOWLEDGE_MEMORY_SCOPE_TYPES = {"general", "task", "project"}
+KNOWLEDGE_MEMORY_TYPES = {
+    "operation",
+    "general_explanation",
+    "project_rule",
+    "price_factor",
+    "standard_policy",
+}
+DEFAULT_AUTO_APPROVE_KNOWLEDGE_TYPES = {"operation", "general_explanation"}
 CONFIRM_ROLES = {"project_owner", "reviewer", "rule_maintainer", "admin"}
 EDITABLE_FIELDS = {
+    "knowledge_type",
     "scope_type",
     "task_id",
     "job_id",
@@ -93,8 +103,20 @@ def resolve_project_scope(payload: dict[str, Any]) -> tuple[str, str]:
 
 
 class KnowledgeMemoryStore:
-    def __init__(self, db_path: Path = DEFAULT_KNOWLEDGE_MEMORY_DB_PATH):
+    def __init__(
+        self,
+        db_path: Path = DEFAULT_KNOWLEDGE_MEMORY_DB_PATH,
+        *,
+        auto_approve_types: set[str] | None = None,
+        duplicate_threshold: float = 0.92,
+    ):
         self.db_path = Path(db_path)
+        self.auto_approve_types = (
+            set(DEFAULT_AUTO_APPROVE_KNOWLEDGE_TYPES)
+            if auto_approve_types is None
+            else set(auto_approve_types) & KNOWLEDGE_MEMORY_TYPES
+        )
+        self.duplicate_threshold = max(0.8, min(float(duplicate_threshold), 1.0))
 
     def _connect(self) -> sqlite3.Connection:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -112,9 +134,13 @@ class KnowledgeMemoryStore:
             CREATE TABLE IF NOT EXISTS knowledge_items (
                 id TEXT PRIMARY KEY,
                 parent_id TEXT,
+                parent_relation TEXT NOT NULL DEFAULT '',
                 project_key TEXT NOT NULL,
                 project_name TEXT NOT NULL,
                 scope_type TEXT NOT NULL,
+                knowledge_type TEXT NOT NULL DEFAULT 'general_explanation',
+                review_policy TEXT NOT NULL DEFAULT 'legacy',
+                review_reason TEXT NOT NULL DEFAULT '',
                 task_id TEXT,
                 job_id TEXT,
                 title TEXT NOT NULL,
@@ -166,6 +192,18 @@ class KnowledgeMemoryStore:
                 ON knowledge_audit(item_id, id);
             """
         )
+        columns = {
+            str(row[1])
+            for row in connection.execute("PRAGMA table_info(knowledge_items)").fetchall()
+        }
+        for name, definition in (
+            ("knowledge_type", "TEXT NOT NULL DEFAULT 'general_explanation'"),
+            ("review_policy", "TEXT NOT NULL DEFAULT 'legacy'"),
+            ("review_reason", "TEXT NOT NULL DEFAULT ''"),
+            ("parent_relation", "TEXT NOT NULL DEFAULT ''"),
+        ):
+            if name not in columns:
+                connection.execute(f"ALTER TABLE knowledge_items ADD COLUMN {name} {definition}")
 
     def create_candidate(self, payload: dict[str, Any]) -> dict[str, Any]:
         scope_type = str(payload.get("scope_type") or "general").strip()
@@ -197,14 +235,24 @@ class KnowledgeMemoryStore:
             if not values[key]:
                 raise KnowledgeMemoryError(f"请填写{label}")
         expires_at = _normalize_optional_datetime(payload.get("expires_at"), "expires_at")
+        knowledge_type = classify_knowledge_type(payload)
+        review_policy, review_reason = self._resolve_review_policy(
+            scope_type,
+            knowledge_type,
+            conflicts=[],
+        )
         now = _utc_now()
         item_id = f"KM-{uuid4().hex[:12].upper()}"
         item = {
             "id": item_id,
             "parent_id": _optional_text(payload.get("parent_id")),
+            "parent_relation": str(payload.get("parent_relation") or "").strip(),
             "project_key": project_key,
             "project_name": project_name,
             "scope_type": scope_type,
+            "knowledge_type": knowledge_type,
+            "review_policy": review_policy,
+            "review_reason": review_reason,
             "task_id": task_id,
             "job_id": job_id,
             "title": values["title"],
@@ -226,15 +274,46 @@ class KnowledgeMemoryStore:
             "revoked_at": None,
         }
         with self._connect() as connection:
+            analysis = self._analyze_existing(connection, item)
+            duplicate = analysis["duplicate"]
+            if duplicate:
+                self._record_audit(
+                    connection,
+                    duplicate,
+                    action="reuse",
+                    actor=values["submitter"],
+                    reason="检测到同范围重复知识，复用已有记录",
+                    from_status=duplicate["status"],
+                    to_status=duplicate["status"],
+                )
+                duplicate.update(
+                    {
+                        "duplicate_reused": True,
+                        "duplicate_of": duplicate["id"],
+                        "similar_items": analysis["similar_items"],
+                        "conflicts": analysis["conflicts"],
+                        "quality_warnings": ["已存在相同知识，未重复创建。"],
+                    }
+                )
+                return duplicate
+            review_policy, review_reason = self._resolve_review_policy(
+                scope_type,
+                knowledge_type,
+                conflicts=analysis["conflicts"],
+            )
+            item["review_policy"] = review_policy
+            item["review_reason"] = review_reason
             connection.execute(
                 """
                 INSERT INTO knowledge_items (
-                    id,parent_id,project_key,project_name,scope_type,task_id,job_id,
+                    id,parent_id,parent_relation,project_key,project_name,scope_type,knowledge_type,
+                    review_policy,review_reason,task_id,job_id,
                     title,question,conclusion,conditions,exceptions,expires_at,
                     source_type,source_reference,evidence_summary,submitter,confirmer,
                     status,version,created_at,updated_at,confirmed_at,revoked_at
                 ) VALUES (
-                    :id,:parent_id,:project_key,:project_name,:scope_type,:task_id,:job_id,
+                    :id,:parent_id,:parent_relation,:project_key,:project_name,:scope_type,:knowledge_type,
+                    :review_policy,:review_reason,:task_id,:job_id,
                     :title,:question,:conclusion,:conditions,:exceptions,:expires_at,
                     :source_type,:source_reference,:evidence_summary,:submitter,:confirmer,
                     :status,:version,:created_at,:updated_at,:confirmed_at,:revoked_at
@@ -256,12 +335,11 @@ class KnowledgeMemoryStore:
                 now = _utc_now()
                 connection.execute(
                     """
-                    UPDATE knowledge_items
-                    SET status='confirmed',confirmer=?,confirmed_at=?,updated_at=?
-                    WHERE id=?
+                    UPDATE knowledge_items SET status='pending',updated_at=? WHERE id=?
                     """,
-                    (GENERAL_KNOWLEDGE_AUTO_APPROVER, now, now, item_id),
+                    (now, item_id),
                 )
+                item.update({"status": "pending", "updated_at": now})
                 self._record_audit(
                     connection,
                     item,
@@ -271,23 +349,43 @@ class KnowledgeMemoryStore:
                     from_status="candidate",
                     to_status="pending",
                 )
-                item.update(
-                    {
-                        "status": "confirmed",
-                        "confirmer": GENERAL_KNOWLEDGE_AUTO_APPROVER,
-                        "confirmed_at": now,
-                        "updated_at": now,
-                    }
-                )
-                self._record_audit(
-                    connection,
-                    item,
-                    action="confirm",
-                    actor=GENERAL_KNOWLEDGE_AUTO_APPROVER,
-                    reason="当前阶段通用知识候选默认自动通过",
-                    from_status="pending",
-                    to_status="confirmed",
-                )
+                if review_policy == "auto_approve":
+                    connection.execute(
+                        """
+                        UPDATE knowledge_items
+                        SET status='confirmed',confirmer=?,confirmed_at=?,updated_at=?
+                        WHERE id=?
+                        """,
+                        (GENERAL_KNOWLEDGE_AUTO_APPROVER, now, now, item_id),
+                    )
+                    item.update(
+                        {
+                            "status": "confirmed",
+                            "confirmer": GENERAL_KNOWLEDGE_AUTO_APPROVER,
+                            "confirmed_at": now,
+                            "updated_at": now,
+                        }
+                    )
+                    self._record_audit(
+                        connection,
+                        item,
+                        action="confirm",
+                        actor=GENERAL_KNOWLEDGE_AUTO_APPROVER,
+                        reason=f"按知识类型策略自动通过：{knowledge_type}",
+                        from_status="pending",
+                        to_status="confirmed",
+                    )
+            item.update(
+                {
+                    "duplicate_reused": False,
+                    "duplicate_of": None,
+                    "similar_items": analysis["similar_items"],
+                    "conflicts": analysis["conflicts"],
+                    "quality_warnings": self._quality_warnings(item, analysis),
+                }
+            )
+        if item["status"] == "confirmed" and item.get("parent_id"):
+            self._mark_parent_superseded(item)
         return item
 
     def list_items(
@@ -318,6 +416,106 @@ class KnowledgeMemoryStore:
                 parameters,
             ).fetchall()
         return [_row_dict(row) for row in rows]
+
+    def revise_item(
+        self,
+        item_id: str,
+        project_key: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        actor = str(payload.get("actor") or "").strip()
+        if not actor:
+            raise KnowledgeMemoryError("请填写操作人")
+        current = self.get_item(item_id, project_key)
+        conclusion = str(payload.get("conclusion") or "").strip()
+        if not conclusion:
+            raise KnowledgeMemoryError("请填写更正后的结论")
+        if current["status"] in {"candidate", "pending"}:
+            return self.update_item(
+                item_id,
+                project_key,
+                {
+                    "actor": actor,
+                    "reason": str(payload.get("reason") or "更正未确认知识"),
+                    "conclusion": conclusion,
+                },
+            )
+        if current["status"] not in {"confirmed", "suspected_stale"}:
+            raise KnowledgeMemoryConflict("当前状态不能创建更正版本")
+        revised = self.create_candidate(
+            {
+                **current,
+                "parent_id": current["id"],
+                "parent_relation": "revision",
+                "project_key": current["project_key"],
+                "project_name": current["project_name"],
+                "title": str(payload.get("title") or current["title"]).strip(),
+                "question": str(payload.get("question") or current["question"]).strip(),
+                "conclusion": conclusion,
+                "knowledge_type": payload.get("knowledge_type") or current["knowledge_type"],
+                "source_reference": (
+                    f"{current['source_reference']}\n更正来源：{current['id']}"
+                ),
+                "submitter": actor,
+            }
+        )
+        with self._connect() as connection:
+            source = _row_dict(self._get_row(connection, current["id"], current["project_key"]))
+            self._record_audit(
+                connection,
+                source,
+                action="revise",
+                actor=actor,
+                reason=str(payload.get("reason") or f"创建更正版本 {revised['id']}"),
+                from_status=source["status"],
+                to_status=source["status"],
+            )
+        return revised
+
+    def promote_to_general(
+        self,
+        item_id: str,
+        project_key: str,
+        *,
+        actor: str,
+        reason: str = "",
+    ) -> dict[str, Any]:
+        clean_actor = actor.strip()
+        if not clean_actor:
+            raise KnowledgeMemoryError("请填写操作人")
+        current = self.get_item(item_id, project_key)
+        if current["scope_type"] == "general":
+            raise KnowledgeMemoryConflict("该知识已是通用知识")
+        if current["status"] != "confirmed":
+            raise KnowledgeMemoryConflict("只有已确认的项目或任务知识可申请提升")
+        promoted = self.create_candidate(
+            {
+                **current,
+                "parent_id": current["id"],
+                "parent_relation": "promotion",
+                "project_name": "",
+                "project_key": "",
+                "scope_type": "general",
+                "task_id": None,
+                "job_id": None,
+                "source_reference": (
+                    f"{current['source_reference']}\n提升来源：{current['project_name']} / {current['id']}"
+                ),
+                "submitter": clean_actor,
+            }
+        )
+        with self._connect() as connection:
+            source = _row_dict(self._get_row(connection, current["id"], current["project_key"]))
+            self._record_audit(
+                connection,
+                source,
+                action="promote_general",
+                actor=clean_actor,
+                reason=reason.strip() or f"申请提升为通用知识 {promoted['id']}",
+                from_status=source["status"],
+                to_status=source["status"],
+            )
+        return promoted
 
     def get_item(self, item_id: str, project_key: str) -> dict[str, Any]:
         normalized_key = _require_project_key(project_key)
@@ -353,6 +551,10 @@ class KnowledgeMemoryStore:
                         raise KnowledgeMemoryError("项目或任务候选不能通过编辑改为通用知识，请新建通用候选")
                     if value != "general" and current["scope_type"] == "general":
                         raise KnowledgeMemoryError("通用知识不能通过编辑改为项目范围，请新建项目候选")
+                elif key == "knowledge_type":
+                    value = str(payload.get(key) or "").strip()
+                    if value not in KNOWLEDGE_MEMORY_TYPES:
+                        raise KnowledgeMemoryError("未知知识类型")
                 elif key == "expires_at":
                     value = _normalize_optional_datetime(payload.get(key), "expires_at")
                 else:
@@ -376,6 +578,16 @@ class KnowledgeMemoryStore:
                 raise KnowledgeMemoryError("任务范围知识必须提供 task_id 或 job_id")
             next_item["version"] = int(current["version"]) + 1
             next_item["updated_at"] = _utc_now()
+            if "knowledge_type" in updates:
+                policy, policy_reason = self._resolve_review_policy(
+                    next_item["scope_type"],
+                    next_item["knowledge_type"],
+                    conflicts=[],
+                )
+                updates["review_policy"] = policy
+                updates["review_reason"] = policy_reason
+                next_item["review_policy"] = policy
+                next_item["review_reason"] = policy_reason
             assignments = ",".join(f"{key}=?" for key in [*updates, "version", "updated_at"])
             parameters = [next_item[key] for key in [*updates, "version", "updated_at"]]
             parameters.extend([item_id, normalized_key])
@@ -447,7 +659,10 @@ class KnowledgeMemoryStore:
                 from_status=current["status"],
                 to_status=next_status,
             )
-        return self.get_item(item_id, normalized_key)
+        result = self.get_item(item_id, normalized_key)
+        if clean_action == "confirm" and result.get("parent_id"):
+            self._mark_parent_superseded(result)
+        return result
 
     def audit(self, item_id: str, project_key: str) -> list[dict[str, Any]]:
         normalized_key = _require_project_key(project_key)
@@ -520,6 +735,117 @@ class KnowledgeMemoryStore:
                 scored.append((score, item))
         scored.sort(key=lambda pair: (pair[0], pair[1]["updated_at"]), reverse=True)
         return [item for _, item in scored[: max(1, min(limit, 20))]]
+
+    def _resolve_review_policy(
+        self,
+        scope_type: str,
+        knowledge_type: str,
+        *,
+        conflicts: list[dict[str, Any]],
+    ) -> tuple[str, str]:
+        if scope_type != "general":
+            return "manual_review", "项目或任务知识需人工确认"
+        if conflicts:
+            return "manual_review", "检测到同范围已有知识结论可能冲突"
+        if knowledge_type in self.auto_approve_types:
+            return "auto_approve", "该知识类型按当前配置自动通过"
+        return "manual_review", "涉及项目口径、价格系数或正式标准，需人工复核"
+
+    def _analyze_existing(
+        self,
+        connection: sqlite3.Connection,
+        item: dict[str, Any],
+    ) -> dict[str, Any]:
+        rows = connection.execute(
+            """
+            SELECT * FROM knowledge_items
+            WHERE project_key=? AND status IN ('candidate','pending','confirmed')
+            ORDER BY updated_at DESC
+            """,
+            (item["project_key"],),
+        ).fetchall()
+        normalized_question = _normalized_content(item["question"])
+        normalized_conclusion = _normalized_content(item["conclusion"])
+        normalized_title = _normalized_content(item["title"])
+        duplicate: dict[str, Any] | None = None
+        similar_items: list[dict[str, Any]] = []
+        conflicts: list[dict[str, Any]] = []
+        for row in rows:
+            existing = _row_dict(row)
+            question_score = _similarity(normalized_question, _normalized_content(existing["question"]))
+            title_score = _similarity(normalized_title, _normalized_content(existing["title"]))
+            conclusion_score = _similarity(
+                normalized_conclusion,
+                _normalized_content(existing["conclusion"]),
+            )
+            anchor_score = max(question_score, title_score)
+            summary = {
+                "id": existing["id"],
+                "title": existing["title"],
+                "status": existing["status"],
+                "project_key": existing["project_key"],
+                "scope_type": existing["scope_type"],
+                "score": round((anchor_score + conclusion_score) / 2, 3),
+                "conclusion": existing["conclusion"],
+            }
+            if anchor_score >= self.duplicate_threshold and conclusion_score >= self.duplicate_threshold:
+                duplicate = existing
+                break
+            if anchor_score >= 0.75:
+                similar_items.append(summary)
+            if anchor_score >= 0.88 and conclusion_score < 0.55:
+                conflicts.append(summary)
+        return {
+            "duplicate": duplicate,
+            "similar_items": similar_items[:5],
+            "conflicts": conflicts[:5],
+        }
+
+    @staticmethod
+    def _quality_warnings(
+        item: dict[str, Any],
+        analysis: dict[str, Any],
+    ) -> list[str]:
+        warnings: list[str] = []
+        if analysis["conflicts"]:
+            warnings.append("检测到同范围相似问题存在不同结论，已转人工复核。")
+        elif analysis["similar_items"]:
+            warnings.append("已发现相似知识，可在知识记忆中继续比对或撤销重复项。")
+        if item["review_policy"] == "manual_review":
+            warnings.append(item["review_reason"])
+        return list(dict.fromkeys(warnings))
+
+    def _mark_parent_superseded(self, item: dict[str, Any]) -> None:
+        parent_id = str(item.get("parent_id") or "").strip()
+        if (
+            not parent_id
+            or parent_id == item["id"]
+            or item.get("parent_relation") != "revision"
+        ):
+            return
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM knowledge_items WHERE id=?",
+                (parent_id,),
+            ).fetchone()
+            if not row or row["status"] != "confirmed":
+                return
+            parent = _row_dict(row)
+            now = _utc_now()
+            connection.execute(
+                "UPDATE knowledge_items SET status='suspected_stale',updated_at=? WHERE id=?",
+                (now, parent_id),
+            )
+            parent.update({"status": "suspected_stale", "updated_at": now})
+            self._record_audit(
+                connection,
+                parent,
+                action="supersede",
+                actor=str(item.get("confirmer") or GENERAL_KNOWLEDGE_AUTO_APPROVER),
+                reason=f"已由确认版本 {item['id']} 替代",
+                from_status="confirmed",
+                to_status="suspected_stale",
+            )
 
     @staticmethod
     def _get_row(
@@ -660,6 +986,76 @@ def _search_terms(text: str) -> set[str]:
             for index in range(max(0, len(chinese) - width + 1))
         )
     return terms
+
+
+def classify_knowledge_type(payload: dict[str, Any]) -> str:
+    text = " ".join(
+        str(payload.get(key) or "")
+        for key in ("title", "question", "conclusion", "conditions", "exceptions")
+    ).lower()
+    operation_terms = (
+        "如何使用",
+        "怎么操作",
+        "点击",
+        "按钮",
+        "上传",
+        "下载",
+        "页面",
+        "弹窗",
+        "报错",
+        "设置项",
+    )
+    standard_terms = (
+        "正式标准",
+        "国家标准",
+        "行业标准",
+        "企业标准",
+        "政策",
+        "规范条款",
+        "文件号",
+        "标准规定",
+    )
+    price_terms = (
+        "单价",
+        "基价",
+        "价格",
+        "调整系数",
+        "费率",
+        "费用金额",
+        "计价",
+    )
+    project_rule_terms = (
+        "项目口径",
+        "本项目采用",
+        "复杂程度",
+        "工作内容归类",
+        "特殊处理原则",
+        "适用边界",
+    )
+    if any(term in text for term in standard_terms):
+        detected = "standard_policy"
+    elif any(term in text for term in price_terms):
+        detected = "price_factor"
+    elif any(term in text for term in project_rule_terms):
+        detected = "project_rule"
+    elif any(term in text for term in operation_terms):
+        detected = "operation"
+    else:
+        detected = "general_explanation"
+    requested = str(payload.get("knowledge_type") or "").strip()
+    if detected in {"standard_policy", "price_factor", "project_rule"}:
+        return detected
+    return requested if requested in KNOWLEDGE_MEMORY_TYPES else detected
+
+
+def _normalized_content(value: object) -> str:
+    return re.sub(r"[^a-z0-9一-鿿]+", "", str(value or "").lower())
+
+
+def _similarity(left: str, right: str) -> float:
+    if not left or not right:
+        return 0.0
+    return SequenceMatcher(None, left, right).ratio()
 
 
 def _memory_score(item: dict[str, Any], query_terms: set[str]) -> float:

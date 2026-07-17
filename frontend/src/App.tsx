@@ -41,7 +41,7 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.9.1";
+const APP_VERSION = "v5.9.2";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const KNOWLEDGE_QA_ENTRY_COUNT = 3922;
 const KNOWLEDGE_QA_SOURCE_COUNT = 17;
@@ -134,7 +134,7 @@ const EMPTY_ELEMENT_COLUMN = "空元素列";
 const OUTPUT_ROW_FILTER_STORAGE_KEY = "guankanzhisuan-output-row-filter-settings";
 const WELCOME_SCREEN_HIDDEN_STORAGE_KEY = "guankanzhisuan-welcome-screen-hidden";
 const WELCOME_SCREEN_VERSION_STORAGE_KEY = "guankanzhisuan-welcome-screen-version";
-const WELCOME_SCREEN_VERSION = "brand-v5.9.1";
+const WELCOME_SCREEN_VERSION = "brand-v5.9.2";
 const ZHISUAN_QUICK_SETTINGS_VERSION = 2;
 const LEFT_COLUMN_COLLAPSED_STORAGE_KEY = "guankanzhisuan-left-column-collapsed";
 type MappingField = (typeof MAPPING_FIELDS)[number];
@@ -574,11 +574,15 @@ type KnowledgeSource = {
 };
 
 type KnowledgeMemoryStatus = "candidate" | "pending" | "confirmed" | "rejected" | "revoked" | "suspected_stale";
+type KnowledgeType = "operation" | "general_explanation" | "project_rule" | "price_factor" | "standard_policy";
 type ProjectMemory = {
   id: string;
   project_key: string;
   project_name: string;
   scope_type: "general" | "task" | "project";
+  knowledge_type: KnowledgeType;
+  review_policy: "auto_approve" | "manual_review" | "legacy";
+  review_reason: string;
   task_id?: string | null;
   job_id?: string | null;
   title: string;
@@ -599,6 +603,8 @@ type ProjectMemory = {
   confirmed_at?: string | null;
   revoked_at?: string | null;
   score?: number;
+  duplicate_reused?: boolean;
+  quality_warnings?: string[];
 };
 type KnowledgeCandidateSeed = {
   title: string;
@@ -617,6 +623,7 @@ type KnowledgeCandidateDraft = {
   projectName: string;
   projectKey: string;
   scopeType: "general" | "task" | "project";
+  knowledgeType: "auto" | KnowledgeType;
   taskId: string;
   jobId: string;
   title: string;
@@ -629,6 +636,14 @@ type KnowledgeCandidateDraft = {
   sourceReference: string;
   evidenceSummary: string;
   submitter: string;
+};
+type KnowledgeSaveResponse = {
+  item: ProjectMemory;
+  auto_approved?: boolean;
+  duplicate_reused?: boolean;
+  quality_warnings?: string[];
+  similar_items?: ProjectMemory[];
+  conflicts?: ProjectMemory[];
 };
 type KnowledgeAuditRecord = {
   id: number;
@@ -1518,9 +1533,45 @@ function normalizeKnowledgeProjectKey(value: string) {
   return result.replace(/^-+|-+$/g, "").slice(0, 120);
 }
 
-function isRememberKnowledgeCommand(value: string) {
+type KnowledgeNaturalCommand =
+  | { action: "remember-general" }
+  | { action: "remember-project" }
+  | { action: "revoke"; reason: string }
+  | { action: "revise"; conclusion: string }
+  | { action: "view" };
+
+function parseKnowledgeNaturalCommand(value: string): KnowledgeNaturalCommand | null {
   const compact = value.replace(/[\s，。！？,.!?]/g, "");
-  return ["记住这一条", "记住这条", "把这一条记住", "把这条记住"].includes(compact);
+  if (["记住这一条", "记住这条", "把这一条记住", "把这条记住"].includes(compact)) {
+    return { action: "remember-general" };
+  }
+  if (["仅在当前项目记住", "只在当前项目记住", "记到当前项目"].includes(compact)) {
+    return { action: "remember-project" };
+  }
+  if (["忘掉这一条", "忘掉这条", "忘掉上一条", "撤销这条记忆"].includes(compact)) {
+    return { action: "revoke", reason: "用户通过对话指令撤销刚保存的知识" };
+  }
+  if (["这条知识不对", "刚才这条不对", "这条记忆不对"].includes(compact)) {
+    return { action: "revoke", reason: "用户明确指出该知识不正确" };
+  }
+  if (["查看刚才保存的知识", "查看刚保存的知识", "查看这条记忆"].includes(compact)) {
+    return { action: "view" };
+  }
+  const revised = value.trim().match(/^(?:把)?(?:上一条|这一条|这条)(?:知识|记忆)?改成[：:]?\s*(.+)$/);
+  if (revised?.[1]?.trim()) {
+    return { action: "revise", conclusion: revised[1].trim() };
+  }
+  return null;
+}
+
+function knowledgeTypeLabel(type: KnowledgeType) {
+  return {
+    operation: "操作经验",
+    general_explanation: "一般解释",
+    project_rule: "项目口径",
+    price_factor: "价格/系数",
+    standard_policy: "标准/政策",
+  }[type];
 }
 
 function readKnowledgeProjectStorage(key: string) {
@@ -1665,6 +1716,7 @@ function DaweibaApp() {
   const [knowledgeMemoryAudit, setKnowledgeMemoryAudit] = useState<KnowledgeAuditRecord[]>([]);
   const [knowledgeTransitionReason, setKnowledgeTransitionReason] = useState("");
   const [isKnowledgeMemoryLoading, setIsKnowledgeMemoryLoading] = useState(false);
+  const [lastSavedKnowledgeMemory, setLastSavedKnowledgeMemory] = useState<ProjectMemory | null>(null);
   const [zhisuanWindowDefaults, setZhisuanWindowDefaults] = useState<ZhisuanWindowSettings>(normalizeZhisuanWindowSettings);
   const [zhisuanChatHeight, setZhisuanChatHeight] = useState(DEFAULT_ZHISUAN_WINDOW_SETTINGS.chatHeight);
   const [zhisuanChatHeightDraft, setZhisuanChatHeightDraft] = useState(String(DEFAULT_ZHISUAN_WINDOW_SETTINGS.chatHeight));
@@ -2673,6 +2725,7 @@ function DaweibaApp() {
       projectName: GENERAL_KNOWLEDGE_NAME,
       projectKey: GENERAL_KNOWLEDGE_KEY,
       scopeType: "general",
+      knowledgeType: "auto",
       taskId: seed.taskId ?? "",
       jobId: seed.jobId ?? result?.job_id ?? "",
       title: seed.title,
@@ -2694,6 +2747,7 @@ function DaweibaApp() {
       projectName: item.project_name,
       projectKey: item.project_key,
       scopeType: item.scope_type,
+      knowledgeType: item.knowledge_type,
       taskId: item.task_id ?? "",
       jobId: item.job_id ?? "",
       title: item.title,
@@ -2726,6 +2780,7 @@ function DaweibaApp() {
       project_name: projectName,
       project_key: projectKey,
       scope_type: knowledgeCandidateDraft.scopeType,
+      knowledge_type: knowledgeCandidateDraft.knowledgeType === "auto" ? null : knowledgeCandidateDraft.knowledgeType,
       task_id: isGeneral ? null : knowledgeCandidateDraft.taskId || null,
       job_id: isGeneral ? null : knowledgeCandidateDraft.jobId || null,
       title: knowledgeCandidateDraft.title,
@@ -2756,14 +2811,24 @@ function DaweibaApp() {
         const errorPayload = await response.json().catch(() => null);
         throw new Error(errorPayload?.detail ?? `保存知识候选失败：${response.status}`);
       }
-      const responsePayload = (await response.json()) as { item: ProjectMemory; auto_approved?: boolean };
+      const responsePayload = (await response.json()) as KnowledgeSaveResponse;
       setKnowledgeProjectName(responsePayload.item.project_name);
       setKnowledgeProjectKey(responsePayload.item.project_key);
+      setLastSavedKnowledgeMemory({
+        ...responsePayload.item,
+        duplicate_reused: responsePayload.duplicate_reused,
+        quality_warnings: responsePayload.quality_warnings,
+      });
       setKnowledgeCandidateDraft(null);
+      const warningText = responsePayload.quality_warnings?.length
+        ? `\n质量提示：${responsePayload.quality_warnings.join("；")}`
+        : "";
       appendZhisuanMessage(
-        responsePayload.auto_approved
-          ? `已保存为通用知识候选并自动通过：${responsePayload.item.title}。它现在可以用于后续知识问答，审核接口和审计记录仍然保留。`
-          : `${knowledgeCandidateDraft.id ? "知识候选已更新" : "已保存为知识候选"}：${responsePayload.item.title}。当前状态为“${knowledgeStatusLabel(responsePayload.item.status)}”，未经人工确认不会参与正式问答。`,
+        responsePayload.duplicate_reused
+          ? `已存在相同知识，未重复创建：${responsePayload.item.title}。${warningText}`
+          : responsePayload.auto_approved
+            ? `已保存为通用知识候选并自动通过：${responsePayload.item.title}。它现在可以用于后续知识问答，审核接口和审计记录仍然保留。${warningText}`
+            : `${knowledgeCandidateDraft.id ? "知识候选已更新" : "已保存为知识候选"}：${responsePayload.item.title}。当前状态为“${knowledgeStatusLabel(responsePayload.item.status)}”，${responsePayload.item.review_reason || "需人工确认"}。${warningText}`,
         "command",
         { typing: false },
       );
@@ -2777,13 +2842,23 @@ function DaweibaApp() {
     }
   }
 
-  async function rememberLatestKnowledgeCandidate() {
+  async function rememberLatestKnowledgeCandidate(scopeType: "general" | "project" = "general") {
     const latestMessage = [...chatMessages]
       .reverse()
       .find((message) => message.role === "assistant" && !message.isTyping && message.knowledgeCandidate);
     const seed = latestMessage?.knowledgeCandidate;
     if (!seed) {
       appendZhisuanMessage("当前没有可直接记住的知识回答。请先完成一次知识库问答或行级复核，再说“记住这一条”。", "command", { typing: false });
+      return;
+    }
+    const projectName = scopeType === "general" ? GENERAL_KNOWLEDGE_NAME : defaultKnowledgeProjectName();
+    const projectKey = scopeType === "general"
+      ? GENERAL_KNOWLEDGE_KEY
+      : knowledgeProjectKey !== GENERAL_KNOWLEDGE_KEY
+        ? normalizeKnowledgeProjectKey(knowledgeProjectKey)
+        : normalizeKnowledgeProjectKey(projectName);
+    if (scopeType === "project" && (!projectName || !projectKey)) {
+      appendZhisuanMessage("当前还没有可用的项目信息。请先加载项目 Excel，或在“知识记忆”中填写项目名称和 scope_key。", "command", { typing: false });
       return;
     }
     setIsSavingKnowledgeCandidate(true);
@@ -2793,9 +2868,9 @@ function DaweibaApp() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          project_name: GENERAL_KNOWLEDGE_NAME,
-          project_key: GENERAL_KNOWLEDGE_KEY,
-          scope_type: "general",
+          project_name: projectName,
+          project_key: projectKey,
+          scope_type: scopeType,
           task_id: null,
           job_id: null,
           title: seed.title,
@@ -2814,19 +2889,129 @@ function DaweibaApp() {
         const payload = await response.json().catch(() => null);
         throw new Error(payload?.detail ?? `自动保存知识失败：${response.status}`);
       }
-      const payload = (await response.json()) as { item: ProjectMemory; auto_approved?: boolean };
+      const payload = (await response.json()) as KnowledgeSaveResponse;
+      setLastSavedKnowledgeMemory({
+        ...payload.item,
+        duplicate_reused: payload.duplicate_reused,
+        quality_warnings: payload.quality_warnings,
+      });
+      const warnings = payload.quality_warnings?.length
+        ? `质量提示：${payload.quality_warnings.join("；")}`
+        : "";
       appendZhisuanMessage(
-        `已记住并保存为通用知识：${payload.item.title}。当前阶段已自动通过审核，来源、版本和审计记录均已保留。`,
+        payload.duplicate_reused
+          ? `这条知识已存在，未重复创建：${payload.item.title}。`
+          : payload.auto_approved
+            ? `已记住并保存为通用知识：${payload.item.title}。已按知识类型策略自动通过。${warnings}`
+            : `已记住：${payload.item.title}。当前状态为“${knowledgeStatusLabel(payload.item.status)}”，${payload.item.review_reason || "需人工确认"}。${warnings}`,
         "command",
         { typing: false },
       );
-      if (isKnowledgeMemoryOpen) await loadKnowledgeMemoryItems(GENERAL_KNOWLEDGE_KEY);
+      if (isKnowledgeMemoryOpen) await loadKnowledgeMemoryItems(payload.item.project_key);
     } catch (err) {
       const messageText = err instanceof Error ? err.message : "自动保存知识失败";
       setError(messageText);
       appendZhisuanMessage(`没有记住这一条：${messageText}`, "command", { typing: false });
     } finally {
       setIsSavingKnowledgeCandidate(false);
+    }
+  }
+
+  async function handleKnowledgeNaturalCommand(command: KnowledgeNaturalCommand) {
+    if (command.action === "remember-general") {
+      await rememberLatestKnowledgeCandidate("general");
+      return;
+    }
+    if (command.action === "remember-project") {
+      await rememberLatestKnowledgeCandidate("project");
+      return;
+    }
+    if (!lastSavedKnowledgeMemory) {
+      appendZhisuanMessage("当前会话还没有刚保存的知识。请先说“记住这一条”，或点击“保存为知识候选”。", "command", { typing: false });
+      return;
+    }
+    if (command.action === "view") {
+      setKnowledgeProjectName(lastSavedKnowledgeMemory.project_name);
+      setKnowledgeProjectKey(lastSavedKnowledgeMemory.project_key);
+      setIsKnowledgeMemoryOpen(true);
+      await loadKnowledgeMemoryItems(lastSavedKnowledgeMemory.project_key);
+      await selectKnowledgeMemory(lastSavedKnowledgeMemory);
+      return;
+    }
+    if (lastSavedKnowledgeMemory.duplicate_reused) {
+      appendZhisuanMessage("刚才命中的是已有重复知识，没有新建记录；为避免误撤销原知识，请在“知识记忆”中查看后再操作。", "command", { typing: false });
+      return;
+    }
+    setIsKnowledgeMemoryLoading(true);
+    setError("");
+    try {
+      if (command.action === "revise") {
+        const response = await fetch(
+          `${API_BASE}/api/knowledge-memory/items/${encodeURIComponent(lastSavedKnowledgeMemory.id)}/revise`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              project_key: lastSavedKnowledgeMemory.project_key,
+              actor: knowledgeOperator,
+              conclusion: command.conclusion,
+              reason: "用户通过对话指令更正刚保存的知识",
+            }),
+          },
+        );
+        if (!response.ok) {
+          const payload = await response.json().catch(() => null);
+          throw new Error(payload?.detail ?? `更正知识失败：${response.status}`);
+        }
+        const payload = (await response.json()) as KnowledgeSaveResponse;
+        setLastSavedKnowledgeMemory({
+          ...payload.item,
+          duplicate_reused: payload.duplicate_reused,
+          quality_warnings: payload.quality_warnings,
+        });
+        const wasUnconfirmed = ["candidate", "pending"].includes(lastSavedKnowledgeMemory.status);
+        appendZhisuanMessage(
+          payload.duplicate_reused
+            ? `更正内容与已有知识一致，未重复创建新版本：${payload.item.title}。`
+            : wasUnconfirmed
+              ? `已修改未确认候选：${payload.item.title}。当前状态为“${knowledgeStatusLabel(payload.item.status)}”。`
+              : `已生成更正版本：${payload.item.title}。当前状态为“${knowledgeStatusLabel(payload.item.status)}”；${payload.item.status === "confirmed" ? "原版本已自动转为疑似失效" : "原已确认版本在新版确认前仍保持有效"}。`,
+          "command",
+          { typing: false },
+        );
+        return;
+      }
+      const action = ["candidate", "pending"].includes(lastSavedKnowledgeMemory.status) ? "reject" : "revoke";
+      if (["rejected", "revoked"].includes(lastSavedKnowledgeMemory.status)) {
+        appendZhisuanMessage("这条知识已经不再参与问答，无需重复撤销。", "command", { typing: false });
+        return;
+      }
+      const response = await fetch(
+        `${API_BASE}/api/knowledge-memory/items/${encodeURIComponent(lastSavedKnowledgeMemory.id)}/${action}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            project_key: lastSavedKnowledgeMemory.project_key,
+            actor: knowledgeOperator,
+            actor_role: knowledgeActorRole,
+            reason: command.reason,
+          }),
+        },
+      );
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.detail ?? `撤销知识失败：${response.status}`);
+      }
+      const payload = (await response.json()) as { item: ProjectMemory };
+      setLastSavedKnowledgeMemory(payload.item);
+      appendZhisuanMessage(`已停止这条知识参与后续问答，审计记录仍然保留：${payload.item.title}。`, "command", { typing: false });
+    } catch (err) {
+      const messageText = err instanceof Error ? err.message : "知识记忆操作失败";
+      setError(messageText);
+      appendZhisuanMessage(`知识记忆操作失败：${messageText}`, "command", { typing: false });
+    } finally {
+      setIsKnowledgeMemoryLoading(false);
     }
   }
 
@@ -2936,6 +3121,52 @@ function DaweibaApp() {
       await selectKnowledgeMemory(payload.item);
     } catch (err) {
       setError(err instanceof Error ? err.message : "知识状态更新失败");
+    } finally {
+      setIsKnowledgeMemoryLoading(false);
+    }
+  }
+
+  async function promoteKnowledgeMemoryToGeneral() {
+    if (!selectedKnowledgeMemory || selectedKnowledgeMemory.scope_type === "general") return;
+    setIsKnowledgeMemoryLoading(true);
+    setError("");
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/knowledge-memory/items/${encodeURIComponent(selectedKnowledgeMemory.id)}/promote-general`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            project_key: selectedKnowledgeMemory.project_key,
+            actor: knowledgeOperator,
+            actor_role: knowledgeActorRole,
+            reason: knowledgeTransitionReason || "网页提升为通用知识",
+          }),
+        },
+      );
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.detail ?? `提升通用知识失败：${response.status}`);
+      }
+      const payload = (await response.json()) as KnowledgeSaveResponse;
+      setLastSavedKnowledgeMemory({
+        ...payload.item,
+        duplicate_reused: payload.duplicate_reused,
+        quality_warnings: payload.quality_warnings,
+      });
+      setKnowledgeProjectName(GENERAL_KNOWLEDGE_NAME);
+      setKnowledgeProjectKey(GENERAL_KNOWLEDGE_KEY);
+      setKnowledgeTransitionReason("");
+      await loadKnowledgeMemoryItems(GENERAL_KNOWLEDGE_KEY);
+      await selectKnowledgeMemory(payload.item);
+      const resultText = payload.duplicate_reused
+        ? `通用范围已存在相同知识，未重复创建：${payload.item.title}。`
+        : payload.auto_approved
+          ? `已提升为通用知识并按知识类型策略自动通过：${payload.item.title}。`
+          : `已创建通用知识候选：${payload.item.title}。当前需人工确认，${payload.item.review_reason || "请核对适用边界和正式依据"}。`;
+      appendZhisuanMessage(resultText, "command", { typing: false });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "提升通用知识失败");
     } finally {
       setIsKnowledgeMemoryLoading(false);
     }
@@ -5501,8 +5732,9 @@ function DaweibaApp() {
     setChatInput("");
     appendUserCommand(message);
 
-    if (isRememberKnowledgeCommand(message)) {
-      await rememberLatestKnowledgeCandidate();
+    const knowledgeCommand = parseKnowledgeNaturalCommand(message);
+    if (knowledgeCommand) {
+      await handleKnowledgeNaturalCommand(knowledgeCommand);
       return;
     }
 
@@ -9681,7 +9913,7 @@ function DaweibaApp() {
             <div className="modal-title">
               <span>
                 <strong>{knowledgeCandidateDraft.id ? "编辑知识候选" : "保存为知识候选"}</strong>
-                <small>默认保存为通用知识并自动通过；也可改为项目或任务范围后走人工审核。</small>
+                <small>默认保存为通用知识；操作方法和通用解释可自动通过，价格系数、正式标准及冲突内容需人工确认。</small>
               </span>
               <button type="button" onClick={() => setKnowledgeCandidateDraft(null)}>关闭</button>
             </div>
@@ -9727,9 +9959,26 @@ function DaweibaApp() {
                     };
                   })}
                 >
-                  <option value="general">通用知识（当前默认自动通过）</option>
+                  <option value="general">通用知识（按知识类型审核）</option>
                   <option value="project">当前项目</option>
                   <option value="task">当前任务</option>
+                </select>
+              </label>
+              <label>
+                <span>知识类型</span>
+                <select
+                  value={knowledgeCandidateDraft.knowledgeType}
+                  onChange={(event) => setKnowledgeCandidateDraft((current) => current ? ({
+                    ...current,
+                    knowledgeType: event.target.value as "auto" | KnowledgeType,
+                  }) : current)}
+                >
+                  <option value="auto">自动识别</option>
+                  <option value="operation">操作方法</option>
+                  <option value="general_explanation">通用解释</option>
+                  <option value="project_rule">项目规则</option>
+                  <option value="price_factor">价格 / 调整系数</option>
+                  <option value="standard_policy">正式标准 / 制度</option>
                 </select>
               </label>
               <label>
@@ -9823,7 +10072,7 @@ function DaweibaApp() {
             <div className="modal-title">
               <span>
                 <strong>知识记忆</strong>
-                <small>通用知识当前默认自动通过；项目和任务知识继续保留人工审核。所有范围都保留来源、版本与审计。</small>
+                <small>通用知识按类型审核：低风险知识可自动通过，价格系数、正式标准、冲突内容及项目知识需人工确认。所有操作保留版本与审计。</small>
               </span>
               <button type="button" onClick={() => setIsKnowledgeMemoryOpen(false)}>关闭</button>
             </div>
@@ -9882,7 +10131,7 @@ function DaweibaApp() {
                   >
                     <span className={`knowledge-memory-status is-${item.status}`}>{knowledgeStatusLabel(item.status)}</span>
                     <strong>{item.title}</strong>
-                    <small>v{item.version} · {item.submitter} · {item.updated_at.replace("T", " ")}</small>
+                    <small>{knowledgeTypeLabel(item.knowledge_type)} · v{item.version} · {item.submitter} · {item.updated_at.replace("T", " ")}</small>
                   </button>
                 ))}
               </div>
@@ -9898,6 +10147,8 @@ function DaweibaApp() {
                     </div>
                     <dl>
                       <div><dt>所属范围</dt><dd>{selectedKnowledgeMemory.project_name}（{selectedKnowledgeMemory.project_key}）</dd></div>
+                      <div><dt>知识类型</dt><dd>{knowledgeTypeLabel(selectedKnowledgeMemory.knowledge_type)}</dd></div>
+                      <div><dt>审核策略</dt><dd>{selectedKnowledgeMemory.review_policy === "auto_approve" ? "自动通过" : "人工确认"}{selectedKnowledgeMemory.review_reason ? `；${selectedKnowledgeMemory.review_reason}` : ""}</dd></div>
                       <div><dt>原问题</dt><dd>{selectedKnowledgeMemory.question}</dd></div>
                       <div><dt>确认结论</dt><dd>{selectedKnowledgeMemory.conclusion}</dd></div>
                       <div><dt>适用条件</dt><dd>{selectedKnowledgeMemory.conditions || "未填写"}</dd></div>
@@ -9924,6 +10175,9 @@ function DaweibaApp() {
                       )}
                       {selectedKnowledgeMemory.status === "confirmed" && (
                         <>
+                          {selectedKnowledgeMemory.scope_type !== "general" && (
+                            <button className="primary-button" type="button" onClick={() => void promoteKnowledgeMemoryToGeneral()}>提升为通用知识</button>
+                          )}
                           <button className="ghost-button danger" type="button" onClick={() => void transitionKnowledgeMemory("mark-stale")}>标记疑似失效</button>
                           <button className="ghost-button danger" type="button" onClick={() => void transitionKnowledgeMemory("revoke")}>撤销</button>
                         </>

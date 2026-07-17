@@ -49,7 +49,7 @@ def confirm_item(store: KnowledgeMemoryStore, item: dict) -> dict:
     )
 
 
-def test_general_candidate_defaults_to_auto_approved_and_is_available_without_project(tmp_path):
+def test_general_low_risk_candidate_auto_approves_and_is_available_without_project(tmp_path):
     store = KnowledgeMemoryStore(tmp_path / "knowledge-memory.sqlite3")
     item = store.create_candidate(
         candidate_payload(
@@ -58,9 +58,11 @@ def test_general_candidate_defaults_to_auto_approved_and_is_available_without_pr
             scope_type="general",
             task_id="TASK-IGNORED",
             job_id="JOB-IGNORED",
-            title="通用系数复核知识",
-            question="实物工作费调整系数如何确定？",
-            conclusion="先查正式规则，再按结构化结果解释。",
+            title="通用上传操作方法",
+            question="如何上传 Excel？",
+            conclusion="点击上传按钮并选择 Excel 文件。",
+            conditions="",
+            exceptions="",
         )
     )
 
@@ -75,8 +77,89 @@ def test_general_candidate_defaults_to_auto_approved_and_is_available_without_pr
         "submit",
         "confirm",
     ]
-    assert store.search_confirmed("实物工作费调整系数", "")[0]["id"] == item["id"]
-    assert store.search_confirmed("实物工作费调整系数", "另一个项目")[0]["id"] == item["id"]
+    assert item["knowledge_type"] == "operation"
+    assert item["review_policy"] == "auto_approve"
+    assert store.search_confirmed("如何上传 Excel", "")[0]["id"] == item["id"]
+    assert store.search_confirmed("如何上传 Excel", "另一个项目")[0]["id"] == item["id"]
+
+
+def test_general_sensitive_candidate_requires_manual_review(tmp_path):
+    store = KnowledgeMemoryStore(tmp_path / "knowledge-memory.sqlite3")
+    item = store.create_candidate(
+        candidate_payload(
+            project_name="",
+            project_key="",
+            scope_type="general",
+            title="通用系数复核知识",
+            question="实物工作费调整系数如何确定？",
+            conclusion="先查正式规则，再按结构化结果解释。",
+        )
+    )
+
+    assert item["knowledge_type"] == "price_factor"
+    assert item["review_policy"] == "manual_review"
+    assert item["status"] == "pending"
+    assert [record["action"] for record in store.audit(item["id"], item["project_key"])] == [
+        "create",
+        "submit",
+    ]
+    assert store.search_confirmed("实物工作费调整系数", "") == []
+
+
+def test_auto_approve_types_are_configurable(tmp_path):
+    store = KnowledgeMemoryStore(
+        tmp_path / "knowledge-memory.sqlite3",
+        auto_approve_types={"operation", "general_explanation", "price_factor"},
+    )
+    item = store.create_candidate(
+        candidate_payload(
+            project_name="",
+            project_key="",
+            scope_type="general",
+            title="通用系数复核知识",
+            question="实物工作费调整系数如何确定？",
+            conclusion="先查正式规则，再按结构化结果解释。",
+        )
+    )
+
+    assert item["knowledge_type"] == "price_factor"
+    assert item["review_policy"] == "auto_approve"
+    assert item["status"] == "confirmed"
+
+
+def test_sensitive_type_wins_over_operation_words(tmp_path):
+    store = KnowledgeMemoryStore(tmp_path / "knowledge-memory.sqlite3")
+    item = store.create_candidate(
+        candidate_payload(
+            project_name="",
+            project_key="",
+            scope_type="general",
+            knowledge_type="operation",
+            title="页面价格查看方法",
+            question="点击页面后如何确定实物工作费调整系数？",
+            conclusion="点击查看后仍须按正式规则核对调整系数。",
+        )
+    )
+
+    assert item["knowledge_type"] == "price_factor"
+    assert item["review_policy"] == "manual_review"
+    assert item["status"] == "pending"
+
+
+def test_existing_database_adds_governance_columns(tmp_path):
+    db_path = tmp_path / "knowledge-memory.sqlite3"
+    store = KnowledgeMemoryStore(db_path)
+    with store._connect() as connection:
+        for column in ("knowledge_type", "review_policy", "review_reason", "parent_relation"):
+            connection.execute(f"ALTER TABLE knowledge_items DROP COLUMN {column}")
+
+    assert store.list_items(GENERAL_KNOWLEDGE_PROJECT_KEY) == []
+    with sqlite3.connect(db_path) as connection:
+        columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(knowledge_items)").fetchall()
+        }
+    assert {"knowledge_type", "review_policy", "review_reason", "parent_relation"} <= columns
 
 
 def test_create_candidate_pending_does_not_search_and_confirmed_same_project_does(tmp_path):
@@ -313,7 +396,16 @@ def test_api_general_candidate_auto_approves_without_project_fields(tmp_path, mo
     client = TestClient(app)
     response = client.post(
         "/api/knowledge-memory/candidates",
-        json=candidate_payload(project_name="", project_key="", scope_type="general"),
+        json=candidate_payload(
+            project_name="",
+            project_key="",
+            scope_type="general",
+            title="上传操作方法",
+            question="如何上传 Excel？",
+            conclusion="点击上传按钮并选择 Excel 文件。",
+            conditions="",
+            exceptions="",
+        ),
     )
 
     assert response.status_code == 200
@@ -323,7 +415,7 @@ def test_api_general_candidate_auto_approves_without_project_fields(tmp_path, mo
 
     ask_response = client.post(
         "/api/knowledge/ask",
-        json={"question": "山岭隧道洞身如何复核复杂程度？"},
+        json={"question": "如何上传 Excel？"},
     )
     ask_payload = ask_response.json()
     assert ask_response.status_code == 200
@@ -474,6 +566,169 @@ def test_memory_database_failure_does_not_break_existing_no_evidence_behavior(mo
     assert response.json()["memory_available"] is False
 
 
+def test_duplicate_is_reused_without_creating_a_second_item(tmp_path):
+    store = KnowledgeMemoryStore(tmp_path / "knowledge-memory.sqlite3")
+    payload = candidate_payload(
+        project_name="",
+        project_key="",
+        scope_type="general",
+        title="上传操作方法",
+        question="如何上传 Excel？",
+        conclusion="点击上传按钮并选择 Excel 文件。",
+        conditions="",
+        exceptions="",
+    )
+    first = store.create_candidate(payload)
+    second = store.create_candidate(payload)
+
+    assert second["id"] == first["id"]
+    assert second["duplicate_reused"] is True
+    assert len(store.list_items(GENERAL_KNOWLEDGE_PROJECT_KEY)) == 1
+    assert store.audit(first["id"], first["project_key"])[-1]["action"] == "reuse"
+
+
+def test_conflicting_general_knowledge_is_forced_to_manual_review(tmp_path):
+    store = KnowledgeMemoryStore(tmp_path / "knowledge-memory.sqlite3")
+    first = store.create_candidate(
+        candidate_payload(
+            project_name="",
+            project_key="",
+            scope_type="general",
+            title="上传操作方法",
+            question="如何上传 Excel？",
+            conclusion="点击上传按钮并选择 Excel 文件。",
+            conditions="",
+            exceptions="",
+        )
+    )
+    conflicting = store.create_candidate(
+        candidate_payload(
+            project_name="",
+            project_key="",
+            scope_type="general",
+            title="上传操作方法",
+            question="如何上传 Excel？",
+            conclusion="禁止上传文件，应直接关闭当前页面。",
+            conditions="",
+            exceptions="",
+        )
+    )
+
+    assert first["status"] == "confirmed"
+    assert conflicting["status"] == "pending"
+    assert conflicting["review_policy"] == "manual_review"
+    assert conflicting["conflicts"][0]["id"] == first["id"]
+    assert "冲突" in conflicting["review_reason"]
+
+
+def test_revise_confirmed_item_creates_version_and_only_supersedes_after_confirmation(tmp_path):
+    store = KnowledgeMemoryStore(tmp_path / "knowledge-memory.sqlite3")
+    original = store.create_candidate(
+        candidate_payload(
+            project_name="",
+            project_key="",
+            scope_type="general",
+            title="上传操作方法",
+            question="如何上传 Excel？",
+            conclusion="点击上传按钮并选择 Excel 文件。",
+            conditions="",
+            exceptions="",
+        )
+    )
+    revised = store.revise_item(
+        original["id"],
+        original["project_key"],
+        {
+            "actor": "维护人甲",
+            "conclusion": "先选择 Excel，再点击上传并等待校验完成。",
+            "reason": "补充校验步骤",
+        },
+    )
+
+    assert revised["id"] != original["id"]
+    assert revised["parent_id"] == original["id"]
+    assert revised["parent_relation"] == "revision"
+    assert store.get_item(original["id"], original["project_key"])["status"] == "confirmed"
+    assert store.audit(original["id"], original["project_key"])[-1]["action"] == "revise"
+
+    if revised["status"] == "pending":
+        revised = store.transition(
+            revised["id"],
+            revised["project_key"],
+            "confirm",
+            actor="复核人乙",
+            actor_role="reviewer",
+            reason="确认更正",
+        )
+    assert revised["status"] == "confirmed"
+    assert store.get_item(original["id"], original["project_key"])["status"] == "suspected_stale"
+    assert store.audit(original["id"], original["project_key"])[-1]["action"] == "supersede"
+
+
+def test_promote_project_knowledge_to_general_keeps_source_active(tmp_path):
+    store = KnowledgeMemoryStore(tmp_path / "knowledge-memory.sqlite3")
+    source = confirm_item(store, store.create_candidate(candidate_payload()))
+    promoted = store.promote_to_general(
+        source["id"],
+        source["project_key"],
+        actor="维护人甲",
+        reason="多个项目均可复用",
+    )
+
+    assert promoted["project_key"] == GENERAL_KNOWLEDGE_PROJECT_KEY
+    assert promoted["parent_relation"] == "promotion"
+    assert promoted["status"] == "pending"
+    assert store.get_item(source["id"], source["project_key"])["status"] == "confirmed"
+    assert store.audit(source["id"], source["project_key"])[-1]["action"] == "promote_general"
+
+
+def test_api_revise_and_promote_routes(tmp_path, monkeypatch):
+    import app.main as main_module
+
+    monkeypatch.setattr(
+        main_module,
+        "DEFAULT_KNOWLEDGE_MEMORY_DB_PATH",
+        tmp_path / "knowledge-memory.sqlite3",
+    )
+    client = TestClient(app)
+    created = client.post("/api/knowledge-memory/candidates", json=candidate_payload()).json()["item"]
+    client.post(
+        f"/api/knowledge-memory/items/{created['id']}/submit",
+        json={"project_key": created["project_key"], "actor": "编制人甲"},
+    )
+    client.post(
+        f"/api/knowledge-memory/items/{created['id']}/confirm",
+        json={
+            "project_key": created["project_key"],
+            "actor": "复核人乙",
+            "actor_role": "reviewer",
+            "reason": "确认",
+        },
+    )
+    promoted = client.post(
+        f"/api/knowledge-memory/items/{created['id']}/promote-general",
+        json={
+            "project_key": created["project_key"],
+            "actor": "维护人甲",
+            "reason": "申请通用",
+        },
+    )
+    revised = client.post(
+        f"/api/knowledge-memory/items/{created['id']}/revise",
+        json={
+            "project_key": created["project_key"],
+            "actor": "维护人甲",
+            "conclusion": "更正后的项目结论。",
+            "reason": "发现新依据",
+        },
+    )
+
+    assert promoted.status_code == 200
+    assert promoted.json()["item"]["parent_relation"] == "promotion"
+    assert revised.status_code == 200
+    assert revised.json()["item"]["parent_relation"] == "revision"
+
+
 def test_frontend_only_knowledge_messages_expose_candidate_action():
     source = Path("frontend/src/App.tsx").read_text(encoding="utf-8")
 
@@ -482,4 +737,7 @@ def test_frontend_only_knowledge_messages_expose_candidate_action():
     assert "askZhisuanFreeform" in source
     assert "project_memories" in source
     assert "记住这一条" in source
+    assert "只在当前项目记住" in source
+    assert 'command.action === "revise"' in source
+    assert "提升为通用知识" in source
     assert 'scopeType: "general"' in source

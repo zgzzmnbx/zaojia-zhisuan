@@ -1,10 +1,10 @@
 {
-  "version": 2,
-  "updated_at": "2026-07-10",
+  "version": 3,
+  "updated_at": "2026-07-18",
   "_说明": [
     "这是造价智算的项目默认设置文件，可以手动修改。",
     "注意：JSON 标准不支持 // 或 /* */ 注释；需要说明时请使用这种以下划线开头的说明字段。",
-    "程序只读取 previewColumns、zhisuanWindow、inputMapping、workloadCapture、feishuAppBot 内的有效配置项，未知说明字段会被忽略。",
+    "程序只读取 previewColumns、zhisuanWindow、knowledgeMemory、inputMapping、workloadCapture、feishuAppBot 内的有效配置项，未知说明字段会被忽略。",
     "修改后请保持 JSON 格式合法；如果格式错误，程序会回退到代码内置默认值。"
   ],
   "previewColumns": {
@@ -151,6 +151,18 @@
     },
     "welcomeMessage": "您好，我是 **造价智算智能体**。\n我可以协助您完成最高投标限价编制中的 **Excel 填价、规则解释、系数复核、经验池预警、风险提示和 Word 报告生成**。\n\n您可以试着这样提问：\n📌 **系数依据复核**\n这一行实物工作费调整系数从哪里来？\n📚 **@知识库 强制查库**\n@知识库 附加调整系数为什么不能连乘？\n⚠️ **风险预警分析**\n本次结果中哪些行需要优先复核？\n📊 **经验池比对**\n哪些单价或系数和历史经验偏离较大？\n📄 **报告与成果输出**\n帮我生成本次控制价编制的风险说明。\n\n**接下来建议您先上传控制价 Excel 表格。**\n上传后请先检查列映射，再点击开始转换；转换完成后，再运行经验池预警，最后下载 Excel 和 Word 报告。",
     "dockStyle": "default"
+  },
+  "knowledgeMemory": {
+    "_说明": [
+      "知识记忆默认审核策略：只有 autoApproveTypes 中的通用知识类型可自动通过。",
+      "项目/任务知识、同范围冲突知识以及未列入自动通过的类型始终需要人工确认。",
+      "duplicateSimilarityThreshold 用于识别高度相似的重复知识，可填 0.8 到 1.0。"
+    ],
+    "autoApproveTypes": [
+      "operation",
+      "general_explanation"
+    ],
+    "duplicateSimilarityThreshold": 0.92
   },
   "inputMapping": {
     "_说明": "主填价模块的列映射默认设置：控制默认映射行、是否输出逐行匹配报告、是否跳过指定列无值行、合并单元格读取口径和字段别名。",
