@@ -210,18 +210,21 @@ export default function ProfessionalSkillSelector({
                     </div>
                     <div className="professional-skill-card__actions">
                       <button type="button" className="is-detail" onClick={() => openDetail(item.id)}>查看详情</button>
-                      {item.can_create_task ? (
+                      {isSelected ? (
+                        <span className="is-selected-state" role="status">
+                          <CheckCircle2 size={15} />
+                          已选择
+                        </span>
+                      ) : item.can_create_task ? (
                         <button
                           type="button"
                           className="is-select"
-                          aria-pressed={isSelected}
                           onClick={() => {
                             onSelect(item);
                             setIsMenuOpen(false);
                           }}
                         >
-                          {isSelected ? <CheckCircle2 size={15} /> : null}
-                          {isSelected ? "已选择" : "选择此能力"}
+                          选择此能力
                         </button>
                       ) : (
                         <button type="button" disabled>不可创建任务</button>
