@@ -1,10 +1,10 @@
 {
   "version": 3,
-  "updated_at": "2026-07-18",
+  "updated_at": "2026-07-20",
   "_说明": [
     "这是造价智算的项目默认设置文件，可以手动修改。",
     "注意：JSON 标准不支持 // 或 /* */ 注释；需要说明时请使用这种以下划线开头的说明字段。",
-    "程序只读取 previewColumns、zhisuanWindow、knowledgeMemory、inputMapping、workloadCapture、feishuAppBot 内的有效配置项，未知说明字段会被忽略。",
+    "程序只读取 previewColumns、zhisuanWindow、knowledgeMemory、professionalSkills、inputMapping、workloadCapture、feishuAppBot 内的有效配置项，未知说明字段会被忽略。",
     "修改后请保持 JSON 格式合法；如果格式错误，程序会回退到代码内置默认值。"
   ],
   "previewColumns": {
@@ -163,6 +163,10 @@
       "general_explanation"
     ],
     "duplicateSimilarityThreshold": 0.92
+  },
+  "professionalSkills": {
+    "_说明": "专业能力默认设置；这里只保存非秘密选择，运行秘密不得写入本文件。",
+    "defaultSkillId": "survey-measurement-limit-price"
   },
   "inputMapping": {
     "_说明": "主填价模块的列映射默认设置：控制默认映射行、是否输出逐行匹配报告、是否跳过指定列无值行、合并单元格读取口径和字段别名。",

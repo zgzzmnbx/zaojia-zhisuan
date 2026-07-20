@@ -65,3 +65,17 @@ def test_copy_project_default_settings_generates_release_default_when_missing(tm
     assert generated_payload["zhisuanWindow"]["quickSettings"]["customPrompts"] == ["@知识库："]
     assert generated_payload["inputMapping"]["headerRow"] == 4
     assert generated_payload["workloadCapture"]["writeMode"] == "conservative"
+    assert generated_payload["professionalSkills"]["defaultSkillId"] == "survey-measurement-limit-price"
+
+
+def test_copy_business_skills_is_shared_by_green_and_tauri_stage(tmp_path):
+    project_root = tmp_path / "project"
+    release_root = tmp_path / "release"
+    manifest_path = project_root / "business-skills" / "survey-measurement-limit-price" / "manifest.json"
+    manifest_path.parent.mkdir(parents=True)
+    manifest_path.write_text('{"id":"survey-measurement-limit-price"}', encoding="utf-8")
+
+    build_green_release.copy_business_skills(project_root, release_root)
+
+    copied = release_root / "business-skills" / "survey-measurement-limit-price" / "manifest.json"
+    assert copied.read_text(encoding="utf-8") == '{"id":"survey-measurement-limit-price"}'

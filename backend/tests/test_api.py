@@ -42,7 +42,7 @@ def test_health_endpoint():
 
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
-    assert response.json()["version"] == "v5.9.2"
+    assert response.json()["version"] == "v5.10.0"
 
 
 def test_project_default_settings_include_zhisuan_window():
@@ -58,6 +58,7 @@ def test_project_default_settings_include_zhisuan_window():
     assert payload["zhisuanWindow"]["quickSettings"]["customPrompts"] == ["@知识库："]
     assert payload["knowledgeMemory"]["autoApproveTypes"] == ["operation", "general_explanation"]
     assert payload["knowledgeMemory"]["duplicateSimilarityThreshold"] == 0.92
+    assert payload["professionalSkills"]["defaultSkillId"] == "survey-measurement-limit-price"
 
 
 def test_ui_preferences_are_saved_and_loaded(tmp_path, monkeypatch):
@@ -1872,7 +1873,9 @@ def test_experience_warning_endpoint_writes_warnings_after_process(tmp_path, mon
     assert "历史控制价.xlsx / 表2 测量 第88行 的 基价 为 1" in warning_payload["summary"]["table_preview"]["rows"][0][detail_index]
     progress_response = client.get(f"/api/experience-warnings/progress/{payload['job_id']}")
     assert progress_response.status_code == 200
-    assert progress_response.json() == {
+    progress_payload = progress_response.json()
+    assert progress_payload.pop("professional_skill") == payload["professional_skill"]
+    assert progress_payload == {
         "status": "completed",
         "processed_rows": 1,
         "total_rows": 1,

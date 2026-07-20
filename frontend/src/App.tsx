@@ -27,6 +27,10 @@ import {
 import { DaweibaLayoutV2 } from "./DaweibaLayoutV2";
 import ZhisuanAvatar, { type ZhisuanAvatarState } from "./components/ZhisuanAvatar";
 import WordReportPreview, { type WordReportPreviewStatus } from "./components/report/WordReportPreview";
+import ProfessionalSkillSelector, {
+  type ProfessionalSkillSnapshot,
+  type ProfessionalSkillSummary,
+} from "./components/skills/ProfessionalSkillSelector";
 
 const DEFAULT_API_BASE = import.meta.env.DEV ? "http://127.0.0.1:8000" : "";
 const API_BASE = import.meta.env.VITE_API_BASE ?? DEFAULT_API_BASE;
@@ -41,7 +45,7 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.9.2";
+const APP_VERSION = "v5.10.0";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const KNOWLEDGE_QA_ENTRY_COUNT = 3922;
 const KNOWLEDGE_QA_SOURCE_COUNT = 17;
@@ -134,7 +138,7 @@ const EMPTY_ELEMENT_COLUMN = "空元素列";
 const OUTPUT_ROW_FILTER_STORAGE_KEY = "guankanzhisuan-output-row-filter-settings";
 const WELCOME_SCREEN_HIDDEN_STORAGE_KEY = "guankanzhisuan-welcome-screen-hidden";
 const WELCOME_SCREEN_VERSION_STORAGE_KEY = "guankanzhisuan-welcome-screen-version";
-const WELCOME_SCREEN_VERSION = "brand-v5.9.2";
+const WELCOME_SCREEN_VERSION = "brand-v5.10.0";
 const ZHISUAN_QUICK_SETTINGS_VERSION = 2;
 const LEFT_COLUMN_COLLAPSED_STORAGE_KEY = "guankanzhisuan-left-column-collapsed";
 type MappingField = (typeof MAPPING_FIELDS)[number];
@@ -314,6 +318,7 @@ type ProcessResult = {
   };
   manual_edits?: ManualEditRecord[];
   needs_recalculate?: boolean;
+  professional_skill?: ProfessionalSkillSnapshot;
 };
 
 type FeishuNotificationType = "task_started" | "progress" | "task_completed" | "task_failed";
@@ -1593,6 +1598,17 @@ function knowledgeStatusLabel(status: KnowledgeMemoryStatus) {
   }[status];
 }
 
+function apiErrorMessage(payload: unknown, fallback: string) {
+  if (!payload || typeof payload !== "object") return fallback;
+  const detail = (payload as { detail?: unknown }).detail;
+  if (typeof detail === "string") return detail;
+  if (detail && typeof detail === "object") {
+    const message = (detail as { message?: unknown }).message;
+    if (typeof message === "string") return message;
+  }
+  return fallback;
+}
+
 export function App() {
   if (window.location.pathname === "/v2-preview") {
     return <DaweibaLayoutV2 />;
@@ -1613,6 +1629,10 @@ function DaweibaApp() {
   const [onlyMatchRowsWithValue, setOnlyMatchRowsWithValue] = useState(true);
   const [matchValueFilterField, setMatchValueFilterField] = useState<WarningFilterField>("数量");
   const [result, setResult] = useState<ProcessResult | null>(null);
+  const [professionalSkills, setProfessionalSkills] = useState<ProfessionalSkillSummary[]>([]);
+  const [selectedProfessionalSkillId, setSelectedProfessionalSkillId] = useState("");
+  const [isProfessionalSkillsLoading, setIsProfessionalSkillsLoading] = useState(true);
+  const [professionalSkillsError, setProfessionalSkillsError] = useState("");
   const [error, setError] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [isBatchMatching, setIsBatchMatching] = useState(false);
@@ -1972,6 +1992,10 @@ function DaweibaApp() {
   }, []);
 
   useEffect(() => {
+    void loadProfessionalSkills();
+  }, []);
+
+  useEffect(() => {
     if (activeDaweibaModule !== "collaboration") return;
     void loadFeishuWebhookData();
   }, [activeDaweibaModule]);
@@ -2085,6 +2109,21 @@ function DaweibaApp() {
     if (!result) return [];
     return previewSheetsFromTablePreview(result.summary.table_preview);
   }, [result]);
+
+  const selectedProfessionalSkill = useMemo(
+    () => professionalSkills.find((item) => item.id === selectedProfessionalSkillId && item.can_create_task),
+    [professionalSkills, selectedProfessionalSkillId],
+  );
+  const displayedProfessionalSkill = result?.professional_skill ?? (selectedProfessionalSkill
+    ? {
+        id: selectedProfessionalSkill.id,
+        display_name: selectedProfessionalSkill.display_name,
+        version: selectedProfessionalSkill.version,
+        manifest_hash: "",
+        created_at: "",
+        compatibility_fallback: false,
+      }
+    : undefined);
 
   const activePreview = useMemo(() => {
     return (
@@ -2576,7 +2615,10 @@ function DaweibaApp() {
 
   function setResultForCurrentJob(jobId: string, payload: ProcessResult) {
     if (!isCurrentResultJob(jobId)) return false;
-    setResult(payload);
+    setResult((current) => ({
+      ...payload,
+      professional_skill: payload.professional_skill ?? current?.professional_skill,
+    }));
     return true;
   }
 
@@ -5086,9 +5128,46 @@ function DaweibaApp() {
     selectWorkloadFile(role, event.dataTransfer.files?.[0] ?? null);
   }
 
+  async function loadProfessionalSkills() {
+    setIsProfessionalSkillsLoading(true);
+    setProfessionalSkillsError("");
+    try {
+      const response = await fetch(`${API_BASE}/api/professional-skills`);
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(apiErrorMessage(payload, `读取专业能力清单失败：${response.status}`));
+      }
+      const payload = (await response.json()) as {
+        default_skill_id?: string;
+        items?: ProfessionalSkillSummary[];
+      };
+      const items = Array.isArray(payload.items) ? payload.items : [];
+      const taskEnabledItems = items.filter((item) => item.can_create_task);
+      setProfessionalSkills(items);
+      setSelectedProfessionalSkillId((current) => {
+        if (taskEnabledItems.some((item) => item.id === current)) return current;
+        const configuredDefault = taskEnabledItems.find((item) => item.id === payload.default_skill_id);
+        return configuredDefault?.id ?? taskEnabledItems[0]?.id ?? "";
+      });
+      if (taskEnabledItems.length === 0) {
+        setProfessionalSkillsError("当前没有通过校验且可创建任务的专业能力。");
+      }
+    } catch (reason) {
+      setProfessionalSkills([]);
+      setSelectedProfessionalSkillId("");
+      setProfessionalSkillsError(reason instanceof Error ? reason.message : "读取专业能力清单失败");
+    } finally {
+      setIsProfessionalSkillsLoading(false);
+    }
+  }
+
   async function processFile() {
     if (!file) {
       setError("请选择 .xlsx 文件");
+      return;
+    }
+    if (!selectedProfessionalSkill) {
+      setError("请先选择一个已上线且通过校验的专业能力");
       return;
     }
     const configsToValidate = sheetConfigs.length > 0 ? sheetConfigs.filter((config) => config.enabled) : [];
@@ -5150,6 +5229,8 @@ function DaweibaApp() {
     body.append("only_match_rows_with_value", String(onlyMatchRowsWithValue));
     body.append("match_value_filter_field", matchValueFilterField);
     body.append("defer_matching", "true");
+    body.append("skill_id", selectedProfessionalSkill.id);
+    body.append("skill_version", selectedProfessionalSkill.version);
     void sendCollaborationNotification("task_started", {
       task_name: file.name,
       stage: "读取输入并生成待匹配预览",
@@ -5163,7 +5244,7 @@ function DaweibaApp() {
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
-        throw new Error(payload?.detail ?? `处理失败：${response.status}`);
+        throw new Error(apiErrorMessage(payload, `处理失败：${response.status}`));
       }
       const payload = (await response.json()) as ProcessResult;
       let finalPayload = payload;
@@ -7129,6 +7210,18 @@ function DaweibaApp() {
         className={`daweiba-workspace-frame daweiba-workspace is-daweiba-module-${activeDaweibaModule}`}
         id="soft-workspace-start"
       >
+        <div className="professional-skill-current-bar" role="status" aria-live="polite">
+          <ShieldCheck size={17} />
+          <span>{result?.professional_skill ? "当前任务专业能力" : "当前专业能力"}</span>
+          <strong>
+            {displayedProfessionalSkill
+              ? `${displayedProfessionalSkill.display_name} · v${displayedProfessionalSkill.version}`
+              : isProfessionalSkillsLoading
+                ? "正在校验…"
+                : "未选择"}
+          </strong>
+          {result?.professional_skill && <em>已锁定任务快照</em>}
+        </div>
         <div className="daweiba-fill-grid">
           <section className="input-panel" id="daweiba-input" data-ui-key="input-panel" style={uiStyle("input-panel")}>
             <div className="section-heading" data-ui-key="section-heading" style={uiStyle("section-heading")}>
@@ -7138,6 +7231,17 @@ function DaweibaApp() {
                 <h2>上传标准 Excel</h2>
               </div>
             </div>
+
+            <ProfessionalSkillSelector
+              apiBase={API_BASE}
+              items={professionalSkills}
+              selectedSkillId={selectedProfessionalSkillId}
+              taskSkill={result?.professional_skill}
+              loading={isProfessionalSkillsLoading}
+              error={professionalSkillsError}
+              onSelect={(skill) => setSelectedProfessionalSkillId(skill.id)}
+              onReload={() => void loadProfessionalSkills()}
+            />
 
             <label
               className={`drop-zone ${isDragging ? "is-dragging" : ""} ${file ? "has-file" : ""}`}
@@ -7176,7 +7280,7 @@ function DaweibaApp() {
             </label>
 
             <div className="action-row">
-              <button className="primary-button" data-ui-key="primary-button" data-ui-text-key={isProcessing ? "button.process.running" : "button.process.ready"} style={uiStyle("primary-button")} disabled={isProcessing || isInspecting || !file} onClick={processFile}>
+              <button className="primary-button" data-ui-key="primary-button" data-ui-text-key={isProcessing ? "button.process.running" : "button.process.ready"} style={uiStyle("primary-button")} disabled={isProcessing || isInspecting || !file || !selectedProfessionalSkill} onClick={processFile}>
                 {isProcessing ? <Loader2 className="spin" size={20} /> : <Sparkles size={20} />}
                 {isProcessing ? uiText("button.process.running", "正在转换") : uiText("button.process.ready", "开始转换")}
               </button>

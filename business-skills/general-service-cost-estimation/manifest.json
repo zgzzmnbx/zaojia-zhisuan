@@ -1,0 +1,32 @@
+{
+  "id": "general-service-cost-estimation",
+  "displayName": "通用服务类造价测算",
+  "version": "0.1.0",
+  "status": "planned",
+  "domain": "工程造价/通用服务",
+  "description": "规划中的第二个专业能力；尚未建立独立输入、依据、规则、报告和验证样例。",
+  "applicability": {
+    "includes": ["未来用于通用服务类项目造价测算"],
+    "excludes": ["当前不能创建真实任务", "不能复用勘察测量资产伪装上线"]
+  },
+  "inputProfile": {
+    "extensions": [".xlsx"],
+    "templateHints": []
+  },
+  "capabilities": {
+    "pricing": false,
+    "workloadCapture": false,
+    "experienceWarning": false,
+    "knowledgeQa": false,
+    "knowledgeMemory": false,
+    "wordReport": false,
+    "collaboration": false
+  },
+  "assets": {},
+  "validation": {
+    "status": "not_started",
+    "sample": "尚未提供",
+    "updatedAt": "2026-07-20",
+    "limitations": ["缺少独立业务资料、确定性规则、成果模板和验证样例"]
+  }
+}

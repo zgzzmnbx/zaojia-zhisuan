@@ -14,6 +14,7 @@ TEMPLATE_DIR = KNOWLEDGE_BASE_DIR / "01-报告模板-招标控制价报告模板
 RUNTIME_DIR = PROJECT_ROOT / "Codex-Temp" / "runtime"
 TEMP_DIR = PROJECT_ROOT / "Codex-Temp"
 CONFIG_DIR = PROJECT_ROOT / "config"
+BUSINESS_SKILLS_DIR = PROJECT_ROOT / "business-skills"
 
 DEFAULT_KB_PATH = KNOWLEDGE_BASE_DIR / "【数据库】【导入】.xlsx"
 LEGACY_EXPERIENCE_POOL_PATH = KNOWLEDGE_BASE_DIR / "【数据库】【经验池】-管勘智算-【codex】.xlsx"

@@ -675,7 +675,7 @@ def default_project_settings_payload() -> dict[str, object]:
         "_说明": [
             "这是造价智算的项目默认设置文件，可以手动修改。",
             "JSON 标准不支持 // 或 /* */ 注释；需要说明时请使用以下划线开头的说明字段。",
-            "程序只读取 previewColumns、zhisuanWindow、inputMapping、workloadCapture 内的有效配置项，未知说明字段会被忽略。",
+            "程序只读取 previewColumns、zhisuanWindow、professionalSkills、inputMapping、workloadCapture 内的有效配置项，未知说明字段会被忽略。",
             "修改后请保持 JSON 格式合法；如果格式错误，程序会回退到代码内置默认值。",
         ],
         "previewColumns": {
@@ -714,6 +714,10 @@ def default_project_settings_payload() -> dict[str, object]:
             },
             "welcomeMessage": "你好，我是智算。你把 Excel 拖进来，我负责盯住字段、转换、预警、报告和每一行复核。价格还是由结构化规则裁决，我只做解释、总结和提醒。",
             "dockStyle": "default",
+        },
+        "professionalSkills": {
+            "_说明": "专业能力默认设置；运行秘密不得写入此处。",
+            "defaultSkillId": "survey-measurement-limit-price",
         },
         "inputMapping": {
             "_说明": "主填价模块的列映射默认设置。",
@@ -774,8 +778,13 @@ def copy_project_default_settings(project_root: Path, release_root: Path) -> boo
     return False
 
 
+def copy_business_skills(project_root: Path, release_root: Path) -> None:
+    copy_tree(project_root / "business-skills", release_root / "business-skills")
+
+
 def copy_runtime_assets(project_root: Path, release_root: Path) -> None:
     copy_tree(project_root / "backend" / "app", release_root / "backend" / "app", ignore=ignore_python_generated)
+    copy_business_skills(project_root, release_root)
     copy_file(project_root, release_root, "backend/requirements-runtime.txt")
     copy_file(project_root, release_root, "backend/requirements.txt")
     copy_file(project_root, release_root, "backend/feishu_bot_runner.py")

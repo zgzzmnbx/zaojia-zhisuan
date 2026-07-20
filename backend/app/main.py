@@ -96,6 +96,7 @@ from .schemas import FIELD_COLUMNS, FillSummary, ReviewRow
 from .excel_recalc import recalculate_workbook
 from .formula_resolver import WorkbookFormulaResolver
 from .paths import (
+    BUSINESS_SKILLS_DIR,
     DEFAULT_EXPERIENCE_FIELD_PREFERENCES_PATH,
     DEFAULT_EXPERIENCE_POOL_PATH,
     DEFAULT_EXPERIENCE_POOL_TEMPLATE_PATH,
@@ -112,10 +113,11 @@ from .paths import (
     PROJECT_ROOT,
     RUNTIME_DIR,
 )
+from .professional_skills import ProfessionalSkillError, ProfessionalSkillRegistry
 from .report import append_risk_report, write_report
 
 
-APP_VERSION = "v5.9.2"
+APP_VERSION = "v5.10.0"
 OUTPUT_FILE_PREFIX = "【输出】"
 TEMP_FILE_PREFIX = "【临时】"
 PROCESS_STATE_FILENAME = "process-state.json"
@@ -180,6 +182,11 @@ WARNING_PROGRESS_DEFAULT = {
 }
 WARNING_PROGRESS: dict[str, dict[str, object]] = {}
 WARNING_PROGRESS_LOCK = Lock()
+PROFESSIONAL_SKILL_REGISTRY = ProfessionalSkillRegistry(
+    PROJECT_ROOT,
+    BUSINESS_SKILLS_DIR,
+    PROJECT_DEFAULT_SETTINGS_PATH,
+)
 INPUT_FIELD_PREFERENCE_FIELDS = [
     *FIELD_COLUMNS,
     "输出-价格列",
@@ -240,6 +247,22 @@ async def inspect_excel(
 @app.get("/api/project-default-settings")
 async def get_project_default_settings() -> dict[str, object]:
     return _project_default_settings_payload()
+
+
+@app.get("/api/professional-skills")
+async def list_professional_skills() -> dict[str, object]:
+    try:
+        return PROFESSIONAL_SKILL_REGISTRY.list_public()
+    except ProfessionalSkillError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail()) from exc
+
+
+@app.get("/api/professional-skills/{skill_id}")
+async def get_professional_skill(skill_id: str) -> dict[str, object]:
+    try:
+        return PROFESSIONAL_SKILL_REGISTRY.get_public(skill_id)
+    except ProfessionalSkillError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail()) from exc
 
 
 @app.get("/api/input/field-preferences")
@@ -389,11 +412,14 @@ async def process_excel(
     only_match_rows_with_value: bool = Form(default=True),
     match_value_filter_field: str = Form(default=DEFAULT_WARNING_FILTER_FIELD),
     defer_matching: bool = Form(default=False),
+    skill_id: str | None = Form(default=None),
+    skill_version: str | None = Form(default=None),
 ) -> dict[str, object]:
     if not file.filename or not file.filename.lower().endswith(".xlsx"):
         raise HTTPException(status_code=400, detail="请上传 .xlsx 文件")
     if not DEFAULT_KB_PATH.exists():
         raise HTTPException(status_code=500, detail=f"知识库不存在：{DEFAULT_KB_PATH}")
+    skill_snapshot = _resolve_professional_skill_snapshot(skill_id, skill_version)
 
     job_id = uuid4().hex
     job_dir = RUNTIME_DIR / job_id
@@ -434,6 +460,7 @@ async def process_excel(
             None,
             summary,
             extra={
+                "skill_snapshot": skill_snapshot,
                 "deferred_matching": True,
                 "process_options": {
                     "column_mapping": mapping,
@@ -447,14 +474,14 @@ async def process_excel(
                 },
             },
         )
-        return {
+        return _attach_job_skill({
             "job_id": job_id,
             "summary": summary.to_dict(),
             "downloads": {
                 "excel": "",
                 "report": "",
             },
-        }
+        }, job_dir)
     try:
         summary = FillEngine(knowledge_base).fill_workbook(
             input_path,
@@ -482,16 +509,24 @@ async def process_excel(
         input_excel_path=input_path,
     )
     summary.output_report = output_report.name
-    _save_process_state(job_dir, file.filename, input_path, output_excel, output_report, summary)
+    _save_process_state(
+        job_dir,
+        file.filename,
+        input_path,
+        output_excel,
+        output_report,
+        summary,
+        extra={"skill_snapshot": skill_snapshot},
+    )
 
-    return {
+    return _attach_job_skill({
         "job_id": job_id,
         "summary": summary.to_dict(),
         "downloads": {
             "excel": f"/api/download/{job_id}/excel",
             "report": f"/api/download/{job_id}/report",
         },
-    }
+    }, job_dir)
 
 
 @app.post("/api/process/batch-match")
@@ -558,14 +593,14 @@ async def batch_match_process(payload: dict[str, object] = Body(...)) -> dict[st
             "process_options": options,
         },
     )
-    return {
+    return _attach_job_skill({
         "job_id": job_id,
         "summary": summary.to_dict(),
         "downloads": {
             "excel": f"/api/download/{job_id}/excel",
             "report": f"/api/download/{job_id}/report",
         },
-    }
+    }, job_dir, state)
 
 
 @app.post("/api/demo/load-sample")
@@ -592,11 +627,11 @@ async def risk_summary(job_id: str) -> dict[str, object]:
     state = _load_process_state(job_dir)
     summary = _summary_from_dict(state.get("summary", {}))
     items = build_structured_risk_items(summary)
-    return {
+    return _attach_job_skill({
         "job_id": job_id,
         "summary": summarize_risk_items(items),
         "items": items,
-    }
+    }, job_dir, state)
 
 
 @app.get("/api/standard-trace")
@@ -606,12 +641,12 @@ async def standard_trace(job_id: str, sheet_name: str, row_number: int) -> dict[
         raise HTTPException(status_code=404, detail="任务不存在")
     state = _load_process_state(job_dir)
     summary = _summary_from_dict(state.get("summary", {}))
-    return {
+    return _attach_job_skill({
         "job_id": job_id,
         "sheet_name": sheet_name,
         "row_number": row_number,
         "trace": build_standard_trace(summary, sheet_name, row_number),
-    }
+    }, job_dir, state)
 
 
 @app.post("/api/fill-assist/candidates")
@@ -649,12 +684,12 @@ async def fill_assist_candidates(payload: dict[str, object] = Body(...)) -> dict
         knowledge_base=KnowledgeBase.from_excel(DEFAULT_KB_PATH),
         pool_path=_resolve_experience_pool_path(),
     )
-    return {
+    return _attach_job_skill({
         "job_id": job_id,
         "context": context,
         "candidates": candidates,
         "trace": build_standard_trace(summary, sheet_name, row_number),
-    }
+    }, job_dir, state)
 
 
 @app.post("/api/fill-assist/confirm")
@@ -746,14 +781,14 @@ async def run_experience_warnings(
         },
     )
 
-    return {
+    return _attach_job_skill({
         "job_id": job_id,
         "summary": summary.to_dict(),
         "downloads": {
             "excel": f"/api/download/{job_id}/excel",
             "report": f"/api/download/{job_id}/report",
         },
-    }
+    }, job_dir)
 
 
 @app.post("/api/preview/refresh")
@@ -782,14 +817,14 @@ async def refresh_table_preview(payload: dict[str, object] = Body(...)) -> dict[
     summary.output_excel = excel_path.name
     summary.output_report = report_path.name if report_path else str(state.get("output_report") or "")
     _save_process_state(job_dir, input_name, input_path, excel_path, report_path, summary)
-    return {
+    return _attach_job_skill({
         "job_id": job_id,
         "summary": summary.to_dict(),
         "downloads": {
             "excel": f"/api/download/{job_id}/excel",
             "report": f"/api/download/{job_id}/report",
         },
-    }
+    }, job_dir)
 
 
 @app.post("/api/preview/cell")
@@ -859,7 +894,7 @@ async def update_preview_cell(payload: dict[str, object] = Body(...)) -> dict[st
     summary.output_report = report_path.name if report_path else str(state.get("output_report") or "")
     _save_process_state(job_dir, input_name, input_path, excel_path, report_path, summary)
 
-    return {
+    return _attach_job_skill({
         "job_id": job_id,
         "summary": summary.to_dict(),
         "downloads": {
@@ -870,7 +905,7 @@ async def update_preview_cell(payload: dict[str, object] = Body(...)) -> dict[st
         "manual_edits": _load_manual_edit_log(job_dir),
         "formula_recalculated": recalculated,
         "needs_recalculate": not should_recalculate,
-    }
+    }, job_dir)
 
 
 @app.post("/api/preview/recalculate")
@@ -911,7 +946,7 @@ async def recalculate_preview_workbook(payload: dict[str, object] = Body(...)) -
     summary.output_excel = excel_path.name
     summary.output_report = report_path.name
     _save_process_state(job_dir, input_name, input_path, excel_path, report_path, summary)
-    return {
+    return _attach_job_skill({
         "job_id": job_id,
         "summary": summary.to_dict(),
         "downloads": {
@@ -921,12 +956,16 @@ async def recalculate_preview_workbook(payload: dict[str, object] = Body(...)) -
         "manual_edits": _load_manual_edit_log(job_dir),
         "formula_recalculated": recalculated,
         "needs_recalculate": False,
-    }
+    }, job_dir)
 
 
 @app.get("/api/experience-warnings/progress/{job_id}")
 async def get_experience_warning_progress(job_id: str) -> dict[str, object]:
-    return _get_warning_progress(job_id)
+    payload = _get_warning_progress(job_id)
+    job_dir = RUNTIME_DIR / str(job_id).strip()
+    if not job_dir.exists():
+        return payload
+    return _attach_job_skill(payload, job_dir)
 
 
 @app.post("/api/experience-pool/inspect")
@@ -1286,7 +1325,7 @@ async def apply_workload_capture_to_current(
         summary,
         extra={"workload_capture_summary": workload_summary},
     )
-    return {
+    return _attach_job_skill({
         "job_id": clean_job_id,
         "summary": summary.to_dict(),
         "downloads": {
@@ -1297,7 +1336,7 @@ async def apply_workload_capture_to_current(
         "workload_downloads": {
             "workload": f"/api/workload-capture/current-download/{clean_job_id}/workload",
         },
-    }
+    }, job_dir)
 
 
 @app.get("/api/workload-capture/current-download/{job_id}/{kind}")
@@ -1314,7 +1353,7 @@ def download_current_workload_capture(job_id: str, kind: str) -> FileResponse:
     if not matches:
         raise HTTPException(status_code=404, detail="标注工作量表不存在")
     path = matches[0]
-    return FileResponse(path, filename=path.name)
+    return FileResponse(path, filename=path.name, headers=_professional_skill_headers(job_dir))
 
 
 @app.get("/api/workload-capture/download/{job_id}/{kind}")
@@ -1358,7 +1397,7 @@ def download(
     if kind == "excel" and hide_empty_rows:
         filter_field = _parse_warning_filter_field(value_filter_field)
         path = _excel_with_hidden_empty_rows(path, filter_field)
-    return FileResponse(path, filename=path.name)
+    return FileResponse(path, filename=path.name, headers=_professional_skill_headers(job_dir))
 
 
 @app.post("/api/risk-report")
@@ -1391,13 +1430,13 @@ async def generate_risk_report(
     risk_md_path = job_dir / "大模型风险报告-【codex】.md"
     risk_md_path.write_text(risk_text + "\n", encoding="utf-8")
     append_risk_report(report_matches[0], risk_text)
-    return {
+    return _attach_job_skill({
         "job_id": job_id,
         "risk_report": risk_text,
         "knowledge_sources": knowledge_sources,
         "downloads": {"report": f"/api/download/{job_id}/report"},
         "debug": _build_llm_debug(config, messages, prompt_path),
-    }
+    }, job_dir)
 
 
 @app.post("/api/llm-chat")
@@ -2026,6 +2065,7 @@ def _process_existing_workbook(
         raise HTTPException(status_code=404, detail=f"输入文件不存在：{input_source}")
     if not DEFAULT_KB_PATH.exists():
         raise HTTPException(status_code=500, detail=f"知识库不存在：{DEFAULT_KB_PATH}")
+    skill_snapshot = _resolve_professional_skill_snapshot(None, None)
 
     job_id = uuid4().hex
     job_dir = RUNTIME_DIR / job_id
@@ -2058,8 +2098,16 @@ def _process_existing_workbook(
         input_excel_path=input_path,
     )
     summary.output_report = output_report.name
-    _save_process_state(job_dir, input_source.name, input_path, output_excel, output_report, summary)
-    return {
+    _save_process_state(
+        job_dir,
+        input_source.name,
+        input_path,
+        output_excel,
+        output_report,
+        summary,
+        extra={"skill_snapshot": skill_snapshot},
+    )
+    return _attach_job_skill({
         "job_id": job_id,
         "demo_mode": demo_mode,
         "sample_file": input_source.name,
@@ -2068,7 +2116,7 @@ def _process_existing_workbook(
             "excel": f"/api/download/{job_id}/excel",
             "report": f"/api/download/{job_id}/report",
         },
-    }
+    }, job_dir)
 
 
 def _demo_sample_sheet_configs(sample_path: Path) -> list[dict[str, object]]:
@@ -2216,7 +2264,7 @@ def _save_process_state(
     if state_path.exists():
         try:
             previous_state = json.loads(state_path.read_text(encoding="utf-8"))
-            for key in ("deferred_matching", "process_options"):
+            for key in ("deferred_matching", "process_options", "skill_snapshot"):
                 if key in previous_state:
                     preserved[key] = previous_state[key]
         except json.JSONDecodeError:
@@ -2233,6 +2281,34 @@ def _save_process_state(
     if extra:
         state.update(extra)
     state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _resolve_professional_skill_snapshot(skill_id: str | None, skill_version: str | None) -> dict[str, object]:
+    try:
+        return PROFESSIONAL_SKILL_REGISTRY.resolve_for_task(skill_id, skill_version)
+    except ProfessionalSkillError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail()) from exc
+
+
+def _attach_job_skill(
+    payload: dict[str, object],
+    job_dir: Path,
+    state: dict[str, object] | None = None,
+) -> dict[str, object]:
+    current_state = state if state is not None else _load_process_state(job_dir)
+    return {
+        **payload,
+        "professional_skill": ProfessionalSkillRegistry.public_snapshot(current_state.get("skill_snapshot")),
+    }
+
+
+def _professional_skill_headers(job_dir: Path) -> dict[str, str]:
+    state = _load_process_state(job_dir)
+    snapshot = ProfessionalSkillRegistry.public_snapshot(state.get("skill_snapshot"))
+    return {
+        "X-Professional-Skill-Id": str(snapshot.get("id") or ""),
+        "X-Professional-Skill-Version": str(snapshot.get("version") or ""),
+    }
 
 
 def _load_process_state(job_dir: Path) -> dict[str, object]:
@@ -3140,6 +3216,12 @@ def _project_knowledge_memory_defaults() -> dict[str, object]:
     }
 
 
+def _project_professional_skills_defaults() -> dict[str, object]:
+    section = _project_default_section("professionalSkills")
+    default_skill_id = str(section.get("defaultSkillId") or "survey-measurement-limit-price").strip()
+    return {"defaultSkillId": default_skill_id or "survey-measurement-limit-price"}
+
+
 def _project_default_settings_payload() -> dict[str, object]:
     return {
         "version": int(_load_project_default_settings().get("version", 1) or 1),
@@ -3149,6 +3231,7 @@ def _project_default_settings_payload() -> dict[str, object]:
         "inputMapping": _project_input_mapping_defaults(),
         "workloadCapture": _project_workload_capture_defaults(),
         "knowledgeMemory": _project_knowledge_memory_defaults(),
+        "professionalSkills": _project_professional_skills_defaults(),
         "feishuAppBot": feishu_app_bot.load_bot_defaults(),
     }
 

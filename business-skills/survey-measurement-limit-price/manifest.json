@@ -1,0 +1,55 @@
+{
+  "id": "survey-measurement-limit-price",
+  "displayName": "勘察测量最高投标限价编制",
+  "version": "1.0.0",
+  "status": "active",
+  "domain": "工程造价/勘察测量",
+  "description": "面向长输管道勘察测量最高投标限价编制的确定性专业能力。",
+  "applicability": {
+    "includes": [
+      "标准控制价 Excel 的字段映射与三数字匹配",
+      "经验池预警、人工复核、知识问答和 Word/Excel 成果输出"
+    ],
+    "excludes": [
+      "通用服务类项目的独立计价",
+      "由大模型直接生成最终价格或调整系数"
+    ]
+  },
+  "inputProfile": {
+    "extensions": [".xlsx"],
+    "templateHints": ["包含要素1-5、单位、价格和调整系数映射字段"]
+  },
+  "capabilities": {
+    "pricing": true,
+    "workloadCapture": true,
+    "experienceWarning": true,
+    "knowledgeQa": true,
+    "knowledgeMemory": true,
+    "wordReport": true,
+    "collaboration": true
+  },
+  "assets": {
+    "knowledgeBase": "03-知识库-二维数据库制作/【数据库】【导入】.xlsx",
+    "reportTemplate": "03-知识库-二维数据库制作/01-报告模板-招标控制价报告模板/【模板勿动】控制价报告模板-yyyy-mm-dd.docx",
+    "ruleDocuments": [
+      "03-【匹配规则】-勘察测绘知识库-匹配规则提炼/【重要匹配规则】项目以及总体匹配规则介绍.md",
+      "03-【匹配规则】-勘察测绘知识库-匹配规则提炼/【重要匹配规则】要素1-5和单位的匹配模式介绍.md"
+    ],
+    "ruleWorkbooks": [
+      "03-【匹配规则】-勘察测绘知识库-匹配规则提炼/【重要匹配规则】【第一层】-标准规则命中表-说人话版-v1.0.xlsx",
+      "backend/app/rules/technical_fee_rules.xlsx",
+      "backend/app/rules/physical_factor_rules.xlsx",
+      "backend/app/rules/physical_factor_overrides.xlsx"
+    ],
+    "validationSample": "03-知识库-二维数据库制作/输入100 和 空单价100.xlsx"
+  },
+  "validation": {
+    "status": "verified",
+    "sample": "100 行空单价输入表",
+    "updatedAt": "2026-07-20",
+    "limitations": [
+      "实物工作费调整系数第一层标准规则暂未启用",
+      "多候选、无候选或字段冲突时必须人工复核"
+    ]
+  }
+}
