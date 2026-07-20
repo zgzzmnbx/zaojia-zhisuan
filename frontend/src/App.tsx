@@ -2114,16 +2114,6 @@ function DaweibaApp() {
     () => professionalSkills.find((item) => item.id === selectedProfessionalSkillId && item.can_create_task),
     [professionalSkills, selectedProfessionalSkillId],
   );
-  const displayedProfessionalSkill = result?.professional_skill ?? (selectedProfessionalSkill
-    ? {
-        id: selectedProfessionalSkill.id,
-        display_name: selectedProfessionalSkill.display_name,
-        version: selectedProfessionalSkill.version,
-        manifest_hash: "",
-        created_at: "",
-        compatibility_fallback: false,
-      }
-    : undefined);
 
   const activePreview = useMemo(() => {
     return (
@@ -6903,6 +6893,16 @@ function DaweibaApp() {
     >
       <nav className="global-nav" aria-label="全局导航">
         <span>{APP_NAME}</span>
+        <ProfessionalSkillSelector
+          apiBase={API_BASE}
+          items={professionalSkills}
+          selectedSkillId={selectedProfessionalSkillId}
+          taskSkill={result?.professional_skill}
+          loading={isProfessionalSkillsLoading}
+          error={professionalSkillsError}
+          onSelect={(skill) => setSelectedProfessionalSkillId(skill.id)}
+          onReload={() => void loadProfessionalSkills()}
+        />
         <span className="nav-status">工程造价辅助 · 本地结构化匹配 · {API_BASE_LABEL} · {APP_VERSION}</span>
         <button className="nav-text-button" type="button" onClick={showWelcomeScreen}>
           欢迎页
@@ -7210,18 +7210,6 @@ function DaweibaApp() {
         className={`daweiba-workspace-frame daweiba-workspace is-daweiba-module-${activeDaweibaModule}`}
         id="soft-workspace-start"
       >
-        <div className="professional-skill-current-bar" role="status" aria-live="polite">
-          <ShieldCheck size={17} />
-          <span>{result?.professional_skill ? "当前任务专业能力" : "当前专业能力"}</span>
-          <strong>
-            {displayedProfessionalSkill
-              ? `${displayedProfessionalSkill.display_name} · v${displayedProfessionalSkill.version}`
-              : isProfessionalSkillsLoading
-                ? "正在校验…"
-                : "未选择"}
-          </strong>
-          {result?.professional_skill && <em>已锁定任务快照</em>}
-        </div>
         <div className="daweiba-fill-grid">
           <section className="input-panel" id="daweiba-input" data-ui-key="input-panel" style={uiStyle("input-panel")}>
             <div className="section-heading" data-ui-key="section-heading" style={uiStyle("section-heading")}>
@@ -7231,17 +7219,6 @@ function DaweibaApp() {
                 <h2>上传标准 Excel</h2>
               </div>
             </div>
-
-            <ProfessionalSkillSelector
-              apiBase={API_BASE}
-              items={professionalSkills}
-              selectedSkillId={selectedProfessionalSkillId}
-              taskSkill={result?.professional_skill}
-              loading={isProfessionalSkillsLoading}
-              error={professionalSkillsError}
-              onSelect={(skill) => setSelectedProfessionalSkillId(skill.id)}
-              onReload={() => void loadProfessionalSkills()}
-            />
 
             <label
               className={`drop-zone ${isDragging ? "is-dragging" : ""} ${file ? "has-file" : ""}`}

@@ -878,7 +878,7 @@ button {
   top: 0;
   z-index: 20;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-columns: auto minmax(280px, 360px) minmax(0, 1fr) auto auto;
   gap: 12px;
   min-height: 54px;
   padding: 0 18px;
@@ -1474,7 +1474,7 @@ button {
 
 @media (max-width: 760px) {
   .shell.layout-daweiba .global-nav {
-    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
   }
 
   .shell.layout-daweiba .global-nav .nav-status {
@@ -11287,63 +11287,6 @@ tbody tr:hover .row-ai-cell {
   grid-row: 2 !important;
   grid-template-rows: auto minmax(0, 1fr) !important;
   overflow: auto;
-}
-
-/* v5.10.0 professional Skill P0: persistent task context above every workspace module. */
-.shell.layout-daweiba .daweiba-workspace-frame {
-  grid-template-rows: auto minmax(0, 1fr) !important;
-  gap: 10px;
-}
-
-.shell.layout-daweiba .daweiba-workspace-frame > .professional-skill-current-bar {
-  grid-row: 1;
-}
-
-.shell.layout-daweiba .daweiba-workspace-frame > :not(.professional-skill-current-bar) {
-  grid-row: 2;
-}
-
-.professional-skill-current-bar {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-  min-height: 36px;
-  padding: 7px 12px;
-  border: 1px solid #dbe5f2;
-  border-radius: 11px;
-  background: #ffffff;
-  color: #64748b;
-  font-size: 12px;
-  box-shadow: 0 7px 20px rgba(15, 23, 42, 0.04);
-}
-
-.professional-skill-current-bar svg {
-  flex: 0 0 auto;
-  color: #2563eb;
-}
-
-.professional-skill-current-bar strong {
-  min-width: 0;
-  overflow: hidden;
-  color: #1d4ed8;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.professional-skill-current-bar em {
-  margin-left: auto;
-  border-radius: 999px;
-  padding: 3px 8px;
-  background: #eff6ff;
-  color: #1d4ed8;
-  font-size: 10px;
-  font-style: normal;
-  white-space: nowrap;
-}
-
-.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .input-panel {
-  grid-template-rows: auto auto minmax(128px, 1fr) auto auto !important;
 }
 
 .shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-insight-panel .daweiba-fill-overview-row {

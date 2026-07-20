@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { CheckCircle2, Info, Loader2, RefreshCw, ShieldCheck, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { CheckCircle2, ChevronDown, Info, Loader2, RefreshCw, ShieldCheck, X } from "lucide-react";
 import "./ProfessionalSkillSelector.css";
 
 export type ProfessionalSkillSummary = {
@@ -81,7 +81,26 @@ export default function ProfessionalSkillSelector({
   const [detail, setDetail] = useState<ProfessionalSkillDetail | null>(null);
   const [detailError, setDetailError] = useState("");
   const [isDetailLoading, setIsDetailLoading] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const rootRef = useRef<HTMLElement>(null);
   const selected = items.find((item) => item.id === selectedSkillId);
+  const displayedSkill = taskSkill ?? selected;
+
+  useEffect(() => {
+    if (!isMenuOpen) return;
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (event.target instanceof Node && !rootRef.current?.contains(event.target)) setIsMenuOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsMenuOpen(false);
+    };
+    document.addEventListener("mousedown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [isMenuOpen]);
 
   useEffect(() => {
     if (!detailId) return;
@@ -108,80 +127,120 @@ export default function ProfessionalSkillSelector({
     return () => controller.abort();
   }, [apiBase, detailId]);
 
+  const openDetail = (skillId: string) => {
+    setIsMenuOpen(false);
+    setDetailId(skillId);
+  };
+
   return (
-    <section className="professional-skill-selector" aria-labelledby="professional-skill-title">
-      <div className="professional-skill-selector__heading">
-        <div>
-          <p>专业能力 Skill</p>
-          <h3 id="professional-skill-title">选择专业能力</h3>
-        </div>
-        {selected && (
-          <button type="button" className="professional-skill-selector__detail-link" onClick={() => setDetailId(selected.id)}>
-            <Info size={15} />
-            查看当前能力详情
-          </button>
-        )}
-      </div>
+    <section ref={rootRef} className={`professional-skill-selector ${isMenuOpen ? "is-open" : ""}`}>
+      <button
+        type="button"
+        className="professional-skill-selector__trigger"
+        aria-label={`${taskSkill ? "当前任务" : "当前"} Skill 包 ${displayedSkill ? `${displayedSkill.display_name} · v${displayedSkill.version}` : loading ? "正在校验" : "未选择"}${taskSkill ? " 已锁定" : ""}`}
+        aria-expanded={isMenuOpen}
+        aria-controls="professional-skill-menu"
+        onClick={() => setIsMenuOpen((current) => !current)}
+      >
+        <ShieldCheck size={16} />
+        <span>Skill 包</span>
+        <strong>
+          {displayedSkill
+            ? `${displayedSkill.display_name} · v${displayedSkill.version}`
+            : loading
+              ? "正在校验…"
+              : "未选择"}
+        </strong>
+        {taskSkill && <em>已锁定</em>}
+        <ChevronDown className="professional-skill-selector__chevron" size={16} />
+      </button>
 
-      {loading && (
-        <div className="professional-skill-selector__state" role="status">
-          <Loader2 className="spin" size={18} /> 正在校验专业能力清单…
-        </div>
-      )}
-      {!loading && error && (
-        <div className="professional-skill-selector__state is-error" role="alert">
-          <span>{error}</span>
-          <button type="button" onClick={onReload}><RefreshCw size={15} />重新加载</button>
-        </div>
-      )}
-      {!loading && !error && items.length === 0 && (
-        <div className="professional-skill-selector__state is-error" role="alert">
-          当前没有可用的专业能力，暂不能创建任务。
-        </div>
-      )}
-      {!loading && !error && items.length > 0 && (
-        <div className="professional-skill-selector__grid" role="list" aria-label="专业能力清单">
-          {items.map((item) => {
-            const isSelected = item.id === selectedSkillId;
-            return (
-              <article
-                key={item.id}
-                className={`professional-skill-card ${isSelected ? "is-selected" : ""} ${item.can_create_task ? "" : "is-disabled"}`}
-                role="listitem"
-              >
-                <div className="professional-skill-card__topline">
-                  <span className={`professional-skill-card__status is-${item.status}`}>{item.status_label}</span>
-                  <span>v{item.version}</span>
-                </div>
-                <strong>{item.display_name}</strong>
-                <p>{item.description}</p>
-                <div className="professional-skill-card__meta">
-                  <span>{item.domain}</span>
-                  <span>{item.asset_count} 项资产</span>
-                </div>
-                <div className="professional-skill-card__actions">
-                  <button type="button" className="is-detail" onClick={() => setDetailId(item.id)}>查看详情</button>
-                  {item.can_create_task ? (
-                    <button type="button" className="is-select" aria-pressed={isSelected} onClick={() => onSelect(item)}>
-                      {isSelected ? <CheckCircle2 size={15} /> : null}
-                      {isSelected ? "已选择" : "选择此能力"}
-                    </button>
-                  ) : (
-                    <button type="button" disabled>不可创建任务</button>
-                  )}
-                </div>
-              </article>
-            );
-          })}
-        </div>
-      )}
+      {isMenuOpen && (
+        <div id="professional-skill-menu" className="professional-skill-selector__menu">
+          <div className="professional-skill-selector__heading">
+            <div>
+              <p>专业能力 Skill</p>
+              <h3>选择能力包</h3>
+            </div>
+            {selected && (
+              <button type="button" className="professional-skill-selector__detail-link" onClick={() => openDetail(selected.id)}>
+                <Info size={15} />
+                当前能力详情
+              </button>
+            )}
+          </div>
 
-      {selected && (
-        <div className="professional-skill-selector__selection" role="status">
-          <ShieldCheck size={17} />
-          <span>新任务将使用</span>
-          <strong>{selected.display_name} · v{selected.version}</strong>
-          {taskSkill && taskSkill.id !== selected.id && <em>当前已生成任务仍锁定原能力快照</em>}
+          {loading && (
+            <div className="professional-skill-selector__state" role="status">
+              <Loader2 className="spin" size={18} /> 正在校验专业能力清单…
+            </div>
+          )}
+          {!loading && error && (
+            <div className="professional-skill-selector__state is-error" role="alert">
+              <span>{error}</span>
+              <button type="button" onClick={onReload}><RefreshCw size={15} />重新加载</button>
+            </div>
+          )}
+          {!loading && !error && items.length === 0 && (
+            <div className="professional-skill-selector__state is-error" role="alert">
+              当前没有可用的专业能力，暂不能创建任务。
+            </div>
+          )}
+          {!loading && !error && items.length > 0 && (
+            <div className="professional-skill-selector__grid" role="list" aria-label="专业能力清单">
+              {items.map((item) => {
+                const isSelected = item.id === selectedSkillId;
+                return (
+                  <article
+                    key={item.id}
+                    className={`professional-skill-card ${isSelected ? "is-selected" : ""} ${item.can_create_task ? "" : "is-disabled"}`}
+                    role="listitem"
+                  >
+                    <div className="professional-skill-card__topline">
+                      <span className={`professional-skill-card__status is-${item.status}`}>{item.status_label}</span>
+                      <span>v{item.version}</span>
+                    </div>
+                    <div className="professional-skill-card__content">
+                      <strong>{item.display_name}</strong>
+                      <p>{item.description}</p>
+                      <div className="professional-skill-card__meta">
+                        <span>{item.domain}</span>
+                        <span>{item.asset_count} 项资产</span>
+                      </div>
+                    </div>
+                    <div className="professional-skill-card__actions">
+                      <button type="button" className="is-detail" onClick={() => openDetail(item.id)}>查看详情</button>
+                      {item.can_create_task ? (
+                        <button
+                          type="button"
+                          className="is-select"
+                          aria-pressed={isSelected}
+                          onClick={() => {
+                            onSelect(item);
+                            setIsMenuOpen(false);
+                          }}
+                        >
+                          {isSelected ? <CheckCircle2 size={15} /> : null}
+                          {isSelected ? "已选择" : "选择此能力"}
+                        </button>
+                      ) : (
+                        <button type="button" disabled>不可创建任务</button>
+                      )}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+
+          {selected && (
+            <div className="professional-skill-selector__selection" role="status">
+              <ShieldCheck size={17} />
+              <span>新任务将使用</span>
+              <strong>{selected.display_name} · v{selected.version}</strong>
+              {taskSkill && taskSkill.id !== selected.id && <em>当前任务仍锁定原能力快照</em>}
+            </div>
+          )}
         </div>
       )}
 
