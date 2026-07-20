@@ -20,6 +20,7 @@ src-tauri/gen/
 .playwright-cli/
 .runtime/
 .workbuddy/
+.obsidian/
 Codex-Temp/
 OUTput_OrTemp_Workbuddy/
 04-输出版本存档/
@@ -32,11 +33,17 @@ OUTput_OrTemp_Workbuddy/
 01-assets/01-UI参考图/00-reference/
 01-assets/01-UI参考图/01-assets/
 00-PRD/PRD-Claude建议包-2026年7月3日/*.png
+00-PRD/PRD-Claude建议包-2026年7月3日/【合并版】*.md
 03-【匹配规则】-勘察测绘知识库-匹配规则提炼/01-原始资料/
+03-【匹配规则】-勘察测绘知识库-匹配规则提炼/01-【业务资料】原始资料-勘察测量相关基础资料/
 03-【匹配规则】-勘察测绘知识库-匹配规则提炼/02-ai生成资料/
 03-知识库-二维数据库制作/
 05-经验池-预警数据/
 07-汇报PPT 和 演示素材/
+
+# Local business samples and presentation exports kept outside the code baseline
+/260715-造价智算-复赛PPT内容稿与逐页演讲稿-v3.2.0【主要】.pdf
+/【项目例子】【测试输入】可行性研究勘察测量控制价计算 -v3.0【批注-完备】.xlsx
 
 # Local machine shortcuts
 *.lnk
