@@ -165,12 +165,13 @@ class ProfessionalSkillRegistry:
 
     def public_summary(self, manifest: dict[str, Any], *, default_id: str) -> dict[str, object]:
         status = str(manifest["status"])
+        default_status_label = {"active": "已上线", "beta": "内测中", "planned": "规划中", "disabled": "已停用"}[status]
         return {
             "id": manifest["id"],
             "display_name": manifest["displayName"],
             "version": manifest["version"],
             "status": status,
-            "status_label": {"active": "已上线", "beta": "内测中", "planned": "规划中", "disabled": "已停用"}[status],
+            "status_label": str(manifest.get("statusLabel") or default_status_label),
             "domain": manifest["domain"],
             "description": manifest["description"],
             "capabilities": self._capability_names(manifest["capabilities"]),
@@ -200,7 +201,7 @@ class ProfessionalSkillRegistry:
         ids = [str(item["id"]) for item in manifests]
         if len(ids) != len(set(ids)):
             raise ProfessionalSkillError("skill_manifest_invalid", "专业能力清单存在重复标识", status_code=503)
-        return sorted(manifests, key=lambda item: (item["status"] != "active", item["displayName"]))
+        return sorted(manifests, key=lambda item: (int(item.get("displayOrder", 1000)), item["displayName"]))
 
     def _load_manifest(self, manifest_path: Path) -> dict[str, Any]:
         try:
@@ -229,6 +230,10 @@ class ProfessionalSkillRegistry:
             raise ProfessionalSkillError("skill_manifest_invalid", "专业能力版本必须使用 x.y.z", status_code=503)
         if manifest.get("status") not in ALLOWED_STATUSES:
             raise ProfessionalSkillError("skill_manifest_invalid", "专业能力状态无效", status_code=503)
+        if "statusLabel" in manifest and not str(manifest.get("statusLabel") or "").strip():
+            raise ProfessionalSkillError("skill_manifest_invalid", "专业能力状态名称不能为空", status_code=503)
+        if "displayOrder" in manifest and not isinstance(manifest.get("displayOrder"), int):
+            raise ProfessionalSkillError("skill_manifest_invalid", "专业能力展示顺序必须是整数", status_code=503)
         for field in ("inputProfile", "capabilities", "assets", "validation"):
             if not isinstance(manifest.get(field), dict):
                 raise ProfessionalSkillError("skill_manifest_invalid", f"专业能力字段 {field} 必须是对象", status_code=503)

@@ -118,10 +118,10 @@
 .professional-skill-card__meta { flex-wrap: wrap; gap: 5px; color: #64748b; font-size: 9px; }
 .professional-skill-card__meta span { border-radius: 6px; padding: 2px 5px; background: #f1f5f9; }
 .professional-skill-card__actions { justify-content: flex-end; gap: 6px; }
-.professional-skill-card__actions button { min-height: 30px; border: 1px solid #cbd5e1; border-radius: 7px; padding: 5px 12px; background: #fff; color: #475569; cursor: pointer; font-size: 12px; font-weight: 650; white-space: nowrap; }
+.professional-skill-card__actions button { box-sizing: border-box; height: 30px; border: 1px solid #cbd5e1; border-radius: 7px; padding: 0 12px; background: #fff; color: #475569; cursor: pointer; font-size: 12px; font-weight: 650; line-height: 1; white-space: nowrap; }
 .professional-skill-card__actions button.is-select { display: inline-flex; align-items: center; gap: 4px; border-color: #2563eb; background: #2563eb; color: #fff; }
 .professional-skill-card__actions button:disabled { cursor: not-allowed; opacity: .62; }
-.professional-skill-card__actions .is-selected-state { display: inline-flex; align-items: center; gap: 5px; min-height: 30px; padding: 5px 11px; border: 1px solid #bfdbfe; border-radius: 7px; background: #eff6ff; color: #1d4ed8; font-size: 12px; font-weight: 700; line-height: 1; white-space: nowrap; }
+.professional-skill-card__actions .is-selected-state { box-sizing: border-box; display: inline-flex; align-items: center; gap: 5px; height: 30px; padding: 0 11px; border: 1px solid #bfdbfe; border-radius: 7px; background: #eff6ff; color: #1d4ed8; font-size: 12px; font-weight: 700; line-height: 1; white-space: nowrap; }
 
 .professional-skill-selector__selection { flex-wrap: wrap; gap: 6px; border-radius: 9px; padding: 8px 10px; background: #eff6ff; color: #334155; font-size: 10px; }
 .professional-skill-selector__selection svg { color: #2563eb; }

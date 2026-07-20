@@ -137,13 +137,13 @@ export default function ProfessionalSkillSelector({
       <button
         type="button"
         className="professional-skill-selector__trigger"
-        aria-label={`${taskSkill ? "当前任务" : "当前"} Skill 包 ${displayedSkill ? `${displayedSkill.display_name} · v${displayedSkill.version}` : loading ? "正在校验" : "未选择"}${taskSkill ? " 已锁定" : ""}`}
+        aria-label={`${taskSkill ? "当前任务" : "当前"}专业能力 ${displayedSkill ? `${displayedSkill.display_name} · v${displayedSkill.version}` : loading ? "正在校验" : "未选择"}${taskSkill ? " 已锁定" : ""}`}
         aria-expanded={isMenuOpen}
         aria-controls="professional-skill-menu"
         onClick={() => setIsMenuOpen((current) => !current)}
       >
         <ShieldCheck size={16} />
-        <span>Skill 包</span>
+        <span>专业能力</span>
         <strong>
           {displayedSkill
             ? `${displayedSkill.display_name} · v${displayedSkill.version}`
@@ -160,7 +160,7 @@ export default function ProfessionalSkillSelector({
           <div className="professional-skill-selector__heading">
             <div>
               <p>专业能力 Skill</p>
-              <h3>选择能力包</h3>
+              <h3>选择专业能力</h3>
             </div>
             {selected && (
               <button type="button" className="professional-skill-selector__detail-link" onClick={() => openDetail(selected.id)}>

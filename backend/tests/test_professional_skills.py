@@ -107,11 +107,18 @@ def test_production_registry_loads_active_default_and_planned_card_without_paths
     payload = registry.list_public()
     active = next(item for item in payload["items"] if item["id"] == ACTIVE_ID)
     planned = next(item for item in payload["items"] if item["id"] == "general-service-cost-estimation")
+    upcoming = next(item for item in payload["items"] if item["id"] == "more-cost-professions")
     detail = registry.get_public(ACTIVE_ID)
 
     assert payload["default_skill_id"] == ACTIVE_ID
     assert active["status"] == "active" and active["can_create_task"] is True
     assert planned["status"] == "planned" and planned["can_create_task"] is False
+    assert upcoming["status_label"] == "即将开放" and upcoming["can_create_task"] is False
+    assert [item["id"] for item in payload["items"]] == [
+        ACTIVE_ID,
+        "general-service-cost-estimation",
+        "more-cost-professions",
+    ]
     assert detail["validation"]["status"] == "verified"
     assert detail["asset_summary"] and "03-知识库" not in json.dumps(detail, ensure_ascii=False)
     assert str(PROJECT_ROOT) not in json.dumps(payload, ensure_ascii=False)

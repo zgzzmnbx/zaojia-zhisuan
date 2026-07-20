@@ -3,6 +3,7 @@
   "displayName": "勘察测量最高投标限价编制",
   "version": "1.0.0",
   "status": "active",
+  "displayOrder": 10,
   "domain": "工程造价/勘察测量",
   "description": "面向长输管道勘察测量最高投标限价编制的确定性专业能力。",
   "applicability": {
