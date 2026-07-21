@@ -19,6 +19,7 @@ class FakeFeishu:
         self.files: list[tuple[str, str, Path]] = []
         self.fail_card = False
         self.fail_file = False
+        self.card_error = ""
 
     def list_chats(self) -> list[dict[str, str]]:
         return self.chats
@@ -38,7 +39,7 @@ class FakeFeishu:
 
     def send_card_to(self, receive_id: str, receive_id_type: str, card: dict) -> str:
         if self.fail_card:
-            raise RuntimeError("卡片发送失败 token=secret")
+            raise RuntimeError(self.card_error or "卡片发送失败 token=secret")
         self.cards.append((receive_id, receive_id_type, card))
         return f"card-{len(self.cards)}"
 
@@ -178,6 +179,40 @@ def test_direct_delivery_is_guarded_until_verified(service):
     )
     assert task["status"] == "pending_claim"
     assert feishu.cards[-1][1] == feishu.files[-1][1] == "open_id"
+
+
+def test_direct_delivery_rejects_missing_person_mapping(service):
+    dispatch, _, _, _ = service
+    dispatch.direct_delivery_verified = True
+    with pytest.raises(external_task_dispatch.DispatchValidationError, match="人员映射"):
+        dispatch.create_and_deliver(
+            envelope("PM-NOT-FOUND", delivery_mode="direct"),
+            file_name="a.xlsx",
+            file_bytes=xlsx_bytes(),
+        )
+
+
+@pytest.mark.parametrize("platform_error", ["permission denied", "user unreachable"])
+def test_direct_delivery_records_permission_or_unreachable_failure(service, platform_error):
+    dispatch, _, feishu, options = service
+    dispatch.direct_delivery_verified = True
+    feishu.fail_card = True
+    feishu.card_error = platform_error
+    task, created = dispatch.create_and_deliver(
+        envelope(
+            options["people"][0]["person_ref"],
+            delivery_mode="direct",
+            source_task_id=f"EXT-{platform_error}",
+            event_id=f"evt-{platform_error}",
+        ),
+        file_name="a.xlsx",
+        file_bytes=xlsx_bytes(),
+    )
+    assert created is True
+    assert task["status"] == "dispatch_failed"
+    assert task["card_status"] == task["file_status"] == "pending"
+    assert task["error"] == platform_error
+    assert not feishu.files
 
 
 def test_inactive_skill_and_profile_mismatch_are_rejected(service):

@@ -10692,8 +10692,9 @@ tbody tr:hover .row-ai-cell {
 }
 
 .shell.layout-daweiba .daweiba-external-dispatch-table {
-  min-width: 760px;
-  overflow: hidden;
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
   border: 1px solid var(--db-border-soft);
   border-radius: 7px;
 }
@@ -10701,6 +10702,7 @@ tbody tr:hover .row-ai-cell {
 .shell.layout-daweiba .daweiba-external-dispatch-table > div {
   display: grid;
   grid-template-columns: 1.2fr 1.4fr .75fr .9fr 72px;
+  min-width: 760px;
   align-items: center;
   gap: 10px;
   min-height: 44px;
