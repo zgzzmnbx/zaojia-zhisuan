@@ -25,6 +25,7 @@ from .fill_engine import (
     TECHNICAL_ADJUSTMENT_FIELD,
     FillEngine,
 )
+from .adjustment_rules import AdjustmentEngine
 from . import feishu_webhook
 from . import feishu_app_bot
 from .knowledge_base import KnowledgeBase
@@ -105,6 +106,7 @@ from .paths import (
     DEFAULT_KB_PATH,
     DEFAULT_KNOWLEDGE_MEMORY_DB_PATH,
     DEFAULT_PREVIEW_COLUMN_PREFERENCES_PATH,
+    DEFAULT_REPORT_TEMPLATE_PATH,
     DEFAULT_UI_PREFERENCES_PATH,
     DEFAULT_WORKLOAD_FIELD_PREFERENCES_PATH,
     DEFAULT_WORKLOAD_TARGET_FIELD_PREFERENCES_PATH,
@@ -113,11 +115,15 @@ from .paths import (
     PROJECT_ROOT,
     RUNTIME_DIR,
 )
-from .professional_skills import ProfessionalSkillError, ProfessionalSkillRegistry
+from .professional_skills import (
+    ProfessionalSkillError,
+    ProfessionalSkillRegistry,
+    SkillRuntimeContext,
+)
 from .report import append_risk_report, write_report
 
 
-APP_VERSION = "v5.11.1"
+APP_VERSION = "v5.12.0"
 OUTPUT_FILE_PREFIX = "【输出】"
 TEMP_FILE_PREFIX = "【临时】"
 PROCESS_STATE_FILENAME = "process-state.json"
@@ -417,9 +423,15 @@ async def process_excel(
 ) -> dict[str, object]:
     if not file.filename or not file.filename.lower().endswith(".xlsx"):
         raise HTTPException(status_code=400, detail="请上传 .xlsx 文件")
-    if not DEFAULT_KB_PATH.exists():
-        raise HTTPException(status_code=500, detail=f"知识库不存在：{DEFAULT_KB_PATH}")
     skill_snapshot = _resolve_professional_skill_snapshot(skill_id, skill_version)
+    runtime_context = _skill_runtime_context(skill_snapshot)
+    allowed_extensions = {
+        str(value).lower()
+        for value in runtime_context.input_profile.get("extensions", [])
+        if str(value).strip()
+    }
+    if Path(file.filename).suffix.lower() not in allowed_extensions:
+        raise HTTPException(status_code=400, detail="上传文件不符合当前专业能力输入规范")
 
     job_id = uuid4().hex
     job_dir = RUNTIME_DIR / job_id
@@ -431,7 +443,6 @@ async def process_excel(
     output_excel = job_dir / f"{OUTPUT_FILE_PREFIX}-控制价计算表-{output_timestamp}.xlsx"
     output_report = job_dir / f"{OUTPUT_FILE_PREFIX}-控制价报告-{output_timestamp}.docx"
 
-    knowledge_base = KnowledgeBase.from_excel(DEFAULT_KB_PATH)
     mapping = _parse_column_mapping(column_mapping)
     parsed_sheet_configs = _parse_sheet_configs(sheet_configs)
     parsed_match_value_filter_field = _parse_warning_filter_field(match_value_filter_field)
@@ -450,7 +461,10 @@ async def process_excel(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         summary.output_excel = output_excel.name
         summary.output_report = ""
-        summary.warning_summary = _warning_not_run_summary()
+        summary.warning_summary = _warning_not_run_summary(
+            runtime_context.risk_profile.get("warningSettings"),
+            runtime_context.risk_profile.get("experiencePool"),
+        )
         summary.warning_details = []
         _save_process_state(
             job_dir,
@@ -483,7 +497,7 @@ async def process_excel(
             },
         }, job_dir)
     try:
-        summary = FillEngine(knowledge_base).fill_workbook(
+        summary = _build_skill_fill_engine(runtime_context).fill_workbook(
             input_path,
             output_excel,
             column_mapping=mapping,
@@ -498,15 +512,20 @@ async def process_excel(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     recalculate_workbook(output_excel)
-    summary.warning_summary = _warning_not_run_summary()
+    summary.warning_summary = _warning_not_run_summary(
+        runtime_context.risk_profile.get("warningSettings"),
+        runtime_context.risk_profile.get("experiencePool"),
+    )
     summary.warning_details = []
     summary.table_preview = _refresh_table_preview_from_output(summary.table_preview, output_excel)
+    _require_skill_capability(runtime_context, "wordReport")
     output_report = write_report(
         output_report,
         file.filename,
         summary,
         output_excel_path=output_excel,
         input_excel_path=input_path,
+        report_template_path=runtime_context.report_template_path,
     )
     summary.output_report = output_report.name
     _save_process_state(
@@ -537,10 +556,8 @@ async def batch_match_process(payload: dict[str, object] = Body(...)) -> dict[st
     job_dir = RUNTIME_DIR / job_id
     if not job_dir.exists():
         raise HTTPException(status_code=404, detail="任务不存在")
-    if not DEFAULT_KB_PATH.exists():
-        raise HTTPException(status_code=500, detail=f"知识库不存在：{DEFAULT_KB_PATH}")
-
     state = _load_process_state(job_dir)
+    runtime_context = _job_skill_runtime_context(job_dir, state)
     input_path = _state_path(job_dir, state, "input_excel", required=False)
     output_excel = _state_path(job_dir, state, "output_excel")
     if not output_excel or not output_excel.exists():
@@ -549,7 +566,7 @@ async def batch_match_process(payload: dict[str, object] = Body(...)) -> dict[st
     options = dict(state.get("process_options") or {})
     output_report = job_dir / f"{OUTPUT_FILE_PREFIX}-控制价报告-{_output_timestamp()}.docx"
     try:
-        summary = FillEngine(KnowledgeBase.from_excel(DEFAULT_KB_PATH)).fill_workbook(
+        summary = _build_skill_fill_engine(runtime_context).fill_workbook(
             output_excel,
             output_excel,
             column_mapping=options.get("column_mapping"),
@@ -564,7 +581,10 @@ async def batch_match_process(payload: dict[str, object] = Body(...)) -> dict[st
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     recalculate_workbook(output_excel)
-    summary.warning_summary = _warning_not_run_summary()
+    summary.warning_summary = _warning_not_run_summary(
+        runtime_context.risk_profile.get("warningSettings"),
+        runtime_context.risk_profile.get("experiencePool"),
+    )
     summary.warning_details = []
     summary.matching_status = "completed"
     summary.table_preview = _refresh_table_preview_from_output(
@@ -572,12 +592,14 @@ async def batch_match_process(payload: dict[str, object] = Body(...)) -> dict[st
         output_excel,
         header_rows=_parse_preview_header_rows(payload.get("header_rows")),
     )
+    _require_skill_capability(runtime_context, "wordReport")
     output_report = write_report(
         output_report,
         str(state.get("input_filename") or (input_path.name if input_path else output_excel.name)),
         summary,
         output_excel_path=output_excel,
         input_excel_path=input_path,
+        report_template_path=runtime_context.report_template_path,
     )
     summary.output_excel = output_excel.name
     summary.output_report = output_report.name
@@ -625,6 +647,7 @@ async def risk_summary(job_id: str) -> dict[str, object]:
     if not job_dir.exists():
         raise HTTPException(status_code=404, detail="任务不存在")
     state = _load_process_state(job_dir)
+    _job_skill_runtime_context(job_dir, state)
     summary = _summary_from_dict(state.get("summary", {}))
     items = build_structured_risk_items(summary)
     return _attach_job_skill({
@@ -669,11 +692,10 @@ async def fill_assist_candidates(payload: dict[str, object] = Body(...)) -> dict
     if not job_dir.exists():
         raise HTTPException(status_code=404, detail="任务不存在")
     state = _load_process_state(job_dir)
+    runtime_context = _job_skill_runtime_context(job_dir, state)
     excel_path = _state_path(job_dir, state, "output_excel")
     if not excel_path or not excel_path.exists():
         raise HTTPException(status_code=404, detail="输出 Excel 不存在，请先完成转换")
-    if not DEFAULT_KB_PATH.exists():
-        raise HTTPException(status_code=500, detail=f"知识库不存在：{DEFAULT_KB_PATH}")
     try:
         context = build_fill_assist_context(excel_path, sheet_name, row_number, target_header)
     except ValueError as exc:
@@ -681,8 +703,8 @@ async def fill_assist_candidates(payload: dict[str, object] = Body(...)) -> dict
     summary = _summary_from_dict(state.get("summary", {}))
     candidates = build_fill_assist_candidates(
         dict(context.get("row") or {}),
-        knowledge_base=KnowledgeBase.from_excel(DEFAULT_KB_PATH),
-        pool_path=_resolve_experience_pool_path(),
+        knowledge_base=KnowledgeBase.from_excel(runtime_context.knowledge_base_path),
+        pool_path=runtime_context.risk_profile.get("experiencePool", _resolve_experience_pool_path()),
     )
     return _attach_job_skill({
         "job_id": job_id,
@@ -718,6 +740,8 @@ async def run_experience_warnings(
         raise HTTPException(status_code=404, detail="任务不存在")
 
     state = _load_process_state(job_dir)
+    runtime_context = _job_skill_runtime_context(job_dir, state)
+    _require_skill_capability(runtime_context, "experienceWarning")
     excel_path = _state_path(job_dir, state, "output_excel")
     input_path = _state_path(job_dir, state, "input_excel", required=False)
     if not excel_path or not excel_path.exists():
@@ -727,12 +751,12 @@ async def run_experience_warnings(
         excel_path = excel_matches[0]
 
     summary = _summary_from_dict(state.get("summary", {}))
-    warning_settings = _load_experience_warning_settings()
+    warning_settings = _load_experience_warning_settings(runtime_context.risk_profile.get("warningSettings"))
     _set_warning_progress(job_id, {"status": "running"})
     try:
         warning_result = analyze_workbook_warnings_with_progress(
             excel_path,
-            _resolve_experience_pool_path(),
+            runtime_context.risk_profile.get("experiencePool", _resolve_experience_pool_path()),
             progress_callback=lambda payload: _set_warning_progress(job_id, payload),
             low_risk_warning_ratio=float(warning_settings["low_risk_warning_ratio"]) / 100,
             high_risk_warning_ratio=float(warning_settings["high_risk_warning_ratio"]) / 100,
@@ -760,12 +784,14 @@ async def run_experience_warnings(
     if not report_path:
         report_matches = _find_report_files(job_dir, ".docx")
         report_path = report_matches[0] if report_matches else job_dir / f"{OUTPUT_FILE_PREFIX}-控制价报告-{_output_timestamp()}.docx"
+    _require_skill_capability(runtime_context, "wordReport")
     report_path = write_report(
         report_path,
         input_name,
         summary,
         output_excel_path=excel_path,
         input_excel_path=input_path,
+        report_template_path=runtime_context.report_template_path,
     )
     summary.output_excel = excel_path.name
     summary.output_report = report_path.name
@@ -847,6 +873,7 @@ async def update_preview_cell(payload: dict[str, object] = Body(...)) -> dict[st
     if not job_dir.exists():
         raise HTTPException(status_code=404, detail="任务不存在")
     state = _load_process_state(job_dir)
+    runtime_context = _job_skill_runtime_context(job_dir, state)
     excel_path = _state_path(job_dir, state, "output_excel")
     if not excel_path or not excel_path.exists():
         raise HTTPException(status_code=404, detail="输出 Excel 不存在，请先完成转换")
@@ -887,6 +914,7 @@ async def update_preview_cell(payload: dict[str, object] = Body(...)) -> dict[st
             summary,
             output_excel_path=excel_path,
             input_excel_path=input_path,
+            report_template_path=runtime_context.report_template_path,
         )
     else:
         summary.table_preview = _apply_manual_edit_to_table_preview(summary.table_preview, edit_record, header_rows)
@@ -918,6 +946,7 @@ async def recalculate_preview_workbook(payload: dict[str, object] = Body(...)) -
         raise HTTPException(status_code=404, detail="任务不存在")
 
     state = _load_process_state(job_dir)
+    runtime_context = _job_skill_runtime_context(job_dir, state)
     excel_path = _state_path(job_dir, state, "output_excel")
     if not excel_path or not excel_path.exists():
         raise HTTPException(status_code=404, detail="输出 Excel 不存在，请先完成转换")
@@ -942,6 +971,7 @@ async def recalculate_preview_workbook(payload: dict[str, object] = Body(...)) -
         summary,
         output_excel_path=excel_path,
         input_excel_path=input_path,
+        report_template_path=runtime_context.report_template_path,
     )
     summary.output_excel = excel_path.name
     summary.output_report = report_path.name
@@ -1120,6 +1150,8 @@ async def inspect_current_workload_target(
     if not job_dir.exists():
         raise HTTPException(status_code=404, detail="当前任务不存在，请先完成转换")
     state = _load_process_state(job_dir)
+    runtime_context = _job_skill_runtime_context(job_dir, state)
+    _require_skill_capability(runtime_context, "workloadCapture")
     excel_path = _state_path(job_dir, state, "output_excel")
     if not excel_path or not excel_path.exists():
         raise HTTPException(status_code=404, detail="当前预览控制价表不存在，请先完成转换")
@@ -1273,6 +1305,8 @@ async def apply_workload_capture_to_current(
         raise HTTPException(status_code=400, detail="请先完成工作量表和当前控制价表的 sheet/列映射")
 
     state = _load_process_state(job_dir)
+    runtime_context = _job_skill_runtime_context(job_dir, state)
+    _require_skill_capability(runtime_context, "workloadCapture")
     excel_path = _state_path(job_dir, state, "output_excel")
     if not excel_path or not excel_path.exists():
         raise HTTPException(status_code=404, detail="当前预览控制价表不存在，请先完成转换")
@@ -1311,6 +1345,7 @@ async def apply_workload_capture_to_current(
             summary,
             output_excel_path=excel_path,
             input_excel_path=input_path,
+            report_template_path=runtime_context.report_template_path,
         )
         summary.output_report = report_path.name
     else:
@@ -1346,6 +1381,7 @@ def download_current_workload_capture(job_id: str, kind: str) -> FileResponse:
     job_dir = RUNTIME_DIR / str(job_id).strip()
     if not job_dir.exists():
         raise HTTPException(status_code=404, detail="任务不存在")
+    _job_skill_runtime_context(job_dir)
     workload_dir = job_dir / "workload-current"
     if not workload_dir.exists():
         raise HTTPException(status_code=404, detail="标注工作量表不存在")
@@ -1383,6 +1419,7 @@ def download(
     job_dir = RUNTIME_DIR / job_id
     if not job_dir.exists():
         raise HTTPException(status_code=404, detail="任务不存在")
+    _job_skill_runtime_context(job_dir)
 
     if kind == "excel":
         matches = _find_output_excel_files(job_dir)
@@ -1410,6 +1447,10 @@ async def generate_risk_report(
     job_dir = RUNTIME_DIR / job_id
     if not job_dir.exists():
         raise HTTPException(status_code=404, detail="任务不存在")
+    state = _load_process_state(job_dir)
+    runtime_context = _job_skill_runtime_context(job_dir, state)
+    _require_skill_capability(runtime_context, "knowledgeQa")
+    _require_skill_capability(runtime_context, "wordReport")
 
     excel_matches = _find_output_excel_files(job_dir)
     report_matches = _find_report_files(job_dir, ".docx")
@@ -1418,7 +1459,7 @@ async def generate_risk_report(
         raise HTTPException(status_code=404, detail="任务文件不完整，请先完成转换")
 
     markdown_text = markdown_matches[0].read_text(encoding="utf-8")
-    knowledge_evidence, knowledge_sources = _build_risk_report_knowledge_evidence()
+    knowledge_evidence, knowledge_sources = _build_risk_report_knowledge_evidence(runtime_context, job_dir)
     config = LlmConfig(provider=provider, model=model, base_url=base_url)
     messages = build_risk_prompt(markdown_text, excel_matches[0], knowledge_evidence)
     prompt_path = _write_llm_prompt_markdown("风险报告", config, messages, job_dir)
@@ -1512,7 +1553,13 @@ async def knowledge_search(payload: dict[str, Any] = Body(...)) -> dict[str, obj
     force_knowledge = bool(payload.get("force_knowledge")) or prefix_forced
     limit = _parse_knowledge_limit(payload.get("limit"))
     row_context = _parse_row_context(payload.get("row_context"))
-    results = search_knowledge(question, row_context=row_context, limit=limit)
+    runtime_context, job_dir, skill_snapshot = _knowledge_runtime_from_payload(payload)
+    results = search_knowledge(
+        question,
+        row_context=row_context,
+        limit=limit,
+        **_skill_knowledge_search_kwargs(runtime_context, job_dir),
+    )
     project_key = normalize_project_key(payload.get("project_key"))
     project_memories, memory_available = _safe_search_project_memories(
         question,
@@ -1529,6 +1576,7 @@ async def knowledge_search(payload: dict[str, Any] = Body(...)) -> dict[str, obj
         "results": [result.__dict__ for result in results],
         "project_memories": project_memories,
         "memory_available": memory_available,
+        "professional_skill": skill_snapshot,
     }
 
 
@@ -1542,7 +1590,13 @@ async def knowledge_ask(payload: dict[str, Any] = Body(...)) -> dict[str, object
 
     limit = _parse_knowledge_limit(payload.get("limit"))
     row_context = _parse_row_context(payload.get("row_context"))
-    results = search_knowledge(question, row_context=row_context, limit=limit)
+    runtime_context, job_dir, skill_snapshot = _knowledge_runtime_from_payload(payload)
+    results = search_knowledge(
+        question,
+        row_context=row_context,
+        limit=limit,
+        **_skill_knowledge_search_kwargs(runtime_context, job_dir),
+    )
     project_key = normalize_project_key(payload.get("project_key"))
     project_memories, memory_available = _safe_search_project_memories(
         question,
@@ -1559,6 +1613,7 @@ async def knowledge_ask(payload: dict[str, Any] = Body(...)) -> dict[str, object
             "evidence_found": False,
             "forced_knowledge": force_knowledge,
             "debug": None,
+            "professional_skill": skill_snapshot,
         }
 
     provider = str(payload.get("provider") or DEFAULT_PROVIDER)
@@ -1583,6 +1638,7 @@ async def knowledge_ask(payload: dict[str, Any] = Body(...)) -> dict[str, object
         "project_memories": project_memories,
         "project_key": project_key or None,
         "memory_available": memory_available,
+        "professional_skill": skill_snapshot,
         "evidence_found": True,
         "forced_knowledge": force_knowledge,
         "debug": _build_llm_debug(config, messages, prompt_path),
@@ -1837,11 +1893,18 @@ def _parse_knowledge_limit(value: object) -> int:
         return 8
 
 
-def _build_risk_report_knowledge_evidence() -> tuple[str, list[dict[str, object]]]:
+def _build_risk_report_knowledge_evidence(
+    context: SkillRuntimeContext,
+    job_dir: Path,
+) -> tuple[str, list[dict[str, object]]]:
     seen_ids: set[str] = set()
     collected: list[tuple[str, dict[str, object]]] = []
     for query in RISK_REPORT_KNOWLEDGE_QUERIES:
-        for result in search_knowledge(query, limit=4):
+        for result in search_knowledge(
+            query,
+            limit=4,
+            **_skill_knowledge_search_kwargs(context, job_dir),
+        ):
             if result.id in seen_ids:
                 continue
             seen_ids.add(result.id)
@@ -2010,9 +2073,12 @@ def _output_timestamp() -> str:
     return datetime.now().strftime("%Y%m%d-%H%M")
 
 
-def _warning_not_run_summary() -> dict[str, object]:
-    pool_path = _resolve_experience_pool_path()
-    warning_settings = _load_experience_warning_settings()
+def _warning_not_run_summary(
+    settings_path: Path | None = None,
+    pool_path: Path | None = None,
+) -> dict[str, object]:
+    pool_path = pool_path or _resolve_experience_pool_path()
+    warning_settings = _load_experience_warning_settings(settings_path)
     return {
         "pool_enabled": pool_path.exists(),
         "executed": False,
@@ -2063,9 +2129,8 @@ def _process_existing_workbook(
 ) -> dict[str, object]:
     if not input_source.exists():
         raise HTTPException(status_code=404, detail=f"输入文件不存在：{input_source}")
-    if not DEFAULT_KB_PATH.exists():
-        raise HTTPException(status_code=500, detail=f"知识库不存在：{DEFAULT_KB_PATH}")
     skill_snapshot = _resolve_professional_skill_snapshot(None, None)
+    runtime_context = _skill_runtime_context(skill_snapshot)
 
     job_id = uuid4().hex
     job_dir = RUNTIME_DIR / job_id
@@ -2077,7 +2142,7 @@ def _process_existing_workbook(
     output_report = job_dir / f"{OUTPUT_FILE_PREFIX}-控制价报告-{output_timestamp}.docx"
 
     try:
-        summary = FillEngine(KnowledgeBase.from_excel(DEFAULT_KB_PATH)).fill_workbook(
+        summary = _build_skill_fill_engine(runtime_context).fill_workbook(
             input_path,
             output_excel,
             only_match_rows_with_value=True,
@@ -2087,7 +2152,10 @@ def _process_existing_workbook(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     recalculate_workbook(output_excel)
-    summary.warning_summary = _warning_not_run_summary()
+    summary.warning_summary = _warning_not_run_summary(
+        runtime_context.risk_profile.get("warningSettings"),
+        runtime_context.risk_profile.get("experiencePool"),
+    )
     summary.warning_details = []
     summary.table_preview = _refresh_table_preview_from_output(summary.table_preview, output_excel)
     output_report = write_report(
@@ -2096,6 +2164,7 @@ def _process_existing_workbook(
         summary,
         output_excel_path=output_excel,
         input_excel_path=input_path,
+        report_template_path=runtime_context.report_template_path,
     )
     summary.output_report = output_report.name
     _save_process_state(
@@ -2288,6 +2357,115 @@ def _resolve_professional_skill_snapshot(skill_id: str | None, skill_version: st
         return PROFESSIONAL_SKILL_REGISTRY.resolve_for_task(skill_id, skill_version)
     except ProfessionalSkillError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail()) from exc
+
+
+def _skill_runtime_context(snapshot: object) -> SkillRuntimeContext:
+    try:
+        return PROFESSIONAL_SKILL_REGISTRY.runtime_from_snapshot(snapshot)
+    except ProfessionalSkillError as exc:
+        if exc.code != "skill_runtime_missing":
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail()) from exc
+    snapshot_dict = snapshot if isinstance(snapshot, dict) else {}
+    return SkillRuntimeContext(
+        skill_id=str(snapshot_dict.get("id") or "survey-measurement-limit-price"),
+        skill_version=str(snapshot_dict.get("version") or "compatibility"),
+        manifest_hash=str(snapshot_dict.get("manifest_hash") or "compatibility-default-survey-measurement"),
+        input_profile={"extensions": [".xlsx"]},
+        processor_id="survey-measurement-v1",
+        knowledge_base_path=DEFAULT_KB_PATH,
+        rule_assets={
+            "technicalRules": (PROJECT_ROOT / "backend/app/rules/technical_fee_rules.xlsx",),
+            "physicalRules": (PROJECT_ROOT / "backend/app/rules/physical_factor_rules.xlsx",),
+            "physicalOverrides": (PROJECT_ROOT / "backend/app/rules/physical_factor_overrides.xlsx",),
+        },
+        risk_profile={
+            "experiencePool": _resolve_experience_pool_path(),
+            "warningSettings": DEFAULT_EXPERIENCE_WARNING_SETTINGS_PATH,
+        },
+        knowledge_sources=(),
+        report_template_path=DEFAULT_REPORT_TEMPLATE_PATH,
+        validation_profile={"status": "compatibility"},
+        capabilities={
+            "pricing": True,
+            "workloadCapture": True,
+            "experienceWarning": True,
+            "knowledgeQa": True,
+            "wordReport": True,
+        },
+    )
+
+
+def _job_skill_runtime_context(job_dir: Path, state: dict[str, object] | None = None) -> SkillRuntimeContext:
+    current_state = state if state is not None else _load_process_state(job_dir)
+    return _skill_runtime_context(current_state.get("skill_snapshot"))
+
+
+def _require_skill_capability(context: SkillRuntimeContext, capability: str) -> None:
+    if not context.capabilities.get(capability, False):
+        raise HTTPException(status_code=409, detail="当前专业能力不支持该操作")
+
+
+def _first_rule_asset(context: SkillRuntimeContext, key: str, *, required: bool = True) -> Path | None:
+    paths = context.rule_assets.get(key, ())
+    if paths:
+        return paths[0]
+    if required:
+        raise HTTPException(status_code=409, detail="任务专业能力缺少必要规则资产")
+    return None
+
+
+def _build_skill_fill_engine(context: SkillRuntimeContext) -> FillEngine:
+    _require_skill_capability(context, "pricing")
+    if context.processor_id != "survey-measurement-v1":
+        raise HTTPException(status_code=503, detail="当前专业能力处理器不可用")
+    if not context.knowledge_base_path.exists():
+        raise HTTPException(status_code=409, detail="任务专业能力计价库已不可用")
+    adjustment_engine = AdjustmentEngine.from_rule_assets(
+        physical_rules_path=_first_rule_asset(context, "physicalRules", required=False),
+        technical_rules_path=_first_rule_asset(context, "technicalRules"),
+    )
+    return FillEngine(KnowledgeBase.from_excel(context.knowledge_base_path), adjustment_engine=adjustment_engine)
+
+
+def _skill_knowledge_search_kwargs(
+    context: SkillRuntimeContext,
+    job_dir: Path | None,
+) -> dict[str, object]:
+    if not context.knowledge_sources:
+        return {}
+    index_path = (
+        job_dir / "skill-knowledge-index.json"
+        if job_dir
+        else RUNTIME_DIR / "knowledge" / f"{context.skill_id}-{context.manifest_hash[:12]}.json"
+    )
+    return {
+        "project_root": PROFESSIONAL_SKILL_REGISTRY.project_root,
+        "index_path": index_path,
+        "sources": context.knowledge_sources,
+    }
+
+
+def _knowledge_runtime_from_payload(
+    payload: dict[str, Any],
+) -> tuple[SkillRuntimeContext, Path | None, dict[str, object]]:
+    job_id = str(payload.get("job_id") or "").strip()
+    if job_id:
+        job_dir = RUNTIME_DIR / job_id
+        if not job_dir.exists():
+            raise HTTPException(status_code=404, detail="任务不存在")
+        state = _load_process_state(job_dir)
+        context = _job_skill_runtime_context(job_dir, state)
+        snapshot = ProfessionalSkillRegistry.public_snapshot(state.get("skill_snapshot"))
+    else:
+        snapshot_state = _resolve_professional_skill_snapshot(
+            str(payload.get("skill_id") or "").strip() or None,
+            str(payload.get("skill_version") or "").strip() or None,
+        )
+        context = _skill_runtime_context(snapshot_state)
+        snapshot = ProfessionalSkillRegistry.public_snapshot(snapshot_state)
+        job_dir = None
+    _require_skill_capability(context, "knowledgeQa")
+    return context, job_dir, snapshot
 
 
 def _attach_job_skill(
@@ -3576,12 +3754,15 @@ def _load_element_sequence_enabled(path: Path, default: bool) -> bool:
     return _sanitize_bool_setting(raw.get("element_sequence_enabled"), default)
 
 
-def _load_experience_warning_settings() -> dict[str, float | bool | str]:
+def _load_experience_warning_settings(
+    settings_path: Path | None = None,
+) -> dict[str, float | bool | str]:
     defaults = _default_experience_warning_settings()
-    if not DEFAULT_EXPERIENCE_WARNING_SETTINGS_PATH.exists():
+    path = settings_path or DEFAULT_EXPERIENCE_WARNING_SETTINGS_PATH
+    if not path.exists():
         return defaults
     try:
-        raw = json.loads(DEFAULT_EXPERIENCE_WARNING_SETTINGS_PATH.read_text(encoding="utf-8"))
+        raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return defaults
     if isinstance(raw, dict) and isinstance(raw.get("settings"), dict):

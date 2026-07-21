@@ -46,7 +46,7 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.11.1";
+const APP_VERSION = "v5.12.0";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const KNOWLEDGE_QA_ENTRY_COUNT = 3922;
 const KNOWLEDGE_QA_SOURCE_COUNT = 17;
@@ -139,7 +139,7 @@ const EMPTY_ELEMENT_COLUMN = "空元素列";
 const OUTPUT_ROW_FILTER_STORAGE_KEY = "guankanzhisuan-output-row-filter-settings";
 const WELCOME_SCREEN_HIDDEN_STORAGE_KEY = "guankanzhisuan-welcome-screen-hidden";
 const WELCOME_SCREEN_VERSION_STORAGE_KEY = "guankanzhisuan-welcome-screen-version";
-const WELCOME_SCREEN_VERSION = "brand-v5.11.1";
+const WELCOME_SCREEN_VERSION = "brand-v5.12.0";
 const ZHISUAN_QUICK_SETTINGS_VERSION = 2;
 const LEFT_COLUMN_COLLAPSED_STORAGE_KEY = "guankanzhisuan-left-column-collapsed";
 type MappingField = (typeof MAPPING_FIELDS)[number];
@@ -5813,6 +5813,9 @@ function DaweibaApp() {
           limit: 8,
           force_knowledge: Boolean(options.forcedKnowledge),
           project_key: knowledgeProjectKey || null,
+          job_id: result?.job_id ?? null,
+          skill_id: result ? null : selectedProfessionalSkill?.id ?? null,
+          skill_version: result ? null : selectedProfessionalSkill?.version ?? null,
         }),
       });
       if (!response.ok) {

@@ -166,11 +166,12 @@ def search_knowledge(
     *,
     project_root: Path = PROJECT_ROOT,
     index_path: Path | None = DEFAULT_INDEX_PATH,
+    sources: list[Path] | tuple[Path, ...] | None = None,
 ) -> list[KnowledgeSearchResult]:
     clean_question = question.strip()
     if not clean_question:
         return []
-    chunks = load_or_build_index(project_root=project_root, index_path=index_path)
+    chunks = load_or_build_index(project_root=project_root, index_path=index_path, sources=sources)
     query_terms = _expand_query_terms(clean_question, row_context)
     if not query_terms:
         return []
@@ -284,9 +285,10 @@ def load_or_build_index(
     *,
     project_root: Path = PROJECT_ROOT,
     index_path: Path | None = DEFAULT_INDEX_PATH,
+    sources: list[Path] | tuple[Path, ...] | None = None,
 ) -> list[KnowledgeChunk]:
-    sources = _discover_sources(project_root)
-    source_signature = _source_signature(sources, project_root)
+    source_paths = list(sources) if sources is not None else _discover_sources(project_root)
+    source_signature = _source_signature(source_paths, project_root)
     if index_path and index_path.exists():
         try:
             payload = json.loads(index_path.read_text(encoding="utf-8"))
@@ -295,7 +297,7 @@ def load_or_build_index(
         except (OSError, TypeError, ValueError):
             pass
 
-    chunks = build_index(project_root=project_root, sources=sources)
+    chunks = build_index(project_root=project_root, sources=source_paths)
     if index_path:
         try:
             index_path.parent.mkdir(parents=True, exist_ok=True)

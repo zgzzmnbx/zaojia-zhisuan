@@ -26,6 +26,7 @@ def write_report(
     output_excel_path: str | Path | None = None,
     input_excel_path: str | Path | None = None,
     report_date: date | None = None,
+    report_template_path: str | Path | None = None,
 ) -> Path:
     report_day = report_date or date.today()
     output_path = _dated_output_path(Path(output_path), report_day)
@@ -34,7 +35,8 @@ def write_report(
     markdown_text = build_report_markdown(input_name, summary)
     markdown_path.write_text(markdown_text, encoding="utf-8")
 
-    document = Document(_resolve_template_path(report_day)) if _resolve_template_path(report_day).exists() else Document()
+    template_path = _resolve_template_path(report_day, report_template_path)
+    document = Document(template_path) if template_path.exists() else Document()
     style = document.styles["Normal"]
     style.font.name = "Microsoft YaHei"
     style.font.size = Pt(10.5)
@@ -171,11 +173,12 @@ def insert_after(paragraph: Paragraph, text: str, kind: str = "body") -> Paragra
     return new_paragraph
 
 
-def _resolve_template_path(report_day: date) -> Path:
-    dated = REPORT_TEMPLATE_PATH.with_name(
-        REPORT_TEMPLATE_PATH.name.replace("yyyy-mm-dd", report_day.isoformat())
+def _resolve_template_path(report_day: date, report_template_path: str | Path | None = None) -> Path:
+    template_path = Path(report_template_path) if report_template_path else REPORT_TEMPLATE_PATH
+    dated = template_path.with_name(
+        template_path.name.replace("yyyy-mm-dd", report_day.isoformat())
     )
-    return dated if dated.exists() else REPORT_TEMPLATE_PATH
+    return dated if dated.exists() else template_path
 
 
 def _dated_output_path(output_path: Path, report_day: date) -> Path:

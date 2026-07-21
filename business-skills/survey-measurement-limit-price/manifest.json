@@ -94,6 +94,27 @@
   "assets": {
     "knowledgeBase": "03-知识库-二维数据库制作/【数据库】【导入】.xlsx",
     "reportTemplate": "03-知识库-二维数据库制作/01-报告模板-招标控制价报告模板/【模板勿动】控制价报告模板-yyyy-mm-dd.docx",
+    "technicalRules": "backend/app/rules/technical_fee_rules.xlsx",
+    "physicalRules": "backend/app/rules/physical_factor_rules.xlsx",
+    "physicalOverrides": "backend/app/rules/physical_factor_overrides.xlsx",
+    "experiencePool": "05-经验池-预警数据/【经验池】-管勘智算-【codex】.xlsx",
+    "experienceWarningSettings": "05-经验池-预警数据/experience-warning-settings-【codex】.json",
+    "knowledgeSources": [
+      "README.md",
+      "AGENTS.md",
+      "CHANGELOG.md",
+      "00-PRD/00-产品总览.md",
+      "03-知识库-二维数据库制作/【数据库】【导入】.xlsx",
+      "03-【匹配规则】-勘察测绘知识库-匹配规则提炼/【重要匹配规则】项目以及总体匹配规则介绍.md",
+      "03-【匹配规则】-勘察测绘知识库-匹配规则提炼/【重要匹配规则】要素1-5和单位的匹配模式介绍.md",
+      "03-【匹配规则】-勘察测绘知识库-匹配规则提炼/【重要匹配规则】【第一层】-标准规则命中表-说人话版-v1.0.xlsx",
+      "03-【匹配规则】-勘察测绘知识库-匹配规则提炼/01-【业务资料】原始资料-勘察测量相关基础资料",
+      "03-【匹配规则】-勘察测绘知识库-匹配规则提炼/03-给深度研究的提示词和交付",
+      "03-【匹配规则】-勘察测绘知识库-匹配规则提炼/90-【知识库】勘察测绘大模型问答知识库",
+      "backend/app/rules/technical_fee_rules.xlsx",
+      "backend/app/rules/physical_factor_rules.xlsx",
+      "backend/app/rules/physical_factor_overrides.xlsx"
+    ],
     "ruleDocuments": [
       "03-【匹配规则】-勘察测绘知识库-匹配规则提炼/【重要匹配规则】项目以及总体匹配规则介绍.md",
       "03-【匹配规则】-勘察测绘知识库-匹配规则提炼/【重要匹配规则】要素1-5和单位的匹配模式介绍.md"
@@ -105,6 +126,22 @@
       "backend/app/rules/physical_factor_overrides.xlsx"
     ],
     "validationSample": "03-知识库-二维数据库制作/输入100 和 空单价100.xlsx"
+  },
+  "runtime": {
+    "processorId": "survey-measurement-v1",
+    "knowledgeBaseAsset": "knowledgeBase",
+    "ruleAssets": {
+      "technicalRules": "technicalRules",
+      "physicalRules": "physicalRules",
+      "physicalOverrides": "physicalOverrides"
+    },
+    "riskProfile": {
+      "experiencePool": "experiencePool",
+      "warningSettings": "experienceWarningSettings"
+    },
+    "knowledgeSourceAssets": ["knowledgeSources"],
+    "reportTemplateAsset": "reportTemplate",
+    "validationAsset": "validationSample"
   },
   "validation": {
     "status": "verified",

@@ -70,6 +70,21 @@ class AdjustmentEngine:
         technical_rules = _load_rules(RULE_DIR / "technical_fee_rules.csv", target="technical")
         return cls(physical_rules=physical_rules, technical_rules=technical_rules)
 
+    @classmethod
+    def from_rule_assets(
+        cls,
+        *,
+        physical_rules_path: str | Path | None,
+        technical_rules_path: str | Path,
+    ) -> "AdjustmentEngine":
+        physical_rules = (
+            _load_explicit_rule_asset(Path(physical_rules_path), target="physical")
+            if physical_rules_path
+            else []
+        )
+        technical_rules = _load_explicit_rule_asset(Path(technical_rules_path), target="technical")
+        return cls(physical_rules=physical_rules, technical_rules=technical_rules)
+
     def evaluate(
         self,
         sheet_name: str,
@@ -159,6 +174,14 @@ def _load_rules(path: Path, target: str) -> list[CoefficientRule]:
         except Exception:
             pass
     return _load_rules_from_csv(path, target)
+
+
+def _load_explicit_rule_asset(path: Path, target: str) -> list[CoefficientRule]:
+    if path.suffix.lower() == ".xlsx":
+        return _load_rules_from_xlsx(path, target)
+    if path.suffix.lower() == ".csv":
+        return _load_rules_from_csv(path, target)
+    raise ValueError(f"不支持的规则资产格式：{path.suffix}")
 
 
 def _load_rules_from_csv(path: Path, target: str) -> list[CoefficientRule]:

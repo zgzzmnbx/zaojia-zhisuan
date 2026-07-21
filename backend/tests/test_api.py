@@ -17,6 +17,7 @@ import app.report as report_module
 from app.report import build_report_markdown, write_report
 from app.schemas import FillSummary, ReviewRow
 from app.experience_warning import EXPERIENCE_POOL_HEADERS, WARNING_DETAIL_FIELD, WARNING_PARAMETER_FIELD
+from runtime_skill_test_utils import make_runtime_registry
 
 ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = ROOT / "03-知识库-二维数据库制作"
@@ -42,7 +43,7 @@ def test_health_endpoint():
 
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
-    assert response.json()["version"] == "v5.11.0"
+    assert response.json()["version"] == "v5.12.0"
 
 
 def test_project_default_settings_include_zhisuan_window():
@@ -1830,8 +1831,11 @@ def test_experience_warning_endpoint_writes_warnings_after_process(tmp_path, mon
     pool_sheet.append([record.get(header) for header in EXPERIENCE_POOL_HEADERS])
     pool_workbook.save(pool_path)
     pool_workbook.close()
-    monkeypatch.setattr(main_module, "DEFAULT_EXPERIENCE_POOL_PATH", pool_path)
-    monkeypatch.setattr(main_module, "LEGACY_EXPERIENCE_POOL_PATH", tmp_path / "missing-legacy.xlsx")
+    monkeypatch.setattr(
+        main_module,
+        "PROFESSIONAL_SKILL_REGISTRY",
+        make_runtime_registry(tmp_path, main_module.DEFAULT_KB_PATH, experience_pool_path=pool_path),
+    )
 
     client = TestClient(app)
     with input_path.open("rb") as handle:
@@ -1977,10 +1981,16 @@ def test_experience_warning_settings_affect_run_result(tmp_path, monkeypatch):
         encoding="utf-8",
     )
 
-    monkeypatch.setattr(main_module, "DEFAULT_KB_PATH", kb_path)
-    monkeypatch.setattr(main_module, "DEFAULT_EXPERIENCE_POOL_PATH", pool_path)
-    monkeypatch.setattr(main_module, "LEGACY_EXPERIENCE_POOL_PATH", tmp_path / "missing-legacy.xlsx")
-    monkeypatch.setattr(main_module, "DEFAULT_EXPERIENCE_WARNING_SETTINGS_PATH", settings_path)
+    monkeypatch.setattr(
+        main_module,
+        "PROFESSIONAL_SKILL_REGISTRY",
+        make_runtime_registry(
+            tmp_path,
+            kb_path,
+            experience_pool_path=pool_path,
+            warning_settings_path=settings_path,
+        ),
+    )
 
     client = TestClient(app)
     with input_path.open("rb") as handle:
@@ -2083,10 +2093,16 @@ def test_experience_warning_endpoint_returns_clear_error_when_filter_field_is_mi
         encoding="utf-8",
     )
 
-    monkeypatch.setattr(main_module, "DEFAULT_KB_PATH", kb_path)
-    monkeypatch.setattr(main_module, "DEFAULT_EXPERIENCE_POOL_PATH", pool_path)
-    monkeypatch.setattr(main_module, "LEGACY_EXPERIENCE_POOL_PATH", tmp_path / "missing-legacy.xlsx")
-    monkeypatch.setattr(main_module, "DEFAULT_EXPERIENCE_WARNING_SETTINGS_PATH", settings_path)
+    monkeypatch.setattr(
+        main_module,
+        "PROFESSIONAL_SKILL_REGISTRY",
+        make_runtime_registry(
+            tmp_path,
+            kb_path,
+            experience_pool_path=pool_path,
+            warning_settings_path=settings_path,
+        ),
+    )
 
     client = TestClient(app)
     with input_path.open("rb") as handle:
@@ -2169,9 +2185,11 @@ def test_experience_warning_endpoint_writes_no_warning_rows_after_process(tmp_pa
     pool_workbook.save(pool_path)
     pool_workbook.close()
 
-    monkeypatch.setattr(main_module, "DEFAULT_KB_PATH", kb_path)
-    monkeypatch.setattr(main_module, "DEFAULT_EXPERIENCE_POOL_PATH", pool_path)
-    monkeypatch.setattr(main_module, "LEGACY_EXPERIENCE_POOL_PATH", tmp_path / "missing-legacy.xlsx")
+    monkeypatch.setattr(
+        main_module,
+        "PROFESSIONAL_SKILL_REGISTRY",
+        make_runtime_registry(tmp_path, kb_path, experience_pool_path=pool_path),
+    )
 
     client = TestClient(app)
     with input_path.open("rb") as handle:

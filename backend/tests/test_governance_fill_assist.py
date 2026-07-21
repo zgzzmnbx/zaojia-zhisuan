@@ -7,6 +7,7 @@ import app.main as main_module
 from app.experience_warning import EXPERIENCE_POOL_HEADERS
 from app.main import app
 from app.schemas import FillSummary, ReviewRow
+from runtime_skill_test_utils import make_runtime_registry
 
 
 def _write_state(job_dir: Path, output_name: str, summary: FillSummary) -> None:
@@ -256,7 +257,7 @@ def test_process_can_defer_matching_until_batch_match(tmp_path, monkeypatch):
     workbook.close()
 
     monkeypatch.setattr(main_module, "RUNTIME_DIR", tmp_path / "runtime")
-    monkeypatch.setattr(main_module, "DEFAULT_KB_PATH", kb_path)
+    monkeypatch.setattr(main_module, "PROFESSIONAL_SKILL_REGISTRY", make_runtime_registry(tmp_path, kb_path))
     client = TestClient(app)
 
     with input_path.open("rb") as handle:
@@ -329,7 +330,7 @@ def test_batch_match_preserves_current_output_values_after_workload_like_prefill
     workbook.close()
 
     monkeypatch.setattr(main_module, "RUNTIME_DIR", tmp_path / "runtime")
-    monkeypatch.setattr(main_module, "DEFAULT_KB_PATH", kb_path)
+    monkeypatch.setattr(main_module, "PROFESSIONAL_SKILL_REGISTRY", make_runtime_registry(tmp_path, kb_path))
     client = TestClient(app)
 
     with input_path.open("rb") as handle:

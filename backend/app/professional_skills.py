@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import re
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -56,6 +57,51 @@ ASSET_LABELS = {
     "ruleWorkbooks": "结构化规则表",
     "validationSample": "回归验证样例",
 }
+TRUSTED_PROCESSOR_IDS = {"survey-measurement-v1"}
+KNOWLEDGE_SOURCE_SUFFIXES = {".csv", ".md", ".xlsx"}
+
+
+@dataclass(frozen=True)
+class SkillRuntimeContext:
+    skill_id: str
+    skill_version: str
+    manifest_hash: str
+    input_profile: dict[str, object]
+    processor_id: str
+    knowledge_base_path: Path
+    rule_assets: dict[str, tuple[Path, ...]]
+    risk_profile: dict[str, Path]
+    knowledge_sources: tuple[Path, ...]
+    report_template_path: Path
+    validation_profile: dict[str, object]
+    capabilities: dict[str, bool]
+
+    def to_state(self, project_root: Path) -> dict[str, object]:
+        root = project_root.resolve()
+
+        def relative(path: Path) -> str:
+            return path.resolve().relative_to(root).as_posix()
+
+        return {
+            "skill_id": self.skill_id,
+            "skill_version": self.skill_version,
+            "manifest_hash": self.manifest_hash,
+            "input_profile": self.input_profile,
+            "processor_id": self.processor_id,
+            "knowledge_base": relative(self.knowledge_base_path),
+            "rule_assets": {
+                key: [relative(path) for path in paths]
+                for key, paths in self.rule_assets.items()
+            },
+            "risk_profile": {
+                key: relative(path)
+                for key, path in self.risk_profile.items()
+            },
+            "knowledge_sources": [relative(path) for path in self.knowledge_sources],
+            "report_template": relative(self.report_template_path),
+            "validation_profile": self.validation_profile,
+            "capabilities": self.capabilities,
+        }
 
 
 class ProfessionalSkillError(ValueError):
@@ -142,6 +188,7 @@ class ProfessionalSkillRegistry:
         return self.create_snapshot(manifest)
 
     def create_snapshot(self, manifest: dict[str, Any]) -> dict[str, object]:
+        runtime_context = self.create_runtime_context(manifest)
         return {
             "id": manifest["id"],
             "display_name": manifest["displayName"],
@@ -149,8 +196,116 @@ class ProfessionalSkillRegistry:
             "manifest_hash": manifest["_manifest_hash"],
             "created_at": datetime.now().isoformat(timespec="seconds"),
             "asset_ids": sorted(manifest["assets"].keys()),
+            "runtime_context": runtime_context.to_state(self.project_root),
             "compatibility_fallback": False,
         }
+
+    def create_runtime_context(self, manifest: dict[str, Any]) -> SkillRuntimeContext:
+        runtime = manifest.get("runtime")
+        if not isinstance(runtime, dict):
+            raise ProfessionalSkillError(
+                "skill_runtime_invalid",
+                "上线专业能力缺少运行时绑定",
+                status_code=503,
+            )
+        processor_id = str(runtime.get("processorId") or "").strip()
+        if processor_id not in TRUSTED_PROCESSOR_IDS:
+            raise ProfessionalSkillError(
+                "skill_processor_not_allowed",
+                "专业能力处理器未进入可信代码白名单",
+                status_code=503,
+            )
+
+        knowledge_base = self._single_bound_asset(manifest, runtime, "knowledgeBaseAsset")
+        report_template = self._single_bound_asset(manifest, runtime, "reportTemplateAsset")
+        rule_assets = self._named_bound_assets(manifest, runtime.get("ruleAssets"), "规则资产")
+        risk_profile = {
+            key: paths[0]
+            for key, paths in self._named_bound_assets(
+                manifest,
+                runtime.get("riskProfile"),
+                "风险配置",
+                require_single=True,
+            ).items()
+        }
+        knowledge_sources = self._knowledge_sources(
+            self._bound_asset_paths(manifest, runtime.get("knowledgeSourceAssets"), "知识源")
+        )
+        validation_profile = dict(manifest["validation"])
+        validation_asset_id = str(runtime.get("validationAsset") or "").strip()
+        if validation_asset_id:
+            validation_profile["asset"] = self._relative_asset_path(
+                self._asset_paths(manifest, validation_asset_id, "验证资产")[0]
+            )
+        return SkillRuntimeContext(
+            skill_id=str(manifest["id"]),
+            skill_version=str(manifest["version"]),
+            manifest_hash=str(manifest["_manifest_hash"]),
+            input_profile=dict(manifest["inputProfile"]),
+            processor_id=processor_id,
+            knowledge_base_path=knowledge_base,
+            rule_assets=rule_assets,
+            risk_profile=risk_profile,
+            knowledge_sources=knowledge_sources,
+            report_template_path=report_template,
+            validation_profile=validation_profile,
+            capabilities={key: bool(value) for key, value in manifest["capabilities"].items()},
+        )
+
+    def runtime_from_snapshot(self, snapshot: object) -> SkillRuntimeContext:
+        if not isinstance(snapshot, dict) or not isinstance(snapshot.get("runtime_context"), dict):
+            raise ProfessionalSkillError(
+                "skill_runtime_missing",
+                "任务缺少专业能力运行时快照",
+                status_code=409,
+            )
+        payload = snapshot["runtime_context"]
+        processor_id = str(payload.get("processor_id") or "").strip()
+        if processor_id not in TRUSTED_PROCESSOR_IDS:
+            raise ProfessionalSkillError(
+                "skill_processor_not_allowed",
+                "任务处理器未进入可信代码白名单",
+                status_code=503,
+            )
+        skill_id = str(payload.get("skill_id") or "")
+        skill_version = str(payload.get("skill_version") or "")
+        manifest_hash = str(payload.get("manifest_hash") or "")
+        if (
+            skill_id != str(snapshot.get("id") or "")
+            or skill_version != str(snapshot.get("version") or "")
+            or manifest_hash != str(snapshot.get("manifest_hash") or "")
+        ):
+            raise ProfessionalSkillError(
+                "skill_runtime_invalid",
+                "任务专业能力快照身份不一致",
+                status_code=409,
+            )
+        rule_assets_raw = payload.get("rule_assets")
+        risk_profile_raw = payload.get("risk_profile")
+        knowledge_sources_raw = payload.get("knowledge_sources")
+        if not isinstance(rule_assets_raw, dict) or not isinstance(risk_profile_raw, dict) or not isinstance(knowledge_sources_raw, list):
+            raise ProfessionalSkillError("skill_runtime_invalid", "任务专业能力运行时快照无效", status_code=409)
+        return SkillRuntimeContext(
+            skill_id=skill_id,
+            skill_version=skill_version,
+            manifest_hash=manifest_hash,
+            input_profile=dict(payload.get("input_profile") or {}),
+            processor_id=processor_id,
+            knowledge_base_path=self._resolve_frozen_path(payload.get("knowledge_base")),
+            rule_assets={
+                str(key): tuple(self._resolve_frozen_path(path) for path in paths)
+                for key, paths in rule_assets_raw.items()
+                if isinstance(paths, list)
+            },
+            risk_profile={
+                str(key): self._resolve_frozen_path(path)
+                for key, path in risk_profile_raw.items()
+            },
+            knowledge_sources=tuple(self._resolve_frozen_path(path) for path in knowledge_sources_raw),
+            report_template_path=self._resolve_frozen_path(payload.get("report_template")),
+            validation_profile=dict(payload.get("validation_profile") or {}),
+            capabilities={key: bool(value) for key, value in dict(payload.get("capabilities") or {}).items()},
+        )
 
     @staticmethod
     def public_snapshot(snapshot: object) -> dict[str, object]:
@@ -195,6 +350,96 @@ class ProfessionalSkillRegistry:
             "boundary": "规则裁决、模型解释、人工兜底；专业能力说明不得覆盖结构化计价规则。",
         }
 
+    def _single_bound_asset(
+        self,
+        manifest: dict[str, Any],
+        runtime: dict[str, Any],
+        binding_name: str,
+    ) -> Path:
+        asset_id = str(runtime.get(binding_name) or "").strip()
+        paths = self._asset_paths(manifest, asset_id, binding_name)
+        if len(paths) != 1:
+            raise ProfessionalSkillError("skill_runtime_invalid", f"{binding_name} 必须绑定一个资产", status_code=503)
+        return paths[0]
+
+    def _named_bound_assets(
+        self,
+        manifest: dict[str, Any],
+        bindings: object,
+        label: str,
+        *,
+        require_single: bool = False,
+    ) -> dict[str, tuple[Path, ...]]:
+        if not isinstance(bindings, dict) or not bindings:
+            raise ProfessionalSkillError("skill_runtime_invalid", f"{label}绑定不能为空", status_code=503)
+        resolved: dict[str, tuple[Path, ...]] = {}
+        for key, asset_id in bindings.items():
+            clean_key = str(key or "").strip()
+            if not clean_key:
+                raise ProfessionalSkillError("skill_runtime_invalid", f"{label}名称不能为空", status_code=503)
+            paths = self._asset_paths(manifest, str(asset_id or "").strip(), label)
+            if require_single and len(paths) != 1:
+                raise ProfessionalSkillError("skill_runtime_invalid", f"{label}必须逐项绑定单个资产", status_code=503)
+            resolved[clean_key] = tuple(paths)
+        return resolved
+
+    def _bound_asset_paths(
+        self,
+        manifest: dict[str, Any],
+        asset_ids: object,
+        label: str,
+    ) -> list[Path]:
+        if not isinstance(asset_ids, list) or not asset_ids:
+            raise ProfessionalSkillError("skill_runtime_invalid", f"{label}绑定不能为空", status_code=503)
+        paths: list[Path] = []
+        for asset_id in asset_ids:
+            paths.extend(self._asset_paths(manifest, str(asset_id or "").strip(), label))
+        return paths
+
+    def _asset_paths(self, manifest: dict[str, Any], asset_id: str, label: str) -> list[Path]:
+        assets = manifest["assets"]
+        if not asset_id or asset_id not in assets:
+            raise ProfessionalSkillError("skill_runtime_invalid", f"{label}引用了未登记资产", status_code=503)
+        value = assets[asset_id]
+        values = value if isinstance(value, list) else [value]
+        return [(self.project_root / str(path)).resolve() for path in values]
+
+    def _knowledge_sources(self, roots: list[Path]) -> tuple[Path, ...]:
+        sources: list[Path] = []
+        for root in roots:
+            if root.is_dir():
+                sources.extend(
+                    path.resolve()
+                    for path in root.rglob("*")
+                    if path.is_file() and path.suffix.lower() in KNOWLEDGE_SOURCE_SUFFIXES and not path.name.startswith("~$")
+                )
+            elif root.suffix.lower() in KNOWLEDGE_SOURCE_SUFFIXES:
+                sources.append(root.resolve())
+        unique = tuple(dict.fromkeys(sources))
+        if not unique:
+            raise ProfessionalSkillError("skill_runtime_invalid", "专业能力知识源为空", status_code=503)
+        return unique
+
+    def _relative_asset_path(self, path: Path) -> str:
+        return path.resolve().relative_to(self.project_root).as_posix()
+
+    def _resolve_frozen_path(self, value: object) -> Path:
+        relative = Path(str(value or ""))
+        if not str(value or "").strip() or relative.is_absolute() or ".." in relative.parts:
+            raise ProfessionalSkillError("skill_runtime_invalid", "任务专业能力资产引用不安全", status_code=409)
+        try:
+            resolved = (self.project_root / relative).resolve(strict=True)
+            resolved.relative_to(self.project_root)
+        except (OSError, ValueError) as exc:
+            raise ProfessionalSkillError(
+                "skill_runtime_unavailable",
+                "任务专业能力资产已不可用",
+                status_code=409,
+            ) from exc
+        if resolved.suffix.lower() in EXECUTABLE_SUFFIXES:
+            raise ProfessionalSkillError("skill_runtime_invalid", "任务专业能力资产引用不安全", status_code=409)
+        return resolved
+
     def _load_all(self) -> list[dict[str, Any]]:
         if not self.skills_root.is_dir():
             raise ProfessionalSkillError("skill_registry_unavailable", "专业能力清单暂不可用", status_code=503)
@@ -221,7 +466,10 @@ class ProfessionalSkillRegistry:
         self._reject_unsafe_entries(manifest)
         self._validate_assets(manifest)
         canonical = json.dumps(manifest, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-        return {**manifest, "_manifest_hash": hashlib.sha256(canonical.encode("utf-8")).hexdigest()}
+        loaded = {**manifest, "_manifest_hash": hashlib.sha256(canonical.encode("utf-8")).hexdigest()}
+        if manifest["status"] in {"active", "beta"}:
+            self.create_runtime_context(loaded)
+        return loaded
 
     def _validate_metadata(self, manifest: dict[str, Any], manifest_path: Path) -> None:
         skill_id = str(manifest.get("id") or "").strip()
