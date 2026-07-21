@@ -1,5 +1,5 @@
-import { Loader2, Paperclip, Send, Square } from "lucide-react";
-import type { KeyboardEvent } from "react";
+import { Check, ChevronDown, FileSpreadsheet, Loader2, Paperclip, Send, SlidersHorizontal, Square } from "lucide-react";
+import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import type { ProfessionalSkillSnapshot, ProfessionalSkillSummary } from "../skills/ProfessionalSkillSelector";
 import { agentSelectedSkill } from "./agentWorkspaceUtils";
 
@@ -12,9 +12,12 @@ type Props = {
   value: string;
   busy: boolean;
   disabled: boolean;
+  actions: ReactNode;
+  artifacts: ReactNode;
   onChange: (value: string) => void;
   onSelectSkill: (skillId: string) => void;
   onPickFile: () => void;
+  onDropFile: (file: File) => void;
   onSend: () => void;
   onStop: () => void;
   onFocusChange: (focused: boolean) => void;
@@ -29,45 +32,98 @@ export default function AgentComposer({
   value,
   busy,
   disabled,
+  actions,
+  artifacts,
   onChange,
   onSelectSkill,
   onPickFile,
+  onDropFile,
   onSend,
   onStop,
   onFocusChange,
 }: Props) {
   const selected = agentSelectedSkill(skills, selectedSkillId, taskSkill);
-  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+  const configuredSkill = skills.find((skill) => skill.id === selectedSkillId)
+    ?? skills.find((skill) => skill.id === selected.id);
+  const configuredSkillId = configuredSkill?.id ?? selected.id;
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const dragDepthRef = useRef(0);
+  const actionMenuRef = useRef<HTMLDetailsElement>(null);
+  const skillMenuRef = useRef<HTMLDetailsElement>(null);
+
+  useEffect(() => {
+    const closeComposerMenus = (event: MouseEvent) => {
+      const target = event.target;
+      if (target instanceof Node && !skillMenuRef.current?.contains(target)) {
+        skillMenuRef.current?.removeAttribute("open");
+      }
+      if (target instanceof Node && !actionMenuRef.current?.contains(target)) {
+        actionMenuRef.current?.removeAttribute("open");
+      }
+    };
+    const closeComposerMenusOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      skillMenuRef.current?.removeAttribute("open");
+      actionMenuRef.current?.removeAttribute("open");
+    };
+    document.addEventListener("mousedown", closeComposerMenus);
+    document.addEventListener("keydown", closeComposerMenusOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeComposerMenus);
+      document.removeEventListener("keydown", closeComposerMenusOnEscape);
+    };
+  }, []);
+
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
     event.preventDefault();
     if (!busy && value.trim() && !disabled) onSend();
   };
+  const hasFiles = (event: DragEvent<HTMLDivElement>) => (
+    event.dataTransfer.files.length > 0 || Array.from(event.dataTransfer.types).includes("Files")
+  );
+  const handleDragEnter = (event: DragEvent<HTMLDivElement>) => {
+    if (!hasFiles(event) || disabled) return;
+    event.preventDefault();
+    dragDepthRef.current += 1;
+    setIsDraggingFile(true);
+  };
+  const handleDragOver = (event: DragEvent<HTMLDivElement>) => {
+    if (!hasFiles(event) || disabled) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  };
+  const handleDragLeave = (event: DragEvent<HTMLDivElement>) => {
+    if (!isDraggingFile) return;
+    event.preventDefault();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setIsDraggingFile(false);
+  };
+  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
+    if (!hasFiles(event)) return;
+    event.preventDefault();
+    dragDepthRef.current = 0;
+    setIsDraggingFile(false);
+    if (disabled) return;
+    const droppedFile = event.dataTransfer.files?.[0];
+    if (droppedFile) onDropFile(droppedFile);
+  };
 
   return (
-    <div className="agent-composer" aria-label="智算助手输入区">
-      <div className="agent-composer__context">
-        <button className="agent-composer__attachment" type="button" aria-label="添加 Excel 附件" disabled={disabled} onClick={onPickFile}>
-          <Paperclip size={16} />
-          {fileName || "添加附件"}
-        </button>
-        <label className="agent-composer__skill">
-          <span>专业能力</span>
-          <select
-            aria-label="选择专业能力 Skill"
-            value={selected.id}
-            disabled={selected.locked || disabled}
-            onChange={(event) => onSelectSkill(event.target.value)}
-          >
-            {skills.map((skill) => (
-              <option key={skill.id} value={skill.id} disabled={!skill.can_create_task}>
-                {skill.display_name} · v{skill.version} · {skill.status_label}
-              </option>
-            ))}
-          </select>
-          {selected.locked && <em>任务已锁定</em>}
-        </label>
-        <span className="agent-composer__task-context" title={contextLabel}>{contextLabel}</span>
-      </div>
+    <div
+      className={`agent-composer ${isDraggingFile ? "is-dragging-file" : ""}`}
+      aria-label="智算助手输入区"
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {isDraggingFile && (
+        <div className="agent-composer__drop-overlay" aria-hidden="true">
+          <FileSpreadsheet size={20} />
+          <span>松开以上传 Excel</span>
+        </div>
+      )}
       <textarea
         aria-label="输入任务目标或问题"
         rows={3}
@@ -79,17 +135,66 @@ export default function AgentComposer({
         onKeyDown={handleKeyDown}
       />
       <div className="agent-composer__footer">
-        <span>Enter 发送 · Shift+Enter 换行 · Esc 退出</span>
-        {busy ? (
-          <button className="agent-composer__stop" type="button" aria-label="停止生成" onClick={onStop}>
-            <Square size={14} />停止
+        <div className="agent-composer__tools">
+          <button className="agent-composer__attachment" type="button" aria-label="添加 Excel 附件" disabled={disabled} onClick={onPickFile}>
+            <Paperclip size={16} />
+            <span>{fileName || "添加附件"}</span>
           </button>
-        ) : (
-          <button className="agent-composer__send" type="button" disabled={disabled || !value.trim()} aria-label="发送消息" onClick={onSend}>
-            {disabled ? <Loader2 className="spin" size={15} /> : <Send size={15} />}
-            发送
-          </button>
-        )}
+          <details ref={actionMenuRef} className="agent-composer__action-menu">
+            <summary><SlidersHorizontal size={15} /><span>任务操作</span><ChevronDown size={13} /></summary>
+            <div className="agent-composer__action-panel">
+              <div className="agent-workspace__action-strip">{actions}</div>
+              {artifacts && <div className="agent-workspace__artifacts">{artifacts}</div>}
+            </div>
+          </details>
+          <details ref={skillMenuRef} className="agent-composer__skill-menu">
+            <summary aria-label={`选择 Skill包，当前为${configuredSkill?.display_name ?? selected.displayName}`}>
+              <span className="agent-composer__skill-badge">Skill包</span>
+              <strong>{configuredSkill?.display_name ?? selected.displayName} · v{configuredSkill?.version ?? selected.version}</strong>
+              {selected.locked && (
+                <em title={`当前任务仍使用 ${taskSkill?.display_name} · v${taskSkill?.version}`}>当前任务锁定</em>
+              )}
+              <ChevronDown className="agent-composer__skill-chevron" size={13} />
+            </summary>
+            <div className="agent-composer__skill-panel" aria-label="Skill包清单">
+              {skills.map((skill) => {
+                const isConfigured = skill.id === configuredSkillId;
+                const isDisabled = !skill.can_create_task || (!selected.locked && disabled);
+                return (
+                  <button
+                    key={skill.id}
+                    className={`agent-composer__skill-option ${isConfigured ? "is-selected" : ""}`}
+                    type="button"
+                    disabled={isDisabled}
+                    aria-current={isConfigured ? "true" : undefined}
+                    onClick={() => {
+                      onSelectSkill(skill.id);
+                      if (skillMenuRef.current) skillMenuRef.current.open = false;
+                    }}
+                  >
+                    <span>
+                      <strong>{skill.display_name}</strong>
+                      <small>v{skill.version} · {skill.status_label}</small>
+                    </span>
+                    {isConfigured && <Check size={15} aria-hidden="true" />}
+                  </button>
+                );
+              })}
+            </div>
+          </details>
+          <span className="agent-composer__task-context" title={contextLabel}>{contextLabel}</span>
+        </div>
+        <div className="agent-composer__submit">
+          {busy ? (
+            <button className="agent-composer__stop" type="button" aria-label="停止生成" onClick={onStop}>
+              <Square size={14} />
+            </button>
+          ) : (
+            <button className="agent-composer__send" type="button" disabled={disabled || !value.trim()} aria-label="发送消息" onClick={onSend}>
+              {disabled ? <Loader2 className="spin" size={15} /> : <Send size={16} />}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

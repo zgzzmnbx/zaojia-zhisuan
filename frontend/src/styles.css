@@ -890,8 +890,9 @@ button {
 
 .shell.layout-daweiba .global-nav > span:first-child {
   color: var(--db-text-strong);
-  font-size: 15px;
-  font-weight: 800;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.2;
 }
 
 .shell.layout-daweiba .global-nav .nav-status {

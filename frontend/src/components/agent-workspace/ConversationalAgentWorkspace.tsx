@@ -1,11 +1,8 @@
-import { FileSpreadsheet, FileText, Plus, ShieldCheck, X } from "lucide-react";
+import { Folder, Plus, X } from "lucide-react";
 import type { ReactNode, RefObject } from "react";
 import type { ProfessionalSkillSnapshot, ProfessionalSkillSummary } from "../skills/ProfessionalSkillSelector";
-import type { ZhisuanAvatarState } from "../ZhisuanAvatar";
-import ZhisuanAvatar from "../ZhisuanAvatar";
 import AgentComposer from "./AgentComposer";
 import AgentMessageStream, { type AgentWorkspaceMessage } from "./AgentMessageStream";
-import { agentSelectedSkill, agentTaskPhase, agentTaskPhaseLabel } from "./agentWorkspaceUtils";
 import "./agentWorkspace.css";
 
 type Props<T extends AgentWorkspaceMessage> = {
@@ -18,13 +15,9 @@ type Props<T extends AgentWorkspaceMessage> = {
   selectedSkillId: string;
   taskSkill?: ProfessionalSkillSnapshot;
   fileName: string;
-  jobId: string;
-  matchingPending: boolean;
-  warningExecuted: boolean;
   currentContext: string;
   progressPercent: number;
   progressLabel: string;
-  avatarState: ZhisuanAvatarState;
   avatarLabel: string;
   input: string;
   isChatting: boolean;
@@ -35,6 +28,7 @@ type Props<T extends AgentWorkspaceMessage> = {
   onInputFocusChange: (focused: boolean) => void;
   onSelectSkill: (skillId: string) => void;
   onPickFile: () => void;
+  onDropFile: (file: File) => void;
   onSend: () => void;
   onStop: () => void;
   onNewConversation: () => void;
@@ -51,13 +45,9 @@ export default function ConversationalAgentWorkspace<T extends AgentWorkspaceMes
   selectedSkillId,
   taskSkill,
   fileName,
-  jobId,
-  matchingPending,
-  warningExecuted,
   currentContext,
   progressPercent,
   progressLabel,
-  avatarState,
   avatarLabel,
   input,
   isChatting,
@@ -68,41 +58,25 @@ export default function ConversationalAgentWorkspace<T extends AgentWorkspaceMes
   onInputFocusChange,
   onSelectSkill,
   onPickFile,
+  onDropFile,
   onSend,
   onStop,
   onNewConversation,
   onExit,
 }: Props<T>) {
-  const phase = agentTaskPhase({
-    hasFile: Boolean(fileName),
-    hasResult: Boolean(jobId),
-    matchingPending,
-    warningExecuted,
-  });
-  const selected = agentSelectedSkill(skills, selectedSkillId, taskSkill);
-
   return (
     <section className="agent-workspace" aria-label="智算助手对话式工作台">
       <header className="agent-workspace__header">
         <div className="agent-workspace__identity">
-          <ZhisuanAvatar state={avatarState} size="normal" />
-          <div>
-            <p>对话式专业工作台 · {avatarLabel}</p>
-            <h1>智算助手</h1>
-          </div>
+          <Folder aria-hidden="true" size={18} strokeWidth={1.8} />
+          <h1>智算助手</h1>
+          <span>对话式专业工作台 · {avatarLabel}</span>
         </div>
         <div className="agent-workspace__header-actions">
           <button type="button" onClick={onNewConversation}><Plus size={15} />新会话</button>
           <button type="button" onClick={onExit}><X size={15} />退出</button>
         </div>
       </header>
-
-      <div className="agent-workspace__status" role="status">
-        <span><ShieldCheck size={15} />{selected.displayName}{selected.version ? ` · v${selected.version}` : ""}</span>
-        <span className="agent-workspace__phase">{agentTaskPhaseLabel(phase)}</span>
-        <span>{jobId ? `任务 ${jobId}` : "尚未创建任务"}</span>
-        {taskSkill && <span className="agent-workspace__locked">Skill 快照已锁定</span>}
-      </div>
 
       {isBusy && (
         <div className="agent-workspace__progress" aria-label={progressLabel}>
@@ -119,11 +93,6 @@ export default function ConversationalAgentWorkspace<T extends AgentWorkspaceMes
         onRevealMessage={onRevealMessage}
       />
 
-      <div className="agent-workspace__operations" aria-label="当前任务操作">
-        <div className="agent-workspace__action-strip">{actions}</div>
-        {artifacts && <div className="agent-workspace__artifacts"><FileSpreadsheet size={15} /><FileText size={15} />{artifacts}</div>}
-      </div>
-
       <AgentComposer
         skills={skills}
         selectedSkillId={selectedSkillId}
@@ -133,9 +102,12 @@ export default function ConversationalAgentWorkspace<T extends AgentWorkspaceMes
         value={input}
         busy={isChatting}
         disabled={isBusy && !isChatting}
+        actions={actions}
+        artifacts={artifacts}
         onChange={onInputChange}
         onSelectSkill={onSelectSkill}
         onPickFile={onPickFile}
+        onDropFile={onDropFile}
         onSend={onSend}
         onStop={onStop}
         onFocusChange={onInputFocusChange}

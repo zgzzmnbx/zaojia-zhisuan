@@ -1813,6 +1813,7 @@ function DaweibaApp() {
   const [workloadPreviewCountdown, setWorkloadPreviewCountdown] = useState<number | null>(null);
   const [showAllWarnings, setShowAllWarnings] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const agentFileInputRef = useRef<HTMLInputElement | null>(null);
   const experienceFileInputRef = useRef<HTMLInputElement | null>(null);
   const workloadFileInputRef = useRef<HTMLInputElement | null>(null);
   const workloadTargetFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -3445,6 +3446,20 @@ function DaweibaApp() {
 
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     selectFile(event.target.files?.[0] ?? null);
+  }
+
+  function handleAgentFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const nextFile = event.target.files?.[0] ?? null;
+    if (nextFile) {
+      appendUserCommand(`上传 Excel：${nextFile.name}`);
+      void selectFile(nextFile);
+    }
+    event.target.value = "";
+  }
+
+  function handleAgentFileDrop(nextFile: File) {
+    appendUserCommand(`上传 Excel：${nextFile.name}`);
+    void selectFile(nextFile);
   }
 
   function applyZhisuanWindowSettings(raw?: ZhisuanWindowSettingsPayload) {
@@ -6860,13 +6875,19 @@ function DaweibaApp() {
   }
 
   function selectAgentSkill(skillId: string) {
-    if (result?.professional_skill) return;
     const nextSkill = professionalSkills.find((item) => item.id === skillId && item.can_create_task);
     if (!nextSkill) {
       appendZhisuanMessage("该专业能力仍处于规划或停用状态，当前不能创建真实任务。", "command", { typing: false });
       return;
     }
     setSelectedProfessionalSkillId(nextSkill.id);
+    if (result?.professional_skill && result.professional_skill.id !== nextSkill.id) {
+      appendZhisuanMessage(
+        `已为下一个新任务选择 ${nextSkill.display_name} · v${nextSkill.version}。当前任务继续使用已锁定的 ${result.professional_skill.display_name} · v${result.professional_skill.version}，不会改变已有结果。`,
+        "command",
+        { typing: false },
+      );
+    }
   }
 
   function openDaweibaKnowledge() {
@@ -7025,24 +7046,25 @@ function DaweibaApp() {
   ].join(" · ");
   const agentWorkspaceActions = (
     <>
-      <button type="button" disabled={agentTaskBusy} onClick={() => fileInputRef.current?.click()}><Upload size={14} />上传 Excel</button>
-      <button className="is-primary" type="button" disabled={!file || agentTaskBusy || Boolean(result)} onClick={() => void processFile()}>
+      <input ref={agentFileInputRef} hidden accept=".xlsx" type="file" onChange={handleAgentFileChange} />
+      <button type="button" disabled={agentTaskBusy} onClick={() => agentFileInputRef.current?.click()}><Upload size={14} />上传 Excel</button>
+      <button className="is-primary" type="button" disabled={!file || agentTaskBusy || Boolean(result)} onClick={() => { appendUserCommand("开始转换"); void processFile(); }}>
         {isProcessing ? <Loader2 className="spin" size={14} /> : <Sparkles size={14} />}开始转换
       </button>
-      <button className="is-primary" type="button" disabled={!isBatchMatchPending || agentTaskBusy} onClick={() => void handleZhisuanCommand("batch-match")}>
+      <button className="is-primary" type="button" disabled={!isBatchMatchPending || agentTaskBusy} onClick={() => void runZhisuanQuickCommand("batch-match", "批量匹配")}>
         {isBatchMatching ? <Loader2 className="spin" size={14} /> : <ShieldCheck size={14} />}批量匹配
       </button>
-      <button type="button" disabled={!result || isBatchMatchPending || agentTaskBusy} onClick={() => void handleZhisuanCommand("experience-warning")}>
+      <button type="button" disabled={!result || isBatchMatchPending || agentTaskBusy} onClick={() => void runZhisuanQuickCommand("experience-warning", "运行经验池预警")}>
         <AlertTriangle size={14} />运行预警
       </button>
-      <button type="button" disabled={!result || isBatchMatchPending || agentTaskBusy} onClick={() => void loadRiskSummary()}>
+      <button type="button" disabled={!result || isBatchMatchPending || agentTaskBusy} onClick={() => { appendUserCommand("查看风险清单"); void loadRiskSummary(); }}>
         <ShieldCheck size={14} />风险清单
       </button>
-      <button type="button" disabled={!result || isBatchMatchPending || agentTaskBusy} onClick={() => void handleZhisuanCommand("risk-report")}>
+      <button type="button" disabled={!result || isBatchMatchPending || agentTaskBusy} onClick={() => void runZhisuanQuickCommand("risk-report", "生成风险报告")}>
         <FileText size={14} />生成报告
       </button>
-      <button type="button" disabled={!result} onClick={() => setActiveDaweibaModule("preview")}><FileSpreadsheet size={14} />结果预览</button>
-      <button type="button" disabled={!hasCurrentReport} onClick={() => setActiveDaweibaModule("report")}><FileText size={14} />Word 预览</button>
+      <button type="button" disabled={!result} onClick={() => { appendUserCommand("查看结果预览"); setActiveDaweibaModule("preview"); }}><FileSpreadsheet size={14} />结果预览</button>
+      <button type="button" disabled={!hasCurrentReport} onClick={() => { appendUserCommand("查看 Word 预览"); setActiveDaweibaModule("report"); }}><FileText size={14} />Word 预览</button>
     </>
   );
   const agentWorkspaceArtifacts = result ? (
@@ -9172,13 +9194,9 @@ function DaweibaApp() {
             selectedSkillId={selectedProfessionalSkillId}
             taskSkill={result?.professional_skill}
             fileName={file?.name ?? ""}
-            jobId={result?.job_id ?? ""}
-            matchingPending={isBatchMatchPending}
-            warningExecuted={Boolean(warningSummary?.executed)}
             currentContext={agentCurrentContext}
             progressPercent={agentTaskProgress}
             progressLabel={agentTaskProgressLabel}
-            avatarState={zhisuanAvatarState}
             avatarLabel={zhisuanAvatarLabel}
             input={chatInput}
             isChatting={isChatting}
@@ -9188,7 +9206,8 @@ function DaweibaApp() {
             onInputChange={setChatInput}
             onInputFocusChange={setIsChatInputFocused}
             onSelectSkill={selectAgentSkill}
-            onPickFile={() => fileInputRef.current?.click()}
+            onPickFile={() => agentFileInputRef.current?.click()}
+            onDropFile={handleAgentFileDrop}
             onSend={() => void sendChatMessage()}
             onStop={stopChatGeneration}
             onNewConversation={startNewAgentConversation}

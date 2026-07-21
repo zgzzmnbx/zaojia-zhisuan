@@ -2,6 +2,17 @@ import type { ProfessionalSkillSnapshot, ProfessionalSkillSummary } from "../ski
 
 export type AgentTaskPhase = "empty" | "file-ready" | "preview-ready" | "matched" | "warning-complete";
 
+export function agentConversationTurns<T extends { role: "system" | "user" | "assistant" }>(messages: T[]) {
+  return messages.reduce<T[][]>((turns, message) => {
+    if (turns.length === 0 || message.role === "user") {
+      turns.push([message]);
+    } else {
+      turns[turns.length - 1].push(message);
+    }
+    return turns;
+  }, []);
+}
+
 export function agentTaskPhase(options: {
   hasFile: boolean;
   hasResult: boolean;

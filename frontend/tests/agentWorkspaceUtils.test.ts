@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { agentSelectedSkill, agentTaskPhase, agentTaskPhaseLabel } from "../src/components/agent-workspace/agentWorkspaceUtils.ts";
+import { agentConversationTurns, agentSelectedSkill, agentTaskPhase, agentTaskPhaseLabel } from "../src/components/agent-workspace/agentWorkspaceUtils.ts";
 
 const skills = [
   {
@@ -64,4 +64,21 @@ test("uses registry data and locks the task skill snapshot", () => {
     created_at: "2026-07-21T00:00:00Z",
     compatibility_fallback: false,
   }).locked, true);
+});
+
+test("starts a visually separated turn at every user instruction", () => {
+  const messages = [
+    { id: "welcome", role: "assistant" as const, content: "welcome" },
+    { id: "u1", role: "user" as const, content: "first" },
+    { id: "a1", role: "assistant" as const, content: "answer" },
+    { id: "a2", role: "system" as const, content: "progress" },
+    { id: "u2", role: "user" as const, content: "second" },
+    { id: "a3", role: "assistant" as const, content: "answer 2" },
+  ];
+
+  assert.deepEqual(agentConversationTurns(messages).map((turn) => turn.map((message) => message.id)), [
+    ["welcome"],
+    ["u1", "a1", "a2"],
+    ["u2", "a3"],
+  ]);
 });
