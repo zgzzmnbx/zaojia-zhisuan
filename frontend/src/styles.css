@@ -10960,8 +10960,17 @@ tbody tr:hover .row-ai-cell {
 }
 
 .shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .brief-panel {
-  grid-template-rows: auto minmax(86px, auto) auto auto auto;
+  grid-template-rows: auto minmax(86px, auto) auto minmax(0, 1fr) auto;
   gap: 8px;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .brief-panel .stats {
+  align-self: end;
+  width: 100%;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .brief-panel .process-stages {
+  align-self: start;
 }
 
 .shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .summary-hero {
@@ -11328,9 +11337,9 @@ tbody tr:hover .row-ai-cell {
   line-height: 0.92 !important;
 }
 
-.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .brief-panel .download-row {
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .brief-panel #daweiba-output.download-row {
   width: 100%;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
   gap: 8px;
 }
 
@@ -11338,6 +11347,8 @@ tbody tr:hover .row-ai-cell {
   height: 36px;
   min-height: 36px !important;
   padding: 0 12px !important;
+  font-size: 15px;
+  line-height: 15px;
   white-space: nowrap;
 }
 

@@ -149,7 +149,7 @@ export default function ProfessionalSkillSelector({
         onClick={() => setIsMenuOpen((current) => !current)}
       >
         <ShieldCheck size={16} />
-        <span>专业能力</span>
+        <span>Skill包</span>
         <strong>
           {displayedSkill
             ? `${displayedSkill.display_name} · v${displayedSkill.version}`
