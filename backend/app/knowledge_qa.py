@@ -333,7 +333,10 @@ def build_index(project_root: Path = PROJECT_ROOT, sources: list[Path] | None = 
 def _discover_sources(project_root: Path) -> list[Path]:
     rule_root = project_root / "03-【匹配规则】-勘察测绘知识库-匹配规则提炼"
     data_root = project_root / "03-知识库-二维数据库制作"
-    original_root = rule_root / "01-原始资料"
+    original_roots = [
+        rule_root / "01-【业务资料】原始资料-勘察测量相关基础资料",
+        rule_root / "01-原始资料",
+    ]
     qa_root = rule_root / "90-【知识库】勘察测绘大模型问答知识库"
     candidates: list[Path] = [
         project_root / "README.md",
@@ -356,12 +359,13 @@ def _discover_sources(project_root: Path) -> list[Path]:
         "03-给深度研究的提示词和交付/20260614-深度研究【交付】*.md",
     ):
         candidates.extend(rule_root.glob(pattern))
-    if original_root.exists():
-        candidates.extend(
-            path
-            for path in original_root.rglob("*")
-            if path.is_file() and path.suffix.lower() in {".md", ".xlsx", ".csv"}
-        )
+    for original_root in original_roots:
+        if original_root.exists():
+            candidates.extend(
+                path
+                for path in original_root.rglob("*")
+                if path.is_file() and path.suffix.lower() in {".md", ".xlsx", ".csv"}
+            )
     if qa_root.exists():
         candidates.extend(qa_root.rglob("*.md"))
     existing = []
@@ -469,7 +473,7 @@ def _make_chunk(path: Path, project_root: Path, suffix: str, title_path: str, co
 def _source_type(path: Path) -> str:
     text = str(path)
     name = path.name
-    if "01-原始资料" in text or "财建[2009]17号" in name or "计价格[2002]10号" in name:
+    if "原始资料" in text or "财建[2009]17号" in name or "计价格[2002]10号" in name:
         return "standard"
     if "backend" in text and "rules" in text:
         return "rule_card"

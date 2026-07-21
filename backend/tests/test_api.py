@@ -2613,7 +2613,10 @@ def test_knowledge_search_includes_original_standard_materials(tmp_path, monkeyp
     payload = response.json()
     assert payload["evidence_found"] is True
     assert any(result["source_type"] == "standard" for result in payload["results"])
-    assert any("01-原始资料" in result["source_file"] for result in payload["results"])
+    assert any(
+        "01-【业务资料】原始资料-勘察测量相关基础资料" in result["source_file"]
+        for result in payload["results"]
+    )
 
 
 def test_knowledge_search_prioritizes_price_database_for_specific_price_question(tmp_path, monkeypatch):
