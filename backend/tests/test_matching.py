@@ -35,6 +35,12 @@ def find_data_file(*tokens: str, exclude: tuple[str, ...] = (), required: bool =
 INPUT_PATH = find_data_file("输入100", "空单价100", exclude=("答案",), required=False)
 ANSWER_PATH = find_data_file("输入100-答案", "空单价100", required=False)
 PROJECT_EXAMPLE_PATH = find_data_file("项目例子", "控制价")
+PROJECT_EXAMPLE_WITH_QUANTITY_PATH = find_data_file(
+    "项目例子",
+    "测试输入",
+    "控制价",
+    exclude=("无数量",),
+)
 
 
 def read_csv_rule_rows(path: Path) -> tuple[list[str], list[dict[str, str]]]:
@@ -1313,12 +1319,12 @@ def test_formula_cached_value_is_used_for_matching_project_example_f51(tmp_path)
     assert ws.cell(row=51, column=headers.index("匹配状态") + 1).value == "已匹配"
 
 
-def test_technical_fee_uses_project_example_technical_column_for_hydro_row90(tmp_path):
-    output_path = tmp_path / "filled-hydro-row90.xlsx"
+def test_technical_fee_uses_project_example_technical_column_for_hydro_drill_pumping(tmp_path):
+    output_path = tmp_path / "filled-hydro-drill-pumping.xlsx"
 
     kb = KnowledgeBase.from_excel(KB_PATH)
     FillEngine(kb).fill_workbook(
-        PROJECT_EXAMPLE_PATH,
+        PROJECT_EXAMPLE_WITH_QUANTITY_PATH,
         output_path,
         sheet_configs=[
             {
@@ -1342,10 +1348,16 @@ def test_technical_fee_uses_project_example_technical_column_for_hydro_row90(tmp
     workbook = load_workbook(output_path, data_only=True)
     ws = workbook["表4-通用工程勘察费用"]
     merged_value_map = FillEngine._build_merged_value_map(ws)
-    assert FillEngine._read_mapped_value(ws, 90, 2, merged_value_map) == "水文地质勘察"
-    assert FillEngine._read_mapped_value(ws, 90, 5, merged_value_map) == "利用钻孔抽水"
-    assert FillEngine._read_mapped_value(ws, 90, 15, merged_value_map) == "复杂"
-    assert ws["AE90"].value == 0.33
+    target_rows = [
+        row
+        for row in range(5, ws.max_row + 1)
+        if FillEngine._read_mapped_value(ws, row, 2, merged_value_map) == "水文地质勘察"
+        and FillEngine._read_mapped_value(ws, row, 5, merged_value_map) == "利用钻孔抽水"
+    ]
+    assert len(target_rows) == 1
+    target_row = target_rows[0]
+    assert FillEngine._read_mapped_value(ws, target_row, 15, merged_value_map) == "复杂"
+    assert ws.cell(row=target_row, column=31).value == 0.33
 
 
 def test_input_chart_scale_placeholder_is_treated_as_blank(tmp_path):
