@@ -4,10 +4,13 @@ import hashlib
 import json
 import logging
 import re
+from io import BytesIO
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+from openpyxl import load_workbook
 
 
 LOGGER = logging.getLogger(__name__)
@@ -59,6 +62,8 @@ ASSET_LABELS = {
 }
 TRUSTED_PROCESSOR_IDS = {"survey-measurement-v1"}
 KNOWLEDGE_SOURCE_SUFFIXES = {".csv", ".md", ".xlsx"}
+MAX_RECOMMENDATION_FILE_BYTES = 25 * 1024 * 1024
+MANAGEMENT_ACTIONS = {"install", "enable", "disable", "upgrade", "rollback", "uninstall", "export"}
 
 
 @dataclass(frozen=True)
@@ -149,6 +154,132 @@ class ProfessionalSkillRegistry:
     def get_public(self, skill_id: str) -> dict[str, object]:
         manifest = self.load(skill_id)
         return self.public_detail(manifest, default_id=self.default_skill_id())
+
+    def recommend_for_file(self, filename: str, content: bytes) -> dict[str, object]:
+        clean_name = Path(str(filename or "")).name
+        extension = Path(clean_name).suffix.lower()
+        if extension != ".xlsx":
+            raise ProfessionalSkillError("skill_recommendation_input_invalid", "专业能力推荐当前只分析 .xlsx 文件")
+        if not content:
+            raise ProfessionalSkillError("skill_recommendation_input_invalid", "待分析文件为空")
+        if len(content) > MAX_RECOMMENDATION_FILE_BYTES:
+            raise ProfessionalSkillError(
+                "skill_recommendation_input_too_large",
+                "待分析文件超过 25 MB，未执行专业能力推荐",
+                status_code=413,
+            )
+        try:
+            workbook = load_workbook(BytesIO(content), read_only=True, data_only=False)
+        except Exception as exc:
+            raise ProfessionalSkillError("skill_recommendation_input_invalid", "无法读取待分析 Excel 文件") from exc
+        try:
+            sheet_count = len(workbook.sheetnames)
+            sheet_names = workbook.sheetnames[:12]
+            headers: list[str] = []
+            for sheet_name in sheet_names:
+                sheet = workbook[sheet_name]
+                for row in sheet.iter_rows(min_row=1, max_row=min(sheet.max_row, 12), max_col=min(sheet.max_column, 80), values_only=True):
+                    headers.extend(str(value).strip() for value in row if value not in (None, ""))
+        finally:
+            workbook.close()
+
+        manifests = self._load_all()
+        items = [
+            self._recommendation_item(
+                manifest,
+                filename=clean_name,
+                extension=extension,
+                sheet_names=sheet_names,
+                headers=headers,
+            )
+            for manifest in manifests
+        ]
+        items.sort(key=lambda item: (-int(item["score"]), int(item["display_order"]), str(item["display_name"])))
+        top = items[0] if items else None
+        second_score = int(items[1]["score"]) if len(items) > 1 else -1
+        recommended = top if top and int(top["score"]) >= 35 and int(top["score"]) > second_score else None
+        return {
+            "file": {
+                "name": clean_name,
+                "extension": extension,
+                "sheet_count": sheet_count,
+                "observed_sheet_names": sheet_names,
+                "observed_header_count": len(set(headers)),
+            },
+            "recommended_skill_id": recommended["id"] if recommended else None,
+            "requires_confirmation": recommended is not None,
+            "items": [{key: value for key, value in item.items() if key != "display_order"} for item in items],
+            "notice": "推荐仅依据文件结构特征，必须由用户确认；不会自动切换专业能力或创建任务。",
+        }
+
+    def open_format(self) -> dict[str, object]:
+        return {
+            "format": "zaojiazhisuan-professional-skill",
+            "format_version": "1.0",
+            "descriptor": "manifest.json",
+            "documentation": "SKILL.md",
+            "required_manifest_fields": sorted(REQUIRED_FIELDS),
+            "supported_statuses": sorted(ALLOWED_STATUSES),
+            "asset_policy": "资产只允许项目内相对路径，禁止可执行文件、越界路径和运行秘密。",
+            "runtime_policy": "只有进入代码白名单的 processorId 才能运行；SKILL.md 不参与价格、系数或风险裁决。",
+            "lifecycle_policy": "安装、启停、升级、回滚和卸载当前只提供审核计划接口，不直接改写能力包。",
+        }
+
+    def management_overview(self) -> dict[str, object]:
+        manifests = self._load_all()
+        default_id = self.default_skill_id()
+        return {
+            "mode": "governed-interface",
+            "changes_enabled": False,
+            "items": [self._management_item(manifest, default_id=default_id) for manifest in manifests],
+            "governance": {
+                "publisher": "local-project",
+                "signature_required_for_external_packages": True,
+                "approval_required": True,
+                "arbitrary_script_execution": False,
+                "audit_fields": ["operator", "action", "skill_id", "source_version", "target_version", "checks", "decision", "created_at"],
+            },
+        }
+
+    def plan_lifecycle(self, skill_id: str, action: str, target_version: str | None = None) -> dict[str, object]:
+        clean_action = str(action or "").strip().lower()
+        if clean_action not in MANAGEMENT_ACTIONS:
+            raise ProfessionalSkillError("skill_management_action_invalid", "不支持的专业能力管理动作")
+        clean_skill_id = str(skill_id or "").strip()
+        if not SKILL_ID_PATTERN.fullmatch(clean_skill_id):
+            raise ProfessionalSkillError("skill_not_found", "未找到指定的专业能力", status_code=404)
+        manifest = None if clean_action == "install" else self.load(clean_skill_id)
+        clean_target = str(target_version or "").strip()
+        if clean_target and not SEMVER_PATTERN.fullmatch(clean_target):
+            raise ProfessionalSkillError("skill_management_version_invalid", "目标版本必须使用 x.y.z")
+        checks = [
+            {"id": "manifest", "label": "Manifest 结构与安全校验", "passed": True},
+            {"id": "paths", "label": "项目内相对资产路径", "passed": True},
+            {"id": "scripts", "label": "无任意脚本或命令入口", "passed": True},
+            {"id": "signature", "label": "可信发布签名", "passed": False},
+            {"id": "approval", "label": "人工发布审批", "passed": False},
+        ]
+        blockers = ["当前为治理接口模式，未启用能力包文件写入。", "尚未接入可信签名与发布审批。"]
+        if clean_action == "enable" and manifest and str(manifest["status"]) == "planned":
+            blockers.append("规划中能力缺少独立业务资产和已验证样例，不能启用。")
+        if clean_action in {"upgrade", "rollback"} and not clean_target:
+            blockers.append("升级或回滚必须指定目标版本。")
+        if clean_action == "disable" and manifest and manifest["id"] == self.default_skill_id():
+            blockers.append("默认专业能力停用前必须先指定可用替代能力。")
+        if clean_action == "install":
+            blockers.append("安装前必须提供已签名能力包、发布者身份、兼容性声明和人工审批记录。")
+        return {
+            "skill_id": clean_skill_id,
+            "display_name": manifest["displayName"] if manifest else clean_skill_id,
+            "action": clean_action,
+            "source_version": manifest["version"] if manifest else None,
+            "target_version": clean_target or None,
+            "status": "review_required",
+            "changes_applied": False,
+            "checks": checks,
+            "blockers": blockers,
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+        }
 
     def load(self, skill_id: str) -> dict[str, Any]:
         clean_id = str(skill_id or "").strip()
@@ -350,6 +481,64 @@ class ProfessionalSkillRegistry:
             "boundary": "规则裁决、模型解释、人工兜底；专业能力说明不得覆盖结构化计价规则。",
         }
 
+    def _recommendation_item(
+        self,
+        manifest: dict[str, Any],
+        *,
+        filename: str,
+        extension: str,
+        sheet_names: list[str],
+        headers: list[str],
+    ) -> dict[str, object]:
+        input_profile = manifest["inputProfile"]
+        recommendation = manifest.get("recommendationProfile")
+        profile = recommendation if isinstance(recommendation, dict) else {}
+        reasons: list[str] = []
+        score = 0
+        extensions = {str(value).lower() for value in input_profile.get("extensions", [])}
+        if extension in extensions:
+            score += 20
+            reasons.append(f"支持 {extension} 输入")
+        score += self._keyword_score(filename, profile.get("fileNameKeywords"), 10, 20, "文件名", reasons)
+        score += self._keyword_score(" ".join(sheet_names), profile.get("sheetKeywords"), 8, 24, "工作表", reasons)
+        score += self._keyword_score(" ".join(headers), profile.get("headerKeywords"), 6, 36, "表头", reasons)
+        confidence = "high" if score >= 70 else "medium" if score >= 35 else "low"
+        return {
+            "id": manifest["id"],
+            "display_name": manifest["displayName"],
+            "version": manifest["version"],
+            "status": manifest["status"],
+            "status_label": str(manifest.get("statusLabel") or {"active": "已上线", "beta": "内测中", "planned": "规划中", "disabled": "已停用"}[manifest["status"]]),
+            "can_create_task": manifest["status"] in TASK_ENABLED_STATUSES,
+            "score": score,
+            "confidence": confidence,
+            "reasons": reasons or ["未发现足够的专业结构特征"],
+            "display_order": int(manifest.get("displayOrder", 1000)),
+        }
+
+    @staticmethod
+    def _keyword_score(text: str, raw_keywords: object, points: int, maximum: int, label: str, reasons: list[str]) -> int:
+        if not isinstance(raw_keywords, list):
+            return 0
+        haystack = text.casefold()
+        matches = [str(keyword).strip() for keyword in raw_keywords if str(keyword).strip() and str(keyword).strip().casefold() in haystack]
+        if matches:
+            reasons.append(f"{label}命中：{'、'.join(matches[:4])}")
+        return min(len(matches) * points, maximum)
+
+    def _management_item(self, manifest: dict[str, Any], *, default_id: str) -> dict[str, object]:
+        skill_dir = self.skills_root / str(manifest["id"])
+        return {
+            **self.public_summary(manifest, default_id=default_id),
+            "manifest_valid": True,
+            "skill_md_present": (skill_dir / "SKILL.md").is_file(),
+            "runtime_ready": manifest["status"] in TASK_ENABLED_STATUSES,
+            "manifest_hash": manifest["_manifest_hash"],
+            "signature_status": "not_configured",
+            "available_operations": ["inspect", "validate", "recommend", "plan_lifecycle"],
+            "write_operations_enabled": False,
+        }
+
     def _single_bound_asset(
         self,
         manifest: dict[str, Any],
@@ -488,6 +677,13 @@ class ProfessionalSkillRegistry:
         for field in ("inputProfile", "capabilities", "assets", "validation"):
             if not isinstance(manifest.get(field), dict):
                 raise ProfessionalSkillError("skill_manifest_invalid", f"专业能力字段 {field} 必须是对象", status_code=503)
+        recommendation = manifest.get("recommendationProfile", {})
+        if not isinstance(recommendation, dict):
+            raise ProfessionalSkillError("skill_manifest_invalid", "专业能力推荐特征必须是对象", status_code=503)
+        for field in ("fileNameKeywords", "sheetKeywords", "headerKeywords"):
+            values = recommendation.get(field, [])
+            if not isinstance(values, list) or any(not isinstance(value, str) or not value.strip() for value in values):
+                raise ProfessionalSkillError("skill_manifest_invalid", f"专业能力推荐字段 {field} 必须是非空字符串数组", status_code=503)
         self._validate_sub_skills(manifest.get("subSkills", []))
 
     @staticmethod

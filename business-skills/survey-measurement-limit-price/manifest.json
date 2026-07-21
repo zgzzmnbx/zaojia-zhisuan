@@ -20,6 +20,11 @@
     "extensions": [".xlsx"],
     "templateHints": ["包含要素1-5、单位、价格和调整系数映射字段"]
   },
+  "recommendationProfile": {
+    "fileNameKeywords": ["勘察", "测量", "控制价", "投标限价"],
+    "sheetKeywords": ["勘测", "测量", "地质", "勘察", "费用汇总"],
+    "headerKeywords": ["要素1", "要素2", "单位", "基价", "实物工作费调整系数", "技术工作费调整系数"]
+  },
   "capabilities": {
     "pricing": true,
     "workloadCapture": true,

@@ -30,6 +30,11 @@ def _base_manifest(**overrides):
         "domain": "工程造价/勘察测量",
         "description": "测试专业能力",
         "inputProfile": {"extensions": [".xlsx"], "templateHints": []},
+        "recommendationProfile": {
+            "fileNameKeywords": ["勘察", "控制价"],
+            "sheetKeywords": ["测量", "费用汇总"],
+            "headerKeywords": ["要素1", "单位", "基价"],
+        },
         "capabilities": {
             "pricing": True,
             "workloadCapture": True,
@@ -286,6 +291,46 @@ def test_production_registry_loads_active_default_and_planned_card_without_paths
     assert str(PROJECT_ROOT) not in json.dumps(payload, ensure_ascii=False)
 
 
+def test_file_recommendation_is_explainable_and_never_changes_selected_skill(tmp_path):
+    registry, project_root, _ = _registry(tmp_path)
+    input_path = project_root / "勘察控制价.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "工程测量"
+    sheet.append(["要素1", "要素2", "单位", "基价"])
+    workbook.save(input_path)
+    workbook.close()
+    settings_before = registry.settings_path.read_text(encoding="utf-8")
+
+    payload = registry.recommend_for_file(input_path.name, input_path.read_bytes())
+
+    assert payload["recommended_skill_id"] == ACTIVE_ID
+    assert payload["requires_confirmation"] is True
+    assert payload["items"][0]["score"] >= 35
+    assert any("表头命中" in reason for reason in payload["items"][0]["reasons"])
+    assert registry.settings_path.read_text(encoding="utf-8") == settings_before
+    assert "runtime_context" not in json.dumps(payload, ensure_ascii=False)
+
+
+def test_management_overview_and_lifecycle_plan_are_read_only(tmp_path):
+    registry, _, manifest_path = _registry(tmp_path)
+    manifest_before = manifest_path.read_text(encoding="utf-8")
+
+    overview = registry.management_overview()
+    plan = registry.plan_lifecycle(ACTIVE_ID, "disable")
+    open_format = registry.open_format()
+
+    assert overview["mode"] == "governed-interface"
+    assert overview["changes_enabled"] is False
+    assert overview["items"][0]["write_operations_enabled"] is False
+    assert plan["status"] == "review_required"
+    assert plan["changes_applied"] is False
+    assert any("默认专业能力" in blocker for blocker in plan["blockers"])
+    assert open_format["descriptor"] == "manifest.json"
+    assert open_format["documentation"] == "SKILL.md"
+    assert manifest_path.read_text(encoding="utf-8") == manifest_before
+
+
 def test_registry_creates_immutable_safe_snapshot_and_rejects_planned_unknown_and_version_mismatch(tmp_path):
     registry, _, manifest_path = _registry(tmp_path)
     manifest = registry.load(ACTIVE_ID)
@@ -413,6 +458,39 @@ def test_professional_skill_api_is_safe_and_process_preserves_snapshot_across_ba
         assert workbook["表2"]["G2"].value == 3203
     finally:
         workbook.close()
+
+
+def test_professional_skill_recommendation_and_management_api_are_safe(tmp_path, monkeypatch):
+    registry, project_root, _ = _registry(tmp_path)
+    monkeypatch.setattr(main_module, "PROFESSIONAL_SKILL_REGISTRY", registry)
+    input_path = project_root / "勘察控制价.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "工程测量"
+    sheet.append(["要素1", "要素2", "单位", "基价"])
+    workbook.save(input_path)
+    workbook.close()
+    client = TestClient(app)
+
+    with input_path.open("rb") as handle:
+        recommendation = client.post(
+            "/api/professional-skills/recommend",
+            files={"file": (input_path.name, handle, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        )
+    management = client.get("/api/professional-skills/management")
+    open_format = client.get("/api/professional-skills/open-format")
+    plan = client.post(
+        "/api/professional-skills/management/plan",
+        json={"skill_id": ACTIVE_ID, "action": "disable"},
+    )
+
+    assert recommendation.status_code == management.status_code == open_format.status_code == plan.status_code == 200
+    assert recommendation.json()["recommended_skill_id"] == ACTIVE_ID
+    assert management.json()["changes_enabled"] is False
+    assert open_format.json()["runtime_policy"]
+    assert plan.json()["changes_applied"] is False
+    combined = "".join(response.text for response in (recommendation, management, open_format, plan))
+    assert str(project_root) not in combined
 
 
 def test_runtime_context_freezes_and_isolates_two_test_skills_across_assets(tmp_path, monkeypatch):

@@ -116,6 +116,7 @@ from .paths import (
     RUNTIME_DIR,
 )
 from .professional_skills import (
+    MAX_RECOMMENDATION_FILE_BYTES,
     ProfessionalSkillError,
     ProfessionalSkillRegistry,
     SkillRuntimeContext,
@@ -259,6 +260,40 @@ async def get_project_default_settings() -> dict[str, object]:
 async def list_professional_skills() -> dict[str, object]:
     try:
         return PROFESSIONAL_SKILL_REGISTRY.list_public()
+    except ProfessionalSkillError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail()) from exc
+
+
+@app.post("/api/professional-skills/recommend")
+async def recommend_professional_skill(file: UploadFile = File(...)) -> dict[str, object]:
+    try:
+        content = await file.read(MAX_RECOMMENDATION_FILE_BYTES + 1)
+        return PROFESSIONAL_SKILL_REGISTRY.recommend_for_file(file.filename or "", content)
+    except ProfessionalSkillError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail()) from exc
+
+
+@app.get("/api/professional-skills/open-format")
+async def get_professional_skill_open_format() -> dict[str, object]:
+    return PROFESSIONAL_SKILL_REGISTRY.open_format()
+
+
+@app.get("/api/professional-skills/management")
+async def get_professional_skill_management() -> dict[str, object]:
+    try:
+        return PROFESSIONAL_SKILL_REGISTRY.management_overview()
+    except ProfessionalSkillError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail()) from exc
+
+
+@app.post("/api/professional-skills/management/plan")
+async def plan_professional_skill_lifecycle(payload: dict[str, object] = Body(...)) -> dict[str, object]:
+    try:
+        return PROFESSIONAL_SKILL_REGISTRY.plan_lifecycle(
+            str(payload.get("skill_id") or ""),
+            str(payload.get("action") or ""),
+            str(payload.get("target_version") or "") or None,
+        )
     except ProfessionalSkillError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail()) from exc
 

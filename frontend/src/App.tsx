@@ -7164,6 +7164,7 @@ function DaweibaApp() {
           taskSkill={result?.professional_skill}
           loading={isProfessionalSkillsLoading}
           error={professionalSkillsError}
+          currentFile={file}
           onSelect={(skill) => setSelectedProfessionalSkillId(skill.id)}
           onReload={() => void loadProfessionalSkills()}
         />

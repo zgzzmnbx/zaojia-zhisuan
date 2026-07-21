@@ -14,6 +14,11 @@
     "extensions": [".xlsx"],
     "templateHints": []
   },
+  "recommendationProfile": {
+    "fileNameKeywords": ["通用服务", "服务费", "咨询费"],
+    "sheetKeywords": ["服务费用", "咨询费用"],
+    "headerKeywords": ["服务类别", "服务内容", "计费依据", "服务费用"]
+  },
   "capabilities": {
     "pricing": false,
     "workloadCapture": false,

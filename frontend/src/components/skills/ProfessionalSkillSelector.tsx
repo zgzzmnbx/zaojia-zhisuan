@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { CheckCircle2, ChevronDown, Info, Loader2, RefreshCw, ShieldCheck, X } from "lucide-react";
+import { CheckCircle2, ChevronDown, Info, Loader2, RefreshCw, Settings2, ShieldCheck, X } from "lucide-react";
+import ProfessionalSkillCenter from "./ProfessionalSkillCenter";
 import "./ProfessionalSkillSelector.css";
 
 export type ProfessionalSkillSummary = {
@@ -58,6 +59,7 @@ type Props = {
   taskSkill?: ProfessionalSkillSnapshot;
   loading: boolean;
   error: string;
+  currentFile?: File | null;
   onSelect: (skill: ProfessionalSkillSummary) => void;
   onReload: () => void;
 };
@@ -80,6 +82,7 @@ export default function ProfessionalSkillSelector({
   taskSkill,
   loading,
   error,
+  currentFile,
   onSelect,
   onReload,
 }: Props) {
@@ -88,6 +91,7 @@ export default function ProfessionalSkillSelector({
   const [detailError, setDetailError] = useState("");
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isCenterOpen, setIsCenterOpen] = useState(false);
   const rootRef = useRef<HTMLElement>(null);
   const selected = items.find((item) => item.id === selectedSkillId);
   const displayedSkill = taskSkill ?? selected;
@@ -168,12 +172,16 @@ export default function ProfessionalSkillSelector({
               <p>专业能力 Skill</p>
               <h3>选择专业能力</h3>
             </div>
-            {selected && (
-              <button type="button" className="professional-skill-selector__detail-link" onClick={() => openDetail(selected.id)}>
-                <Info size={15} />
-                当前能力详情
+            <div className="professional-skill-selector__heading-actions">
+              <button type="button" className="professional-skill-selector__detail-link" onClick={() => { setIsMenuOpen(false); setIsCenterOpen(true); }}>
+                <Settings2 size={15} />专业能力中心
               </button>
-            )}
+              {selected && (
+                <button type="button" className="professional-skill-selector__detail-link" onClick={() => openDetail(selected.id)}>
+                  <Info size={15} />当前能力详情
+                </button>
+              )}
+            </div>
           </div>
 
           {loading && (
@@ -321,6 +329,15 @@ export default function ProfessionalSkillSelector({
             )}
           </section>
         </div>
+      )}
+      {isCenterOpen && (
+        <ProfessionalSkillCenter
+          apiBase={apiBase}
+          currentFile={currentFile}
+          skills={items}
+          onSelect={onSelect}
+          onClose={() => setIsCenterOpen(false)}
+        />
       )}
     </section>
   );
