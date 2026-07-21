@@ -31,6 +31,7 @@ import ProfessionalSkillSelector, {
   type ProfessionalSkillSnapshot,
   type ProfessionalSkillSummary,
 } from "./components/skills/ProfessionalSkillSelector";
+import ConversationalAgentWorkspace from "./components/agent-workspace/ConversationalAgentWorkspace";
 
 const DEFAULT_API_BASE = import.meta.env.DEV ? "http://127.0.0.1:8000" : "";
 const API_BASE = import.meta.env.VITE_API_BASE ?? DEFAULT_API_BASE;
@@ -45,7 +46,7 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.10.0";
+const APP_VERSION = "v5.11.0";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const KNOWLEDGE_QA_ENTRY_COUNT = 3922;
 const KNOWLEDGE_QA_SOURCE_COUNT = 17;
@@ -138,12 +139,12 @@ const EMPTY_ELEMENT_COLUMN = "空元素列";
 const OUTPUT_ROW_FILTER_STORAGE_KEY = "guankanzhisuan-output-row-filter-settings";
 const WELCOME_SCREEN_HIDDEN_STORAGE_KEY = "guankanzhisuan-welcome-screen-hidden";
 const WELCOME_SCREEN_VERSION_STORAGE_KEY = "guankanzhisuan-welcome-screen-version";
-const WELCOME_SCREEN_VERSION = "brand-v5.10.0";
+const WELCOME_SCREEN_VERSION = "brand-v5.11.0";
 const ZHISUAN_QUICK_SETTINGS_VERSION = 2;
 const LEFT_COLUMN_COLLAPSED_STORAGE_KEY = "guankanzhisuan-left-column-collapsed";
 type MappingField = (typeof MAPPING_FIELDS)[number];
 type ColumnMapping = Record<MappingField, string>;
-type DaweibaModuleId = "fill" | "preview" | "experience" | "workload" | "report" | "knowledge" | "collaboration" | "digital-project-assistant";
+type DaweibaModuleId = "agent" | "fill" | "preview" | "experience" | "workload" | "report" | "knowledge" | "collaboration" | "digital-project-assistant";
 
 const UI_TUNER_TARGETS = [
   { id: "hero", name: "主标题区域" },
@@ -1816,7 +1817,10 @@ function DaweibaApp() {
   const workloadFileInputRef = useRef<HTMLInputElement | null>(null);
   const workloadTargetFileInputRef = useRef<HTMLInputElement | null>(null);
   const chatLogRef = useRef<HTMLDivElement | null>(null);
+  const agentChatLogRef = useRef<HTMLDivElement | null>(null);
   const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const chatAbortControllerRef = useRef<AbortController | null>(null);
+  const previousDaweibaModuleRef = useRef<Exclude<DaweibaModuleId, "agent">>("fill");
   const didWelcomeRef = useRef(false);
   const lastProcessingStageRef = useRef("");
   const lastDaweibaResultKeyRef = useRef("");
@@ -1959,7 +1963,32 @@ function DaweibaApp() {
       top: chatLogRef.current.scrollHeight,
       behavior: "smooth",
     });
+    agentChatLogRef.current?.scrollTo({
+      top: agentChatLogRef.current.scrollHeight,
+      behavior: "smooth",
+    });
   }, [chatMessages]);
+
+  useEffect(() => {
+    if (activeDaweibaModule !== "agent") return undefined;
+    const exitOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      setActiveDaweibaModule(previousDaweibaModuleRef.current);
+    };
+    window.addEventListener("keydown", exitOnEscape);
+    return () => window.removeEventListener("keydown", exitOnEscape);
+  }, [activeDaweibaModule]);
+
+  useEffect(() => {
+    const hasWorkInFlight = isChatting || isInspecting || isProcessing || isBatchMatching || isRunningWarnings || isGeneratingRisk;
+    if (activeDaweibaModule !== "agent" || (!chatInput.trim() && !hasWorkInFlight)) return undefined;
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warnBeforeUnload);
+    return () => window.removeEventListener("beforeunload", warnBeforeUnload);
+  }, [activeDaweibaModule, chatInput, isBatchMatching, isChatting, isGeneratingRisk, isInspecting, isProcessing, isRunningWarnings]);
 
   useEffect(() => {
     const successMarker = [
@@ -3214,7 +3243,9 @@ function DaweibaApp() {
         appendZhisuanMessage("本次已经完成批量匹配，不需要重复执行。你可以继续运行经验池预警或输出风险报告。", "command");
         return;
       }
-      setActiveDaweibaModule("preview");
+      if (activeDaweibaModule !== "agent") {
+        setActiveDaweibaModule("preview");
+      }
       await runBatchMatch();
       return;
     }
@@ -4984,7 +5015,6 @@ function DaweibaApp() {
     setRowAiAnswer("");
     setShowAllWarnings(false);
     setWarningProgress(EMPTY_WARNING_PROGRESS);
-    appendZhisuanMessage("开始转换。我会按读取输入、结构化匹配、公式重算、生成报告与预览这几步盯着。");
     setColumns([]);
     setSheetConfigs([]);
     setActiveSheetName("");
@@ -5175,6 +5205,7 @@ function DaweibaApp() {
 
     const requestId = ++processRequestSequenceRef.current;
     activeResultJobIdRef.current = null;
+    appendZhisuanMessage("开始转换。我会按读取输入、结构化匹配、公式重算、生成报告与预览这几步盯着。");
     setIsProcessing(true);
     setProgressPercent(1);
     setError("");
@@ -5666,9 +5697,30 @@ function DaweibaApp() {
     }
   }
 
+  function beginChatRequest() {
+    chatAbortControllerRef.current?.abort();
+    const controller = new AbortController();
+    chatAbortControllerRef.current = controller;
+    return controller;
+  }
+
+  function finishChatRequest(controller: AbortController) {
+    if (chatAbortControllerRef.current === controller) {
+      chatAbortControllerRef.current = null;
+      setIsChatting(false);
+    }
+  }
+
+  function stopChatGeneration() {
+    const controller = chatAbortControllerRef.current;
+    if (!controller) return;
+    controller.abort();
+  }
+
   async function askZhisuanFreeform(message: string) {
     setIsChatting(true);
     setError("");
+    const controller = beginChatRequest();
     const body = new FormData();
     body.append("message", message);
     body.append("provider", llmSettings.provider);
@@ -5683,6 +5735,7 @@ function DaweibaApp() {
       const response = await fetch(`${API_BASE}/api/llm-chat`, {
         method: "POST",
         body,
+        signal: controller.signal,
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
@@ -5692,12 +5745,16 @@ function DaweibaApp() {
       replaceZhisuanMessage(thinking, payload.answer, "model");
       recordLlmDebug("问答测试", payload.debug);
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        replaceZhisuanMessage(thinking, "已停止本次回答生成，专业任务和已有结果不受影响。", "command", { typing: false });
+        return;
+      }
       const messageText = err instanceof Error ? err.message : "大模型问答失败";
       setError(messageText);
       replaceZhisuanMessage(thinking, `智算辅助暂不可用：${messageText}`, "model");
     } finally {
       window.clearTimeout(longWaitTimer);
-      setIsChatting(false);
+      finishChatRequest(controller);
     }
   }
 
@@ -5709,6 +5766,7 @@ function DaweibaApp() {
   ) {
     setIsChatting(true);
     setError("");
+    const controller = beginChatRequest();
     const thinking = appendZhisuanMessage(
       options.forcedKnowledge ? "已进入知识库模式，正在检索本地规则和知识库..." : "正在检索本地规则和知识库...",
       "thinking",
@@ -5729,6 +5787,7 @@ function DaweibaApp() {
       const response = await fetch(`${API_BASE}/api/knowledge/ask`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           question,
           context_type: rowContext ? "row" : "general",
@@ -5779,6 +5838,11 @@ function DaweibaApp() {
       recordLlmDebug(sourceLabel, payload.debug ?? undefined);
       return answer;
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        const stoppedMessage = "已停止本次知识库回答生成，专业任务和已有结果不受影响。";
+        replaceZhisuanMessage(thinking, stoppedMessage, "command", { typing: false });
+        return stoppedMessage;
+      }
       const messageText = err instanceof Error ? err.message : "知识库问答失败";
       setError(messageText);
       replaceZhisuanMessage(thinking, `智算辅助暂不可用：${messageText}`, "model", {
@@ -5788,7 +5852,7 @@ function DaweibaApp() {
     } finally {
       window.clearTimeout(evidenceTimer);
       window.clearTimeout(modelTimer);
-      setIsChatting(false);
+      finishChatRequest(controller);
     }
   }
 
@@ -6570,6 +6634,66 @@ function DaweibaApp() {
     return nodes.length > 0 ? nodes : renderZhisuanRichInlineText(text);
   }
 
+  function renderZhisuanMessageBody(message: ChatMessage) {
+    return (
+      <div className="chat-message-body">
+        {renderZhisuanMessageText(message.role === "assistant" ? (message.displayContent ?? message.content) : message.content)}
+        {message.role === "assistant" && message.isTyping && <i className="typing-caret" />}
+        {message.role === "assistant" && !message.isTyping && (message.projectMemories?.length ?? 0) > 0 && (
+          <div className="knowledge-memory-hit-list">
+            {message.projectMemories?.map((memory) => (
+              <button
+                key={memory.id}
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setKnowledgeProjectName(memory.project_name);
+                  setKnowledgeProjectKey(memory.project_key);
+                  setIsKnowledgeMemoryOpen(true);
+                  void selectKnowledgeMemory(memory);
+                }}
+              >
+                <span>{memory.scope_type === "general" ? "通用知识" : "项目记忆"}</span>
+                <strong>{memory.title}</strong>
+                <small>{memory.project_name} · {memory.confirmer || "未记录确认人"}</small>
+              </button>
+            ))}
+          </div>
+        )}
+        {message.role === "assistant" && !message.isTyping && message.rowDetailContext && (
+          <div className="zhisuan-message-actions">
+            <button
+              className="zhisuan-action-button"
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                openRowAiDetail(message.rowDetailContext);
+              }}
+            >
+              <BookOpen size={14} />
+              详细情况
+            </button>
+          </div>
+        )}
+        {message.role === "assistant" && !message.isTyping && message.knowledgeCandidate && (
+          <div className="zhisuan-message-actions">
+            <button
+              className="zhisuan-action-button secondary"
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                openKnowledgeCandidate(message.knowledgeCandidate!);
+              }}
+            >
+              <Database size={14} />
+              保存为知识候选
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   function renderWorkloadMappingPanel(role: WorkloadRole) {
     const configs = role === "source" ? workloadSourceConfigs : workloadTargetConfigs;
     const activeConfig = role === "source" ? activeWorkloadSourceConfig() : activeWorkloadTargetConfig();
@@ -6705,6 +6829,46 @@ function DaweibaApp() {
     setIsWelcomeScreenVisible(true);
   }
 
+  function openAgentWorkspace() {
+    if (activeDaweibaModule !== "agent") {
+      previousDaweibaModuleRef.current = activeDaweibaModule;
+    }
+    setActiveDaweibaModule("agent");
+    setIsChatOpen(true);
+  }
+
+  function exitAgentWorkspace() {
+    setActiveDaweibaModule(previousDaweibaModuleRef.current);
+  }
+
+  function startNewAgentConversation() {
+    if ((chatMessages.length > 0 || chatInput.trim()) && !window.confirm("新会话将清空当前对话和输入草稿，但保留当前专业任务与成果。是否继续？")) {
+      return;
+    }
+    chatAbortControllerRef.current?.abort();
+    setChatInput("");
+    setRowAiContext(null);
+    setRowAiAnswer("");
+    setChatMessages([{
+      id: makeZhisuanMessageId(),
+      role: "assistant",
+      content: zhisuanWelcomeMessage,
+      displayContent: zhisuanWelcomeMessage,
+      isTyping: false,
+      source: "system",
+    }]);
+  }
+
+  function selectAgentSkill(skillId: string) {
+    if (result?.professional_skill) return;
+    const nextSkill = professionalSkills.find((item) => item.id === skillId && item.can_create_task);
+    if (!nextSkill) {
+      appendZhisuanMessage("该专业能力仍处于规划或停用状态，当前不能创建真实任务。", "command", { typing: false });
+      return;
+    }
+    setSelectedProfessionalSkillId(nextSkill.id);
+  }
+
   function openDaweibaKnowledge() {
     setActiveDaweibaModule("knowledge");
     setIsAiDockCollapsed(false);
@@ -6820,7 +6984,82 @@ function DaweibaApp() {
       detail: `${KNOWLEDGE_QA_SOURCE_COUNT} 个来源 · 结构化计价库 ${PRICE_KNOWLEDGE_ROW_COUNT} 条`,
     },
   ];
+  const agentTaskBusy = Boolean(
+    isInspecting
+    || isProcessing
+    || isBatchMatching
+    || isRunningWarnings
+    || isGeneratingRisk
+    || isRiskSummaryLoading,
+  );
+  const agentTaskProgress = isProcessing
+    ? progressPercent
+    : isRunningWarnings
+      ? warningProgressPercent
+      : isBatchMatching
+        ? 58
+        : isGeneratingRisk
+          ? 78
+          : isRiskSummaryLoading
+            ? 70
+            : isInspecting
+              ? 18
+              : 0;
+  const agentTaskProgressLabel = isInspecting
+    ? "正在校验 Excel 与字段映射"
+    : isProcessing
+      ? processingStage.title
+      : isBatchMatching
+        ? "正在执行结构化匹配"
+        : isRunningWarnings
+          ? "正在运行经验池预警"
+          : isGeneratingRisk
+            ? "正在生成风险报告"
+            : isRiskSummaryLoading
+              ? "正在读取结构化风险清单"
+              : "任务待命";
+  const agentCurrentContext = [
+    file?.name || "新任务",
+    result?.job_id ? `任务 ${result.job_id}` : "未创建任务",
+    rowAiContext ? `${rowAiContext.sheetName} 第 ${rowAiContext.rowNumber} 行` : activePreview.sheet_name || "未选 Sheet",
+  ].join(" · ");
+  const agentWorkspaceActions = (
+    <>
+      <button type="button" disabled={agentTaskBusy} onClick={() => fileInputRef.current?.click()}><Upload size={14} />上传 Excel</button>
+      <button className="is-primary" type="button" disabled={!file || agentTaskBusy || Boolean(result)} onClick={() => void processFile()}>
+        {isProcessing ? <Loader2 className="spin" size={14} /> : <Sparkles size={14} />}开始转换
+      </button>
+      <button className="is-primary" type="button" disabled={!isBatchMatchPending || agentTaskBusy} onClick={() => void handleZhisuanCommand("batch-match")}>
+        {isBatchMatching ? <Loader2 className="spin" size={14} /> : <ShieldCheck size={14} />}批量匹配
+      </button>
+      <button type="button" disabled={!result || isBatchMatchPending || agentTaskBusy} onClick={() => void handleZhisuanCommand("experience-warning")}>
+        <AlertTriangle size={14} />运行预警
+      </button>
+      <button type="button" disabled={!result || isBatchMatchPending || agentTaskBusy} onClick={() => void loadRiskSummary()}>
+        <ShieldCheck size={14} />风险清单
+      </button>
+      <button type="button" disabled={!result || isBatchMatchPending || agentTaskBusy} onClick={() => void handleZhisuanCommand("risk-report")}>
+        <FileText size={14} />生成报告
+      </button>
+      <button type="button" disabled={!result} onClick={() => setActiveDaweibaModule("preview")}><FileSpreadsheet size={14} />结果预览</button>
+      <button type="button" disabled={!hasCurrentReport} onClick={() => setActiveDaweibaModule("report")}><FileText size={14} />Word 预览</button>
+    </>
+  );
+  const agentWorkspaceArtifacts = result ? (
+    <>
+      <span>成果</span>
+      <a href={excelDownloadHref} aria-disabled={!result.downloads.excel} onClick={(event) => { if (!result.downloads.excel) event.preventDefault(); }}>下载 Excel</a>
+      <a href={reportDownloadHref || "#"} aria-disabled={!reportDownloadHref} onClick={(event) => { if (!reportDownloadHref) event.preventDefault(); }}>下载 Word</a>
+      <span>{result.summary.review_rows} 行待复核 · {warningSummary?.executed ? `${warningSummary.warning_rows} 条预警` : "预警未运行"}</span>
+    </>
+  ) : null;
   const daweibaModules = [
+    {
+      id: "agent",
+      name: "智算助手",
+      detail: result ? `当前任务 ${result.job_id}` : "对话式任务入口",
+      icon: <Sparkles size={16} />,
+    },
     {
       id: "fill",
       name: "填价工作台",
@@ -7058,12 +7297,21 @@ function DaweibaApp() {
           "daweiba-layout-shell",
           isLeftColumnCollapsed ? "is-left-collapsed" : "",
           isAiDockCollapsed ? "is-ai-collapsed" : "",
+          activeDaweibaModule === "agent" ? "is-agent-workspace" : "",
         ].filter(Boolean).join(" ")}
         style={{ "--zhisuan-dock-width": `${zhisuanDockWidth}px` } as CSSProperties}
       >
         <aside className={`daweiba-nav ${isLeftColumnCollapsed ? "is-collapsed" : ""}`} aria-label="大尾巴主题模块导航">
             <div className="daweiba-icon-rail" aria-label="全局快捷入口">
               <button className="daweiba-mark" type="button" title={APP_NAME} onClick={() => setActiveDaweibaModule("fill")}>智</button>
+              <button
+                className={`daweiba-icon-link ${activeDaweibaModule === "agent" ? "is-active" : ""}`}
+                type="button"
+                title="智算助手"
+                onClick={openAgentWorkspace}
+              >
+                <Sparkles size={18} />
+              </button>
               <button
                 className={`daweiba-icon-link ${activeDaweibaModule === "fill" ? "is-active" : ""}`}
                 type="button"
@@ -7123,6 +7371,10 @@ function DaweibaApp() {
                       type="button"
                       key={item.id}
                       onClick={() => {
+                        if (item.id === "agent") {
+                          openAgentWorkspace();
+                          return;
+                        }
                         if (item.id === "knowledge") {
                           openDaweibaKnowledge();
                           return;
@@ -8909,6 +9161,40 @@ function DaweibaApp() {
           </div>
         </section>
       </section>
+        {activeDaweibaModule === "agent" && (
+          <ConversationalAgentWorkspace
+            messages={chatMessages}
+            logRef={agentChatLogRef}
+            welcomeMessage={zhisuanWelcomeMessage}
+            renderMessage={renderZhisuanMessageBody}
+            onRevealMessage={revealZhisuanMessage}
+            skills={professionalSkills}
+            selectedSkillId={selectedProfessionalSkillId}
+            taskSkill={result?.professional_skill}
+            fileName={file?.name ?? ""}
+            jobId={result?.job_id ?? ""}
+            matchingPending={isBatchMatchPending}
+            warningExecuted={Boolean(warningSummary?.executed)}
+            currentContext={agentCurrentContext}
+            progressPercent={agentTaskProgress}
+            progressLabel={agentTaskProgressLabel}
+            avatarState={zhisuanAvatarState}
+            avatarLabel={zhisuanAvatarLabel}
+            input={chatInput}
+            isChatting={isChatting}
+            isBusy={agentTaskBusy}
+            actions={agentWorkspaceActions}
+            artifacts={agentWorkspaceArtifacts}
+            onInputChange={setChatInput}
+            onInputFocusChange={setIsChatInputFocused}
+            onSelectSkill={selectAgentSkill}
+            onPickFile={() => fileInputRef.current?.click()}
+            onSend={() => void sendChatMessage()}
+            onStop={stopChatGeneration}
+            onNewConversation={startNewAgentConversation}
+            onExit={exitAgentWorkspace}
+          />
+        )}
         </div>
 
         <aside className={`ai-dock zhisuan-style-${zhisuanDockStyle} ${isAiDockCollapsed ? "is-collapsed" : ""}`} id="ai-dock" data-ui-key="ai-dock" style={uiStyle("ai-dock")} aria-label="智算助手">
@@ -8930,6 +9216,10 @@ function DaweibaApp() {
                   </div>
                 </div>
                 <div className="ai-dock-actions">
+                  <button className="ai-focus-mode-button" type="button" aria-label="进入智算助手" title="进入智算助手" onClick={openAgentWorkspace}>
+                    <Sparkles size={15} />
+                    进入智算助手
+                  </button>
                   <button className="icon-button" type="button" aria-label="知识记忆" title="知识记忆" onClick={() => void openKnowledgeMemory()}>
                     <Database size={18} />
                   </button>
@@ -9058,14 +9348,14 @@ function DaweibaApp() {
                         onFocus={() => setIsChatInputFocused(true)}
                         onBlur={() => setIsChatInputFocused(false)}
                         onKeyDown={(event) => {
-                          if (event.key === "Enter" && !event.altKey) {
+                          if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                             event.preventDefault();
                             sendChatMessage();
                           }
                         }}
                       />
                       <div className="chat-compose-footer">
-                        <span>Enter 发送 · Alt+Enter 换行</span>
+                        <span>Enter 发送 · Shift+Enter 换行</span>
                         <button className="chat-send-button" disabled={isChatting} type="button" onClick={sendChatMessage}>
                           {isChatting ? <Loader2 className="spin" size={16} /> : <Send size={16} />}
                           {isChatting ? "发送中" : "发送"}

@@ -7655,6 +7655,70 @@ tbody tr:hover .row-ai-cell {
   min-height: 84px;
 }
 
+/* v5.11.0 conversational agent workspace */
+.shell.layout-daweiba .daweiba-layout-shell.is-agent-workspace {
+  --db-layout-ai-width: 0px;
+  grid-template-columns: var(--db-layout-left-width) minmax(0, 1fr);
+}
+
+.shell.layout-daweiba .daweiba-layout-shell.is-agent-workspace > .daweiba-main-content {
+  grid-column: 2;
+  padding: 0;
+}
+
+.shell.layout-daweiba .daweiba-layout-shell.is-agent-workspace > .ai-dock {
+  display: none !important;
+}
+
+.shell.layout-daweiba .daweiba-layout-shell.is-agent-workspace .daweiba-main-content > .daweiba-workspace-frame {
+  display: none;
+}
+
+.shell.layout-daweiba .daweiba-module-list .daweiba-module-item:first-child {
+  margin-bottom: 7px;
+  border-bottom: 1px solid var(--db-border-soft);
+}
+
+.shell.layout-daweiba .ai-focus-mode-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 0 9px;
+  border: 1px solid var(--db-border);
+  border-radius: 7px;
+  background: #ffffff;
+  color: var(--db-primary);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.shell.layout-daweiba .ai-focus-mode-button:hover {
+  border-color: var(--db-border-strong);
+  background: #f8fafc;
+}
+
+.shell.layout-daweiba .ai-focus-mode-button:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+}
+
+@media (max-width: 1180px) {
+  .shell.layout-daweiba .ai-focus-mode-button {
+    width: 32px;
+    padding: 0;
+    justify-content: center;
+    overflow: hidden;
+    color: transparent;
+  }
+
+  .shell.layout-daweiba .ai-focus-mode-button svg {
+    flex: 0 0 auto;
+    color: var(--db-primary);
+  }
+}
+
 /* v5.7.0: real, local-only DOCX report preview workspace. */
 
 .shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-report > .daweiba-report-module {
