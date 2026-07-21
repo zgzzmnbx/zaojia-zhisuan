@@ -144,6 +144,21 @@
 .professional-skill-modal ul { margin: 0; padding-left: 18px; color: #475569; font-size: 12px; line-height: 1.75; }
 .professional-skill-modal__chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .professional-skill-modal__chips span { border-radius: 999px; padding: 4px 8px; background: #e0ecff; color: #1d4ed8; font-size: 11px; }
+.professional-skill-modal__section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 10px; }
+.professional-skill-modal__section-heading h4 { margin-bottom: 3px; }
+.professional-skill-modal__section-heading p { font-size: 11px; }
+.professional-skill-modal__section-heading > strong { flex: 0 0 auto; border-radius: 999px; padding: 3px 8px; background: #e0ecff; color: #1d4ed8; font-size: 11px; }
+.professional-skill-modal__subskills { background: #fff; }
+.professional-skill-modal__subskill-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.professional-skill-modal__subskill { min-width: 0; padding: 10px 11px; border: 1px solid #e2e8f0; border-radius: 9px; background: #f8fafc; }
+.professional-skill-modal__subskill-topline { display: flex; align-items: center; gap: 6px; margin-bottom: 7px; }
+.professional-skill-modal__subskill-topline span { color: #94a3b8; font-size: 10px; font-weight: 700; letter-spacing: .08em; }
+.professional-skill-modal__subskill-topline em, .professional-skill-modal__subskill-topline i { border-radius: 999px; padding: 2px 6px; font-size: 9px; font-style: normal; line-height: 1.4; }
+.professional-skill-modal__subskill-topline em { background: #eef2f7; color: #475569; }
+.professional-skill-modal__subskill-topline i { margin-left: auto; background: #dcfce7; color: #15803d; }
+.professional-skill-modal__subskill.is-planned .professional-skill-modal__subskill-topline i { background: #f1f5f9; color: #64748b; }
+.professional-skill-modal__subskill > strong { display: block; overflow: hidden; color: #1e293b; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.professional-skill-modal__subskill > p { margin-top: 4px; color: #64748b; font-size: 11px; line-height: 1.55; }
 .professional-skill-modal__section .professional-skill-modal__limitation { margin-top: 5px; color: #92400e; font-size: 12px; }
 .professional-skill-modal__boundary { display: flex; align-items: flex-start; gap: 8px; border-radius: 10px; padding: 10px 12px; background: #eff6ff; color: #334155; font-size: 12px; line-height: 1.6; }
 .professional-skill-modal__boundary svg { flex: 0 0 auto; color: #2563eb; }
@@ -161,6 +176,7 @@
   .professional-skill-card__topline { align-items: center; flex-direction: row; }
   .professional-skill-card__actions { justify-content: flex-start; }
   .professional-skill-modal__columns { grid-template-columns: 1fr; }
+  .professional-skill-modal__subskill-grid { grid-template-columns: 1fr; }
   .professional-skill-modal { padding: 12px; }
   .professional-skill-modal__dialog { max-height: calc(100vh - 24px); padding: 18px; }
 }

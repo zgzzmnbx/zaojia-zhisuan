@@ -26,6 +26,12 @@ export type ProfessionalSkillDetail = ProfessionalSkillSummary & {
     includes?: string[];
     excludes?: string[];
   };
+  sub_skills?: Array<{
+    name: string;
+    description: string;
+    type: "professional" | "shared";
+    status: "available" | "planned";
+  }>;
   asset_summary: Array<{ id: string; name: string; count: number }>;
   validation: {
     status?: string;
@@ -274,8 +280,32 @@ export default function ProfessionalSkillSelector({
                     <ul>{(detail.applicability.excludes ?? []).map((item) => <li key={item}>{item}</li>)}</ul>
                   </div>
                 </div>
+                {(detail.sub_skills?.length ?? 0) > 0 && (
+                  <div className="professional-skill-modal__section professional-skill-modal__subskills">
+                    <div className="professional-skill-modal__section-heading">
+                      <div>
+                        <h4>包含的子 Skill</h4>
+                        <p>{detail.status === "planned" ? "规划中的专业模块与通用能力复用项" : "本专业能力包当前编排的专业模块与通用能力"}</p>
+                      </div>
+                      <strong>{detail.sub_skills?.length ?? 0} 项</strong>
+                    </div>
+                    <div className="professional-skill-modal__subskill-grid">
+                      {(detail.sub_skills ?? []).map((item, index) => (
+                        <article className={`professional-skill-modal__subskill is-${item.status}`} key={item.name}>
+                          <div className="professional-skill-modal__subskill-topline">
+                            <span>{String(index + 1).padStart(2, "0")}</span>
+                            <em>{item.type === "professional" ? "专业专用" : "通用能力复用"}</em>
+                            <i>{item.status === "available" ? "已启用" : "规划中"}</i>
+                          </div>
+                          <strong>{item.name}</strong>
+                          <p>{item.description}</p>
+                        </article>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div className="professional-skill-modal__section">
-                  <h4>已声明能力</h4>
+                  <h4>能力开关</h4>
                   <div className="professional-skill-modal__chips">
                     {detail.capabilities.length > 0 ? detail.capabilities.map((item) => <span key={item}>{item}</span>) : <span>尚未开放</span>}
                   </div>

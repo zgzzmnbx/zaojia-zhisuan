@@ -28,6 +28,14 @@ def _base_manifest(**overrides):
         "description": "测试专业能力",
         "inputProfile": {"extensions": [".xlsx"], "templateHints": []},
         "capabilities": {"pricing": True},
+        "subSkills": [
+            {
+                "name": "造价规则匹配 Skill",
+                "description": "执行确定性规则匹配。",
+                "type": "shared",
+                "status": "available",
+            }
+        ],
         "assets": {"knowledgeBase": "asset.txt"},
         "validation": {"status": "verified", "sample": "sample", "updatedAt": "2026-07-20"},
     }
@@ -120,6 +128,9 @@ def test_production_registry_loads_active_default_and_planned_card_without_paths
         "more-cost-professions",
     ]
     assert detail["validation"]["status"] == "verified"
+    assert len(detail["sub_skills"]) == 10
+    assert detail["sub_skills"][0]["name"] == "控制价 Excel 智能识别 Skill"
+    assert any(item["type"] == "professional" for item in detail["sub_skills"])
     assert detail["asset_summary"] and "03-知识库" not in json.dumps(detail, ensure_ascii=False)
     assert str(PROJECT_ROOT) not in json.dumps(payload, ensure_ascii=False)
 
@@ -155,6 +166,8 @@ def test_registry_creates_immutable_safe_snapshot_and_rejects_planned_unknown_an
         (lambda payload: payload.update(status="mystery"), "skill_manifest_invalid"),
         (lambda payload: payload.update(command="run"), "skill_manifest_unsafe"),
         (lambda payload: payload.update(api_key="secret"), "skill_manifest_unsafe"),
+        (lambda payload: payload.update(subSkills={}), "skill_manifest_invalid"),
+        (lambda payload: payload.update(subSkills=[{"name": "缺少说明", "type": "shared", "status": "available"}]), "skill_manifest_invalid"),
         (lambda payload: payload.update(assets={"knowledgeBase": "../outside.txt"}), "skill_asset_unsafe"),
         (lambda payload: payload.update(assets={"knowledgeBase": "missing.txt"}), "skill_asset_unavailable"),
         (lambda payload: payload.update(assets={"knowledgeBase": "worker.py"}), "skill_asset_unsafe"),

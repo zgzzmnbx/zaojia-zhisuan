@@ -12,6 +12,8 @@ from typing import Any
 LOGGER = logging.getLogger(__name__)
 ALLOWED_STATUSES = {"active", "beta", "planned", "disabled"}
 TASK_ENABLED_STATUSES = {"active"}
+SUB_SKILL_TYPES = {"professional", "shared"}
+SUB_SKILL_STATUSES = {"available", "planned"}
 REQUIRED_FIELDS = {
     "id",
     "displayName",
@@ -187,6 +189,7 @@ class ProfessionalSkillRegistry:
             **summary,
             "input_profile": manifest["inputProfile"],
             "applicability": manifest.get("applicability", {}),
+            "sub_skills": manifest.get("subSkills", []),
             "asset_summary": self._asset_summary(manifest["assets"]),
             "validation": manifest["validation"],
             "boundary": "规则裁决、模型解释、人工兜底；专业能力说明不得覆盖结构化计价规则。",
@@ -237,6 +240,25 @@ class ProfessionalSkillRegistry:
         for field in ("inputProfile", "capabilities", "assets", "validation"):
             if not isinstance(manifest.get(field), dict):
                 raise ProfessionalSkillError("skill_manifest_invalid", f"专业能力字段 {field} 必须是对象", status_code=503)
+        self._validate_sub_skills(manifest.get("subSkills", []))
+
+    @staticmethod
+    def _validate_sub_skills(sub_skills: object) -> None:
+        if not isinstance(sub_skills, list):
+            raise ProfessionalSkillError("skill_manifest_invalid", "专业能力子 Skill 必须是数组", status_code=503)
+        names: set[str] = set()
+        for item in sub_skills:
+            if not isinstance(item, dict):
+                raise ProfessionalSkillError("skill_manifest_invalid", "专业能力子 Skill 格式无效", status_code=503)
+            name = str(item.get("name") or "").strip()
+            description = str(item.get("description") or "").strip()
+            if not name or not description:
+                raise ProfessionalSkillError("skill_manifest_invalid", "专业能力子 Skill 名称和说明不能为空", status_code=503)
+            if name in names:
+                raise ProfessionalSkillError("skill_manifest_invalid", "专业能力子 Skill 名称不得重复", status_code=503)
+            if item.get("type") not in SUB_SKILL_TYPES or item.get("status") not in SUB_SKILL_STATUSES:
+                raise ProfessionalSkillError("skill_manifest_invalid", "专业能力子 Skill 类型或状态无效", status_code=503)
+            names.add(name)
 
     def _reject_unsafe_entries(self, value: object, *, key: str = "") -> None:
         normalized_key = re.sub(r"[^a-z0-9]", "", key.lower())
