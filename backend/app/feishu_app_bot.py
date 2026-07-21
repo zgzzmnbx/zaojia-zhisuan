@@ -267,6 +267,8 @@ def load_bot_defaults() -> dict[str, Any]:
         "maxFileSizeMb": 50,
         "apiBaseUrl": "http://127.0.0.1:8000",
         "expectedProfiles": {},
+        "authorizedDispatchGroupName": "智算测试",
+        "directDeliveryVerifiedProfiles": [],
         "enableLlmRiskNarrative": True,
         "retryCount": 2,
         "retryDelaySeconds": 2,
@@ -1367,6 +1369,38 @@ class FeishuApi:
         unique_members = list({(item["member_id"], item["name"]): item for item in members}.values())
         return {"member_total": member_total or len(unique_members), "members": unique_members}
 
+    def list_chats(self) -> list[dict[str, str]]:
+        chats: list[dict[str, str]] = []
+        page_token = ""
+        for _ in range(100):
+            params: dict[str, Any] = {"page_size": 100}
+            if page_token:
+                params["page_token"] = page_token
+            response = self.client.get(
+                f"{self.base_url}/im/v1/chats",
+                params=params,
+                headers=self._headers(),
+            )
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, dict) or int(payload.get("code") or 0) != 0:
+                raise RuntimeError(str(payload.get("msg") if isinstance(payload, dict) else "") or "获取机器人群列表失败")
+            data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+            for item in data.get("items") or []:
+                if not isinstance(item, dict):
+                    continue
+                chat_id = str(item.get("chat_id") or "").strip()
+                name = str(item.get("name") or "").strip()
+                if chat_id:
+                    chats.append({"chat_id": chat_id, "name": name})
+            if not data.get("has_more"):
+                break
+            next_token = str(data.get("page_token") or "").strip()
+            if not next_token or next_token == page_token:
+                raise RuntimeError("机器人群列表分页信息异常")
+            page_token = next_token
+        return list({item["chat_id"]: item for item in chats}.values())
+
     def download_file(self, message_id: str, file_key: str, target: Path) -> Path:
         response = self.client.get(
             f"{self.base_url}/im/v1/messages/{message_id}/resources/{file_key}",
@@ -1377,11 +1411,14 @@ class FeishuApi:
         target.write_bytes(response.content)
         return target
 
-    def send_text(self, chat_id: str, text: str) -> None:
-        self._send_message(chat_id, "text", {"text": text})
+    def send_text(self, chat_id: str, text: str) -> str:
+        return self._send_message(chat_id, "text", {"text": text})
 
-    def send_card(self, chat_id: str, card: dict[str, Any]) -> None:
-        self._send_message(chat_id, "interactive", card)
+    def send_card(self, chat_id: str, card: dict[str, Any]) -> str:
+        return self._send_message(chat_id, "interactive", card)
+
+    def send_card_to(self, receive_id: str, receive_id_type: str, card: dict[str, Any]) -> str:
+        return self._send_message(receive_id, "interactive", card, receive_id_type=receive_id_type)
 
     def add_reaction(self, message_id: str, emoji_type: str = ACK_REACTION_EMOJI) -> None:
         normalized_message_id = str(message_id or "").strip()
@@ -1418,14 +1455,31 @@ class FeishuApi:
             raise RuntimeError(payload.get("msg") or "飞书文件上传失败")
         return str((payload.get("data") or {}).get("file_key") or "")
 
-    def send_file(self, chat_id: str, path: Path) -> None:
-        self._send_message(chat_id, "file", {"file_key": self.upload_file(path)})
+    def send_file(self, chat_id: str, path: Path) -> str:
+        return self._send_message(chat_id, "file", {"file_key": self.upload_file(path)})
 
-    def _send_message(self, chat_id: str, msg_type: str, content: dict[str, Any]) -> None:
+    def send_file_to(self, receive_id: str, receive_id_type: str, path: Path) -> str:
+        return self._send_message(
+            receive_id,
+            "file",
+            {"file_key": self.upload_file(path)},
+            receive_id_type=receive_id_type,
+        )
+
+    def _send_message(
+        self,
+        receive_id: str,
+        msg_type: str,
+        content: dict[str, Any],
+        *,
+        receive_id_type: str = "chat_id",
+    ) -> str:
+        if receive_id_type not in {"chat_id", "open_id"}:
+            raise ValueError("不支持的飞书消息目标类型")
         response = self.client.post(
             f"{self.base_url}/im/v1/messages",
-            params={"receive_id_type": "chat_id"}, headers=self._headers(),
-            json={"receive_id": chat_id, "msg_type": msg_type, "content": json.dumps(content, ensure_ascii=False)},
+            params={"receive_id_type": receive_id_type}, headers=self._headers(),
+            json={"receive_id": receive_id, "msg_type": msg_type, "content": json.dumps(content, ensure_ascii=False)},
         )
         try:
             payload = response.json()
@@ -1436,6 +1490,9 @@ class FeishuApi:
             code = int(payload.get("code") or 0)
             raise RuntimeError(f"{payload.get('msg') or '飞书消息发送失败'}（错误码 {code}）")
         response.raise_for_status()
+        data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+        message = data.get("message") if isinstance(data.get("message"), dict) else {}
+        return str(data.get("message_id") or message.get("message_id") or "")
 
 
 class ProfessionalApi:

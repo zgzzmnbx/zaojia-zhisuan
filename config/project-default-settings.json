@@ -207,6 +207,8 @@
         "domain": "https://open.weact.pipechina.com.cn"
       }
     },
+    "authorizedDispatchGroupName": "智算测试",
+    "directDeliveryVerifiedProfiles": [],
     "enableLlmRiskNarrative": true,
     "retryCount": 2,
     "retryDelaySeconds": 2

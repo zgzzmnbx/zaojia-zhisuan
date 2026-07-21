@@ -10630,6 +10630,114 @@ tbody tr:hover .row-ai-cell {
   grid-column: 1 / -1;
 }
 
+.shell.layout-daweiba .daweiba-collaboration-settings.is-external-dispatch {
+  grid-column: 1 / -1;
+  border-color: #bfdbfe;
+  background: linear-gradient(180deg, #f8fbff 0, #ffffff 160px);
+}
+
+.shell.layout-daweiba .daweiba-external-dispatch-form {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.shell.layout-daweiba .daweiba-external-dispatch-form label {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-width: 0;
+  color: var(--db-text-muted);
+  font-size: 12px;
+}
+
+.shell.layout-daweiba .daweiba-external-dispatch-form label > span {
+  color: var(--db-text-strong);
+  font-weight: 600;
+}
+
+.shell.layout-daweiba .daweiba-external-dispatch-form label.is-wide {
+  grid-column: span 3;
+}
+
+.shell.layout-daweiba .daweiba-external-dispatch-form input,
+.shell.layout-daweiba .daweiba-external-dispatch-form select,
+.shell.layout-daweiba .daweiba-external-dispatch-form textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--db-border);
+  border-radius: 7px;
+  background: #ffffff;
+  color: var(--db-text);
+  padding: 8px 9px;
+  font: inherit;
+}
+
+.shell.layout-daweiba .daweiba-external-dispatch-form input[readonly] {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.shell.layout-daweiba .daweiba-external-dispatch-form textarea {
+  resize: vertical;
+}
+
+.shell.layout-daweiba .daweiba-external-dispatch-form small {
+  color: var(--db-text-muted);
+  line-height: 1.45;
+}
+
+.shell.layout-daweiba .daweiba-external-dispatch-file {
+  grid-column: span 2 !important;
+}
+
+.shell.layout-daweiba .daweiba-external-dispatch-table {
+  min-width: 760px;
+  overflow: hidden;
+  border: 1px solid var(--db-border-soft);
+  border-radius: 7px;
+}
+
+.shell.layout-daweiba .daweiba-external-dispatch-table > div {
+  display: grid;
+  grid-template-columns: 1.2fr 1.4fr .75fr .9fr 72px;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--db-border-soft);
+  font-size: 12px;
+}
+
+.shell.layout-daweiba .daweiba-external-dispatch-table > div:last-child {
+  border-bottom: 0;
+}
+
+.shell.layout-daweiba .daweiba-external-dispatch-table > .is-header {
+  min-height: 34px;
+  background: #eff6ff;
+  color: #475569;
+  font-weight: 700;
+}
+
+.shell.layout-daweiba .daweiba-external-dispatch-table span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.shell.layout-daweiba .daweiba-external-dispatch-table strong,
+.shell.layout-daweiba .daweiba-external-dispatch-table small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell.layout-daweiba .daweiba-external-dispatch-table b.is-success { color: #166534; }
+.shell.layout-daweiba .daweiba-external-dispatch-table b.is-error { color: #b91c1c; }
+.shell.layout-daweiba .daweiba-external-dispatch-table .ghost-button { min-height: 28px; padding: 0 8px; }
+
 .shell.layout-daweiba .daweiba-collaboration-settings.is-webhook-layer {
   grid-column: 1;
 }
@@ -10964,6 +11072,7 @@ tbody tr:hover .row-ai-cell {
   }
 
   .shell.layout-daweiba .daweiba-collaboration-settings.is-second-layer,
+  .shell.layout-daweiba .daweiba-collaboration-settings.is-external-dispatch,
   .shell.layout-daweiba .daweiba-collaboration-settings.is-webhook-layer,
   .shell.layout-daweiba .daweiba-collaboration-rules.is-notification-rules,
   .shell.layout-daweiba .daweiba-collaboration-history {
@@ -10972,6 +11081,15 @@ tbody tr:hover .row-ai-cell {
 
   .shell.layout-daweiba .daweiba-collaboration-history {
     overflow-x: auto;
+  }
+
+  .shell.layout-daweiba .daweiba-external-dispatch-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .shell.layout-daweiba .daweiba-external-dispatch-form label.is-wide,
+  .shell.layout-daweiba .daweiba-external-dispatch-file {
+    grid-column: 1 / -1 !important;
   }
 }
 
@@ -10993,10 +11111,20 @@ tbody tr:hover .row-ai-cell {
   }
 
   .shell.layout-daweiba .daweiba-collaboration-settings.is-second-layer,
+  .shell.layout-daweiba .daweiba-collaboration-settings.is-external-dispatch,
   .shell.layout-daweiba .daweiba-collaboration-settings.is-webhook-layer,
   .shell.layout-daweiba .daweiba-collaboration-rules.is-notification-rules,
   .shell.layout-daweiba .daweiba-collaboration-history {
     grid-column: 1;
+  }
+
+  .shell.layout-daweiba .daweiba-external-dispatch-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .shell.layout-daweiba .daweiba-external-dispatch-form label.is-wide,
+  .shell.layout-daweiba .daweiba-external-dispatch-file {
+    grid-column: 1 !important;
   }
 
   .shell.layout-daweiba .daweiba-collaboration-title-actions {

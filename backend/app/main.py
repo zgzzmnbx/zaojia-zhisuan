@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+import httpx
 from fastapi import Body, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -28,6 +29,7 @@ from .fill_engine import (
 from .adjustment_rules import AdjustmentEngine
 from . import feishu_webhook
 from . import feishu_app_bot
+from . import external_task_dispatch
 from .knowledge_base import KnowledgeBase
 from .knowledge_qa import (
     NO_EVIDENCE_ANSWER,
@@ -124,7 +126,7 @@ from .professional_skills import (
 from .report import append_risk_report, write_report
 
 
-APP_VERSION = "v5.12.0"
+APP_VERSION = "v5.13.0"
 OUTPUT_FILE_PREFIX = "【输出】"
 TEMP_FILE_PREFIX = "【临时】"
 PROCESS_STATE_FILENAME = "process-state.json"
@@ -428,6 +430,109 @@ def update_feishu_app_bot_settings(payload: dict[str, object] = Body(...)) -> di
             raise HTTPException(status_code=409, detail=configuration_issue)
         feishu_app_bot.start_bot_process()
     return feishu_app_bot.bot_status()
+
+
+@app.get("/api/collaboration/external-dispatch/options")
+def get_external_dispatch_options(profile_id: str | None = Query(default=None)) -> dict[str, object]:
+    try:
+        service = external_task_dispatch.build_service(
+            registry=PROFESSIONAL_SKILL_REGISTRY,
+            profile_id=profile_id,
+        )
+        return {
+            **service.options(),
+            "active_profile": service.profile_id,
+            "platforms": external_task_dispatch.configured_platforms(),
+            "skills": [
+                item for item in PROFESSIONAL_SKILL_REGISTRY.list_public().get("items", [])
+                if isinstance(item, dict) and item.get("can_create_task")
+            ],
+        }
+    except external_task_dispatch.DispatchValidationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    except (httpx.HTTPError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail=feishu_app_bot.sanitize_error(exc)) from exc
+
+
+@app.get("/api/collaboration/external-dispatch/tasks")
+def get_external_dispatch_tasks(limit: int = Query(default=30, ge=1, le=100)) -> dict[str, object]:
+    store = external_task_dispatch.ExternalDispatchStore()
+    return {
+        "items": [external_task_dispatch.public_dispatch_task(task) for task in store.list_tasks(limit=limit)]
+    }
+
+
+@app.post("/api/collaboration/external-dispatch/tasks")
+async def create_external_dispatch_task(
+    file: UploadFile = File(...),
+    event_id: str = Form(...),
+    source_task_id: str = Form(...),
+    task_name: str = Form(...),
+    project_name: str = Form(...),
+    skill_id: str = Form(...),
+    skill_version: str = Form(default=""),
+    delivery_mode: str = Form(default="group"),
+    platform_profile_id: str = Form(...),
+    assignee_ref: str = Form(...),
+    deadline: str = Form(...),
+    instructions: str = Form(...),
+    template_version: str = Form(default="v1.0"),
+) -> dict[str, object]:
+    try:
+        service = external_task_dispatch.build_service(
+            registry=PROFESSIONAL_SKILL_REGISTRY,
+            profile_id=platform_profile_id,
+        )
+        file_bytes = await file.read()
+        max_bytes = int(feishu_app_bot.load_bot_defaults().get("maxFileSizeMb") or 50) * 1024 * 1024
+        if len(file_bytes) > max_bytes:
+            raise external_task_dispatch.DispatchValidationError(
+                f"待填模板超过 {max_bytes // 1024 // 1024} MB 上限"
+            )
+        envelope = external_task_dispatch.TaskEnvelope(
+            event_id=event_id.strip(),
+            event_type=external_task_dispatch.EVENT_TYPE,
+            source_system=external_task_dispatch.SOURCE_SYSTEM,
+            source_task_id=source_task_id.strip(),
+            task_name=task_name.strip(),
+            project_name=project_name.strip(),
+            skill_id=skill_id.strip(),
+            skill_version=skill_version.strip(),
+            delivery_mode=delivery_mode.strip(),
+            platform_profile_id=platform_profile_id.strip(),
+            assignee_ref=assignee_ref.strip(),
+            deadline=deadline.strip(),
+            instructions=instructions.strip(),
+            input_artifact=external_task_dispatch.TaskArtifact(
+                template_asset_id=str(file.filename or "").strip(),
+                template_version=template_version.strip(),
+            ),
+        )
+        task, created = service.create_and_deliver(
+            envelope,
+            file_name=str(file.filename or ""),
+            file_bytes=file_bytes,
+        )
+        return {"created": created, "task": task}
+    except external_task_dispatch.DispatchValidationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@app.post("/api/collaboration/external-dispatch/tasks/{task_id}/retry")
+def retry_external_dispatch_task(task_id: str) -> dict[str, object]:
+    store = external_task_dispatch.ExternalDispatchStore()
+    task = store.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="未找到外部派发任务")
+    try:
+        service = external_task_dispatch.build_service(
+            registry=PROFESSIONAL_SKILL_REGISTRY,
+            profile_id=str(task.get("platform_profile_id") or ""),
+            store=store,
+        )
+        return {"task": service.retry(task_id)}
+    except external_task_dispatch.DispatchValidationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
 @app.post("/api/collaboration/feishu-webhook/notify")
