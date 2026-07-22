@@ -29,6 +29,8 @@ PUBLIC_STATUS_LABELS = {
     "delivering": "投递中",
     "pending_claim": "待领取",
     "claimed": "已领取",
+    "pending_review": "多人复核中",
+    "returned": "已退回编制",
     "pending_upload": "待收件",
     "processing": "处理中",
     "completed": "已完成",
@@ -44,6 +46,14 @@ TEXT_LIMITS = {
     "template_asset_id": 200,
     "template_version": 80,
 }
+
+
+def generate_dispatch_source_task_id() -> str:
+    return f"SIM-{datetime.now():%Y%m%d-%H%M%S}-{uuid4().hex[:4].upper()}"
+
+
+def generate_dispatch_project_name() -> str:
+    return f"项目-{uuid4().hex[:6].upper()}"
 
 
 def sanitize_dispatch_error(error: object) -> str:
@@ -83,6 +93,7 @@ class TaskEnvelope:
     deadline: str
     instructions: str
     input_artifact: TaskArtifact
+    reviewer_refs: tuple[str, ...] = ()
 
     def validate(self) -> None:
         required = {
@@ -107,6 +118,12 @@ class TaskEnvelope:
             raise DispatchValidationError("不支持的外部任务事件类型")
         if self.delivery_mode not in DELIVERY_MODES:
             raise DispatchValidationError("投递方式必须是 group 或 direct")
+        if not self.reviewer_refs:
+            raise DispatchValidationError("至少选择一名复核人")
+        if len(set(self.reviewer_refs)) != len(self.reviewer_refs):
+            raise DispatchValidationError("复核人不能重复")
+        if self.assignee_ref in self.reviewer_refs:
+            raise DispatchValidationError("编制人不能同时担任复核人")
         for name, value in required.items():
             limit = TEXT_LIMITS.get(name)
             if limit and len(str(value)) > limit:
@@ -166,6 +183,11 @@ class ExternalDispatchStore:
             "delivery_error": "TEXT NOT NULL DEFAULT ''",
             "delivered_at": "TEXT NOT NULL DEFAULT ''",
             "claimed_at": "TEXT NOT NULL DEFAULT ''",
+            "review_round": "INTEGER NOT NULL DEFAULT 0",
+            "review_card_status": "TEXT NOT NULL DEFAULT ''",
+            "review_card_message_id": "TEXT NOT NULL DEFAULT ''",
+            "review_error": "TEXT NOT NULL DEFAULT ''",
+            "completed_at": "TEXT NOT NULL DEFAULT ''",
         }
         with self._connect() as connection:
             existing = {str(row["name"]) for row in connection.execute("PRAGMA table_info(tasks)")}
@@ -194,6 +216,26 @@ class ExternalDispatchStore:
                     step TEXT NOT NULL,
                     status TEXT NOT NULL,
                     error TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS dispatch_reviewers (
+                    task_id TEXT NOT NULL,
+                    mapping_id TEXT NOT NULL,
+                    platform_user_id TEXT NOT NULL,
+                    display_name TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'waiting',
+                    review_round INTEGER NOT NULL DEFAULT 0,
+                    decided_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY(task_id, mapping_id)
+                );
+                CREATE TABLE IF NOT EXISTS dispatch_review_actions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    task_id TEXT NOT NULL,
+                    review_round INTEGER NOT NULL,
+                    reviewer_mapping_id TEXT NOT NULL,
+                    reviewer_name TEXT NOT NULL,
+                    decision TEXT NOT NULL,
                     created_at TEXT NOT NULL
                 );
                 """
@@ -238,7 +280,7 @@ class ExternalDispatchStore:
                 "SELECT * FROM tasks WHERE task_kind=? AND business_key=?",
                 (TASK_KIND, business_key),
             ).fetchone()
-        return dict(row) if row else None
+        return self._with_reviewers(dict(row)) if row else None
 
     def create_task(self, values: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         columns = list(values)
@@ -260,6 +302,28 @@ class ExternalDispatchStore:
             raise RuntimeError("外部任务创建失败")
         return dict(row), created
 
+    def set_reviewers(self, task_id: str, reviewers: list[dict[str, Any]]) -> None:
+        now = feishu_app_bot.utc_now()
+        with self._connect() as connection:
+            connection.execute("DELETE FROM dispatch_reviewers WHERE task_id=?", (task_id,))
+            connection.executemany(
+                """INSERT INTO dispatch_reviewers
+                (task_id,mapping_id,platform_user_id,display_name,status,review_round,updated_at)
+                VALUES (?,?,?,?, 'waiting',0,?)""",
+                [(task_id, item["mapping_id"], item["platform_user_id"], item["display_name"], now) for item in reviewers],
+            )
+
+    def list_reviewers(self, task_id: str) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM dispatch_reviewers WHERE task_id=? ORDER BY display_name,mapping_id", (task_id,)
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def _with_reviewers(self, task: dict[str, Any]) -> dict[str, Any]:
+        task["_reviewers"] = self.list_reviewers(str(task.get("task_id") or ""))
+        return task
+
     def update_delivery(self, task_id: str, **fields: Any) -> dict[str, Any]:
         allowed = {
             "status", "stage", "error", "target_chat_id", "target_chat_name",
@@ -276,7 +340,146 @@ class ExternalDispatchStore:
             row = connection.execute("SELECT * FROM tasks WHERE task_id=?", (task_id,)).fetchone()
         if not row:
             raise DispatchValidationError("未找到外部派发任务", status_code=404)
-        return dict(row)
+        return self._with_reviewers(dict(row))
+
+    def claim_task(self, task_id: str, *, operator_open_id: str, platform_profile_id: str) -> tuple[dict[str, Any], bool]:
+        operator_id = str(operator_open_id or "").strip()
+        profile_id = str(platform_profile_id or "").strip()
+        if not operator_id:
+            raise DispatchValidationError("无法确认领取人身份，请稍后重试", status_code=403)
+        now = feishu_app_bot.utc_now()
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM tasks WHERE task_id=? AND task_kind=?", (task_id, TASK_KIND),
+            ).fetchone()
+            if not row:
+                raise DispatchValidationError("未找到外部派发任务", status_code=404)
+            task = dict(row)
+            if str(task.get("platform_profile_id") or "") != profile_id:
+                raise DispatchValidationError("当前机器人不能领取其他平台的任务", status_code=403)
+            if str(task.get("assignee_user_id") or "") != operator_id:
+                raise DispatchValidationError("该任务已指定给其他编制人，您不能领取", status_code=403)
+            if task.get("status") == "claimed":
+                return self._with_reviewers(task), False
+            if task.get("status") != "pending_claim" or task.get("card_status") != "sent" or task.get("file_status") != "sent":
+                raise DispatchValidationError("任务尚未完成投递，暂时不能领取", status_code=409)
+            connection.execute(
+                "UPDATE tasks SET status='claimed',stage='claimed',claimed_at=?,updated_at=? WHERE task_id=? AND task_kind=?",
+                (now, now, task_id, TASK_KIND),
+            )
+            claimed = connection.execute("SELECT * FROM tasks WHERE task_id=?", (task_id,)).fetchone()
+        return self._with_reviewers(dict(claimed)), True
+
+    def submit_for_review(self, task_id: str, *, operator_open_id: str, platform_profile_id: str) -> tuple[dict[str, Any], bool]:
+        operator_id = str(operator_open_id or "").strip()
+        now = feishu_app_bot.utc_now()
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT * FROM tasks WHERE task_id=? AND task_kind=?", (task_id, TASK_KIND)).fetchone()
+            if not row:
+                raise DispatchValidationError("未找到外部派发任务", status_code=404)
+            task = dict(row)
+            if str(task.get("platform_profile_id") or "") != str(platform_profile_id or ""):
+                raise DispatchValidationError("当前机器人不能操作其他平台的任务", status_code=403)
+            if str(task.get("assignee_user_id") or "") != operator_id:
+                raise DispatchValidationError("只有目标编制人可以提交复核", status_code=403)
+            if task.get("status") == "pending_review":
+                return self._with_reviewers(task), False
+            if task.get("status") not in {"claimed", "returned"}:
+                raise DispatchValidationError("当前任务尚不能提交多人复核", status_code=409)
+            reviewer_count = connection.execute("SELECT COUNT(*) FROM dispatch_reviewers WHERE task_id=?", (task_id,)).fetchone()[0]
+            if not reviewer_count:
+                raise DispatchValidationError("任务未配置复核人", status_code=409)
+            review_round = int(task.get("review_round") or 0) + 1
+            connection.execute(
+                "UPDATE dispatch_reviewers SET status='pending',review_round=?,decided_at='',updated_at=? WHERE task_id=?",
+                (review_round, now, task_id),
+            )
+            connection.execute(
+                """UPDATE tasks SET status='pending_review',stage='pending_review',review_round=?,
+                review_card_status='pending',review_card_message_id='',review_error='',updated_at=?
+                WHERE task_id=? AND task_kind=?""",
+                (review_round, now, task_id, TASK_KIND),
+            )
+            updated = connection.execute("SELECT * FROM tasks WHERE task_id=?", (task_id,)).fetchone()
+        return self._with_reviewers(dict(updated)), True
+
+    def mark_review_card(self, task_id: str, *, status: str, message_id: str = "", error: str = "") -> dict[str, Any]:
+        now = feishu_app_bot.utc_now()
+        with self._connect() as connection:
+            connection.execute(
+                "UPDATE tasks SET review_card_status=?,review_card_message_id=?,review_error=?,updated_at=? WHERE task_id=? AND task_kind=?",
+                (status, message_id, sanitize_dispatch_error(error), now, task_id, TASK_KIND),
+            )
+        task = self.get_task(task_id)
+        if not task:
+            raise DispatchValidationError("未找到外部派发任务", status_code=404)
+        return task
+
+    def rollback_review_submission(self, task_id: str, error: object) -> dict[str, Any]:
+        now = feishu_app_bot.utc_now()
+        with self._connect() as connection:
+            connection.execute(
+                "UPDATE tasks SET status='claimed',stage='review_card_failed',review_card_status='failed',review_error=?,updated_at=? WHERE task_id=? AND task_kind=?",
+                (sanitize_dispatch_error(error), now, task_id, TASK_KIND),
+            )
+        return self.get_task(task_id) or {}
+
+    def review_task(self, task_id: str, *, operator_open_id: str, platform_profile_id: str, decision: str) -> tuple[dict[str, Any], bool]:
+        if decision not in {"approve", "reject"}:
+            raise DispatchValidationError("不支持的复核结论")
+        operator_id = str(operator_open_id or "").strip()
+        now = feishu_app_bot.utc_now()
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT * FROM tasks WHERE task_id=? AND task_kind=?", (task_id, TASK_KIND)).fetchone()
+            if not row:
+                raise DispatchValidationError("未找到外部派发任务", status_code=404)
+            task = dict(row)
+            if str(task.get("platform_profile_id") or "") != str(platform_profile_id or ""):
+                raise DispatchValidationError("当前机器人不能操作其他平台的任务", status_code=403)
+            review_round = int(task.get("review_round") or 0)
+            reviewer = connection.execute(
+                "SELECT * FROM dispatch_reviewers WHERE task_id=? AND platform_user_id=? AND review_round=?",
+                (task_id, operator_id, review_round),
+            ).fetchone()
+            if not reviewer:
+                raise DispatchValidationError("您不是本任务的复核人", status_code=403)
+            reviewer_data = dict(reviewer)
+            target_status = "approved" if decision == "approve" else "rejected"
+            if task.get("status") != "pending_review":
+                if reviewer_data.get("status") == target_status:
+                    return self._with_reviewers(task), False
+                raise DispatchValidationError("本轮复核已经结束", status_code=409)
+            if reviewer_data.get("status") != "pending":
+                if reviewer_data.get("status") == target_status:
+                    return self._with_reviewers(task), False
+                raise DispatchValidationError("您已提交本轮复核结论", status_code=409)
+            connection.execute(
+                "UPDATE dispatch_reviewers SET status=?,decided_at=?,updated_at=? WHERE task_id=? AND mapping_id=?",
+                (target_status, now, now, task_id, reviewer_data["mapping_id"]),
+            )
+            connection.execute(
+                "INSERT INTO dispatch_review_actions(task_id,review_round,reviewer_mapping_id,reviewer_name,decision,created_at) VALUES (?,?,?,?,?,?)",
+                (task_id, review_round, reviewer_data["mapping_id"], reviewer_data["display_name"], decision, now),
+            )
+            if decision == "reject":
+                connection.execute(
+                    "UPDATE tasks SET status='returned',stage='returned',updated_at=? WHERE task_id=?", (now, task_id)
+                )
+            else:
+                pending = connection.execute(
+                    "SELECT COUNT(*) FROM dispatch_reviewers WHERE task_id=? AND review_round=? AND status='pending'",
+                    (task_id, review_round),
+                ).fetchone()[0]
+                if pending == 0:
+                    connection.execute(
+                        "UPDATE tasks SET status='completed',stage='completed',completed_at=?,updated_at=? WHERE task_id=?",
+                        (now, now, task_id),
+                    )
+            updated = connection.execute("SELECT * FROM tasks WHERE task_id=?", (task_id,)).fetchone()
+        return self._with_reviewers(dict(updated)), True
 
     def record_attempt(self, task_id: str, step: str, status: str, error: str = "") -> None:
         with self._connect() as connection:
@@ -290,7 +493,7 @@ class ExternalDispatchStore:
             row = connection.execute(
                 "SELECT * FROM tasks WHERE task_id=? AND task_kind=?", (task_id, TASK_KIND),
             ).fetchone()
-        return dict(row) if row else None
+        return self._with_reviewers(dict(row)) if row else None
 
     def list_tasks(self, limit: int = 30) -> list[dict[str, Any]]:
         with self._connect() as connection:
@@ -298,7 +501,7 @@ class ExternalDispatchStore:
                 "SELECT * FROM tasks WHERE task_kind=? ORDER BY created_at DESC LIMIT ?",
                 (TASK_KIND, max(1, min(int(limit), 100))),
             ).fetchall()
-        return [dict(row) for row in rows]
+        return [self._with_reviewers(dict(row)) for row in rows]
 
 
 class ExternalTaskDispatchService:
@@ -389,6 +592,12 @@ class ExternalTaskDispatchService:
         person = self.store.get_person(envelope.assignee_ref, envelope.platform_profile_id)
         if not person:
             raise DispatchValidationError("目标编制人未建立可用的平台人员映射", status_code=409)
+        reviewers: list[dict[str, Any]] = []
+        for reviewer_ref in envelope.reviewer_refs:
+            reviewer = self.store.get_person(reviewer_ref, envelope.platform_profile_id)
+            if not reviewer:
+                raise DispatchValidationError("存在未建立平台人员映射的复核人", status_code=409)
+            reviewers.append(reviewer)
         if envelope.delivery_mode == "direct" and not self.direct_delivery_verified:
             raise DispatchValidationError("当前机器人的主动单聊触达能力尚未完成验证", status_code=409)
         self._validate_xlsx(file_name, file_bytes)
@@ -444,6 +653,7 @@ class ExternalTaskDispatchService:
         if not created:
             shutil.rmtree(task_dir.parent, ignore_errors=True)
             return public_dispatch_task(task), False
+        self.store.set_reviewers(task_id, reviewers)
         task = self.deliver(task_id)
         return public_dispatch_task(task), True
 
@@ -566,39 +776,93 @@ def build_external_task_card(task: dict[str, Any], *, app_url: str = "") -> dict
     assignee_line = assignee_name
     if task.get("delivery_mode") == "group" and assignee_id:
         assignee_line = f"<at id={assignee_id}></at>（{assignee_name}）"
+    status = str(task.get("status") or "")
+    status_text = PUBLIC_STATUS_LABELS.get(status, status)
+    reviewers = task.get("_reviewers") or []
+    reviewer_names = "、".join(str(item.get("display_name") or "未命名") for item in reviewers) or "未配置"
     content = (
-        f"**状态：** 新任务 / 待领取\n"
+        f"**状态：** {status_text}\n"
         f"**任务名称：** {task.get('task_name') or '-'}\n"
         f"**内部任务编号：** {task.get('task_id') or '-'}\n"
         f"**外部任务编号：** {task.get('source_task_id') or '-'}\n"
         f"**来源系统：** {task.get('source_system') or '-'}\n"
         f"**目标编制人：** {assignee_line}\n"
+        f"**复核人：** {reviewer_names}\n"
+        f"**流程：** 编制 → 多人复核（{len(reviewers)}人）→ 完成\n"
         f"**截止时间：** {task.get('deadline') or '-'}\n"
         f"**专业能力：** {task.get('skill_id') or '-'} · {task.get('skill_version') or '-'}\n\n"
         f"**任务说明：** {task.get('instructions') or '-'}"
     )
     elements: list[dict[str, Any]] = [{"tag": "div", "text": {"tag": "lark_md", "content": content}}]
-    if app_url:
-        elements.append({
-            "tag": "action",
-            "actions": [{
-                "tag": "button",
-                "text": {"tag": "plain_text", "content": "查看任务"},
-                "type": "primary",
-                "url": app_url,
-            }],
+    actions: list[dict[str, Any]] = []
+    if status in {"pending_dispatch", "delivering", "pending_claim"}:
+        actions.append({
+            "tag": "button",
+            "text": {"tag": "plain_text", "content": "领取任务"},
+            "type": "primary",
+            "value": {"action": "claim_external_task", "task_id": str(task.get("task_id") or "")},
         })
+    elif status in {"claimed", "returned"}:
+        actions.append({
+            "tag": "button",
+            "text": {"tag": "plain_text", "content": "提交多人复核" if status == "claimed" else "重新提交复核"},
+            "type": "primary",
+            "value": {"action": "submit_external_review", "task_id": str(task.get("task_id") or "")},
+        })
+    if app_url:
+        actions.append({
+                "tag": "button",
+                "text": {"tag": "plain_text", "content": "进入工作台"},
+                "type": "default",
+                "url": app_url,
+        })
+    if actions:
+        elements.append({"tag": "action", "actions": actions})
     return {
         "config": {"wide_screen_mode": True},
         "header": {
             "title": {"tag": "plain_text", "content": "造价智算 · P0模拟派发新任务"},
-            "template": "blue",
+            "template": "green" if status == "completed" else ("yellow" if status == "returned" else "blue"),
         },
         "elements": elements,
     }
 
 
+def build_external_review_card(task: dict[str, Any]) -> dict[str, Any]:
+    status = str(task.get("status") or "")
+    labels = {"waiting": "待编制", "pending": "待复核", "approved": "已通过", "rejected": "已退回"}
+    reviewer_lines = "\n".join(
+        f"- {item.get('display_name') or '未命名'}：{labels.get(str(item.get('status') or ''), item.get('status') or '-')}"
+        for item in (task.get("_reviewers") or [])
+    ) or "- 未配置复核人"
+    content = (
+        f"**状态：** {PUBLIC_STATUS_LABELS.get(status, status)}\n"
+        f"**任务：** {task.get('task_name') or '-'}\n"
+        f"**项目：** {task.get('project_name') or '-'}\n"
+        f"**任务编号：** {task.get('task_id') or '-'}\n"
+        f"**编制人：** {task.get('assignee_name') or '-'}\n"
+        f"**复核轮次：** 第 {int(task.get('review_round') or 0)} 轮\n\n"
+        f"**复核人员：**\n{reviewer_lines}"
+    )
+    elements: list[dict[str, Any]] = [{"tag": "div", "text": {"tag": "lark_md", "content": content}}]
+    if status == "pending_review":
+        elements.append({"tag": "action", "actions": [
+            {"tag": "button", "text": {"tag": "plain_text", "content": "复核通过"}, "type": "primary", "value": {"action": "review_external_task", "decision": "approve", "task_id": str(task.get("task_id") or "")}},
+            {"tag": "button", "text": {"tag": "plain_text", "content": "退回编制"}, "type": "danger", "value": {"action": "review_external_task", "decision": "reject", "task_id": str(task.get("task_id") or "")}},
+        ]})
+    return {
+        "config": {"wide_screen_mode": True},
+        "header": {"title": {"tag": "plain_text", "content": "造价智算 · 多人复核"}, "template": "green" if status == "completed" else ("yellow" if status == "returned" else "blue")},
+        "elements": elements,
+    }
+
+
 def public_dispatch_task(task: dict[str, Any]) -> dict[str, Any]:
+    status = str(task.get("status") or "")
+    claimed = bool(task.get("claimed_at")) or status in {"claimed", "pending_review", "returned", "completed"}
+    reviewer_labels = {"waiting": "待编制", "pending": "待复核", "approved": "已通过", "rejected": "已退回"}
+    participants = [{"role": "编制人", "name": str(task.get("assignee_name") or ""), "status": "已领取" if claimed else "待领取"}]
+    participants.extend({"role": "复核人", "name": str(item.get("display_name") or ""), "status": reviewer_labels.get(str(item.get("status") or ""), str(item.get("status") or ""))} for item in (task.get("_reviewers") or []))
     return {
         "task_id": str(task.get("task_id") or ""),
         "source_task_id": str(task.get("source_task_id") or ""),
@@ -612,6 +876,7 @@ def public_dispatch_task(task: dict[str, Any]) -> dict[str, Any]:
         "platform": str(task.get("platform_profile_id") or ""),
         "target_group_name": str(task.get("target_chat_name") or ""),
         "assignee_name": str(task.get("assignee_name") or ""),
+        "participants": participants,
         "deadline": str(task.get("deadline") or ""),
         "status": str(task.get("status") or ""),
         "status_label": PUBLIC_STATUS_LABELS.get(str(task.get("status") or ""), str(task.get("status") or "")),
@@ -624,6 +889,10 @@ def public_dispatch_task(task: dict[str, Any]) -> dict[str, Any]:
         "error": sanitize_dispatch_error(task.get("delivery_error") or task.get("error") or ""),
         "created_at": str(task.get("created_at") or ""),
         "delivered_at": str(task.get("delivered_at") or ""),
+        "claimed_at": str(task.get("claimed_at") or ""),
+        "review_round": int(task.get("review_round") or 0),
+        "review_card_status": str(task.get("review_card_status") or ""),
+        "completed_at": str(task.get("completed_at") or ""),
         "can_retry": str(task.get("status") or "") == "dispatch_failed",
     }
 

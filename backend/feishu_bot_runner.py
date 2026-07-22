@@ -15,10 +15,11 @@ from app.feishu_app_bot import (
     accept_conversation_event, accept_knowledge_event, acknowledge_message_event, answer_chat_event, answer_group_members_event,
     answer_task_result_event,
     answer_knowledge_event, append_runtime_event, describe_message_event,
-    CONTROL_PATH, PID_PATH, cleanup_expired, credential_configuration_issue, is_bot_enabled, load_bot_defaults, load_credentials,
+    CONTROL_PATH, PID_PATH, cleanup_expired, credential_configuration_issue, is_bot_enabled, load_bot_defaults, load_completion_card_app_url, load_credentials,
     delayed_file_matches_pending_window, message_is_stale, parse_message_envelope,
     should_acknowledge_message, utc_now,
 )
+from app import external_task_dispatch
 
 
 def main() -> int:
@@ -42,6 +43,7 @@ def main() -> int:
         return 3
     try:
         import lark_oapi as lark
+        from lark_oapi.event.callback.model.p2_card_action_trigger import P2CardActionTriggerResponse
     except ImportError:
         print("缺少 lark-oapi，请先安装 backend/requirements.txt。")
         return 2
@@ -333,9 +335,86 @@ def main() -> int:
             if chat_id:
                 feishu.send_text(chat_id, str(exc))
 
+    def handle_card_action(data) -> P2CardActionTriggerResponse:
+        event = getattr(data, "event", None)
+        action = getattr(event, "action", None)
+        operator = getattr(event, "operator", None)
+        value = getattr(action, "value", None) or {}
+        if not isinstance(value, dict) or value.get("action") not in {"claim_external_task", "submit_external_review", "review_external_task"}:
+            return P2CardActionTriggerResponse({
+                "toast": {"type": "warning", "content": "当前卡片操作暂不支持。"},
+            })
+        task_id = str(value.get("task_id") or "").strip()
+        operator_open_id = str(getattr(operator, "open_id", "") or "").strip()
+        action_name = str(value.get("action") or "")
+        dispatch_store = external_task_dispatch.ExternalDispatchStore()
+        try:
+            if action_name == "submit_external_review":
+                review_task, created = dispatch_store.submit_for_review(
+                    task_id, operator_open_id=operator_open_id, platform_profile_id=profile_id,
+                )
+                if created:
+                    chat_id = str(review_task.get("target_chat_id") or "").strip()
+                    if not chat_id or str(review_task.get("target_chat_name") or "") != external_task_dispatch.AUTHORIZED_TEST_GROUP_NAME:
+                        dispatch_store.rollback_review_submission(task_id, "复核卡片仅允许投递到唯一授权群")
+                        raise external_task_dispatch.DispatchValidationError("复核卡片仅允许投递到唯一授权群", status_code=409)
+                    try:
+                        message_id = feishu.send_card_to(chat_id, "chat_id", external_task_dispatch.build_external_review_card(review_task))
+                        dispatch_store.record_attempt(task_id, "review_card", "sent")
+                        review_task = dispatch_store.mark_review_card(task_id, status="sent", message_id=message_id or "")
+                    except Exception as exc:
+                        dispatch_store.record_attempt(task_id, "review_card", "failed", str(exc))
+                        dispatch_store.rollback_review_submission(task_id, exc)
+                        raise external_task_dispatch.DispatchValidationError(f"复核卡片发送失败：{external_task_dispatch.sanitize_dispatch_error(exc)}", status_code=502) from exc
+                append_runtime_event("task", f"外部任务 {task_id} 已提交第 {review_task.get('review_round')} 轮多人复核", task_id=task_id, profile_id=profile_id)
+                return P2CardActionTriggerResponse({
+                    "toast": {"type": "success", "content": "已提交多人复核。" if created else "任务已在复核中。"},
+                    "card": {"type": "raw", "data": external_task_dispatch.build_external_task_card(review_task, app_url=load_completion_card_app_url())},
+                })
+            if action_name == "review_external_task":
+                decision = str(value.get("decision") or "")
+                reviewed_task, created = dispatch_store.review_task(
+                    task_id, operator_open_id=operator_open_id, platform_profile_id=profile_id, decision=decision,
+                )
+                result_text = "复核通过" if decision == "approve" else "已退回编制"
+                append_runtime_event("task", f"外部任务 {task_id}：{result_text}", task_id=task_id, profile_id=profile_id)
+                return P2CardActionTriggerResponse({
+                    "toast": {"type": "success", "content": result_text if created else "本轮结论已记录。"},
+                    "card": {"type": "raw", "data": external_task_dispatch.build_external_review_card(reviewed_task)},
+                })
+            claimed_task, created = dispatch_store.claim_task(task_id, operator_open_id=operator_open_id, platform_profile_id=profile_id)
+            append_runtime_event(
+                "task",
+                f"外部任务 {task_id} {'已由目标编制人领取' if created else '重复领取已幂等返回'}",
+                task_id=task_id,
+                profile_id=profile_id,
+            )
+            return P2CardActionTriggerResponse({
+                "toast": {"type": "success", "content": "领取成功，任务已进入您的待办。" if created else "您已领取过该任务。"},
+                "card": {
+                    "type": "raw",
+                    "data": external_task_dispatch.build_external_task_card(
+                        claimed_task,
+                        app_url=load_completion_card_app_url(),
+                    ),
+                },
+            })
+        except external_task_dispatch.DispatchValidationError as exc:
+            append_runtime_event(
+                "task",
+                f"外部任务领取被拒绝：{task_id or '缺少任务编号'}（{exc}）",
+                level="warning",
+                task_id=task_id,
+                profile_id=profile_id,
+            )
+            return P2CardActionTriggerResponse({
+                "toast": {"type": "error", "content": str(exc)},
+            })
+
     handler = (
         lark.EventDispatcherHandler.builder("", "")
         .register_p2_im_message_receive_v1(handle_message)
+        .register_p2_card_action_trigger(handle_card_action)
         .build()
     )
     client = lark.ws.Client(

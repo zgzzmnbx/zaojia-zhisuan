@@ -46,7 +46,7 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.14.0";
+const APP_VERSION = "v5.14.2";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const KNOWLEDGE_QA_ENTRY_COUNT = 3922;
 const KNOWLEDGE_QA_SOURCE_COUNT = 17;
@@ -369,6 +369,7 @@ type ExternalDispatchTask = {
   platform: string;
   target_group_name: string;
   assignee_name: string;
+  participants: Array<{ role: string; name: string; status: string }>;
   deadline: string;
   status: string;
   status_label: string;
@@ -381,6 +382,10 @@ type ExternalDispatchTask = {
   error?: string;
   created_at: string;
   delivered_at?: string;
+  claimed_at?: string;
+  review_round?: number;
+  review_card_status?: string;
+  completed_at?: string;
   can_retry: boolean;
 };
 type FeishuBotConsoleEvent = {
@@ -1652,6 +1657,21 @@ function defaultExternalDispatchDeadline() {
   return deadline.toISOString().slice(0, 16);
 }
 
+function randomExternalDispatchCode(length = 6) {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const bytes = window.crypto.getRandomValues(new Uint8Array(length));
+  return Array.from(bytes, (value) => alphabet[value % alphabet.length]).join("");
+}
+
+function generateExternalDispatchSourceTaskId() {
+  const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
+  return `SIM-${stamp}-${randomExternalDispatchCode(4)}`;
+}
+
+function generateExternalDispatchProjectName() {
+  return `项目-${randomExternalDispatchCode(6)}`;
+}
+
 export function App() {
   if (window.location.pathname === "/v2-preview") {
     return <DaweibaLayoutV2 />;
@@ -1740,11 +1760,12 @@ function DaweibaApp() {
   const [externalDispatchTasks, setExternalDispatchTasks] = useState<ExternalDispatchTask[]>([]);
   const [externalDispatchProfile, setExternalDispatchProfile] = useState("");
   const [externalDispatchPerson, setExternalDispatchPerson] = useState("");
+  const [externalDispatchReviewers, setExternalDispatchReviewers] = useState<string[]>([]);
   const [externalDispatchSkill, setExternalDispatchSkill] = useState("");
   const [externalDispatchMode, setExternalDispatchMode] = useState<"group" | "direct">("group");
-  const [externalDispatchSourceTaskId, setExternalDispatchSourceTaskId] = useState("");
+  const [externalDispatchSourceTaskId, setExternalDispatchSourceTaskId] = useState(generateExternalDispatchSourceTaskId);
   const [externalDispatchTaskName, setExternalDispatchTaskName] = useState("勘察测量限价编制");
-  const [externalDispatchProjectName, setExternalDispatchProjectName] = useState("");
+  const [externalDispatchProjectName, setExternalDispatchProjectName] = useState(generateExternalDispatchProjectName);
   const [externalDispatchDeadline, setExternalDispatchDeadline] = useState(defaultExternalDispatchDeadline);
   const [externalDispatchInstructions, setExternalDispatchInstructions] = useState("请按附件模板完成编制，并核对风险项。");
   const [externalDispatchTemplateVersion, setExternalDispatchTemplateVersion] = useState("v1.0");
@@ -3665,7 +3686,12 @@ function DaweibaApp() {
       setExternalDispatchOptions(options);
       setExternalDispatchPlatforms(options.platforms);
       setExternalDispatchProfile(options.active_profile);
-      setExternalDispatchPerson((current) => options.people.some((item) => item.person_ref === current) ? current : options.people[0]?.person_ref ?? "");
+      const nextCompiler = options.people.some((item) => item.person_ref === externalDispatchPerson) ? externalDispatchPerson : options.people[0]?.person_ref ?? "";
+      setExternalDispatchPerson(nextCompiler);
+      setExternalDispatchReviewers((current) => {
+        const valid = current.filter((ref) => ref !== nextCompiler && options.people.some((item) => item.person_ref === ref));
+        return valid.length ? valid : options.people.filter((item) => item.person_ref !== nextCompiler).map((item) => item.person_ref);
+      });
       setExternalDispatchSkill((current) => options.skills.some((item) => item.id === current) ? current : options.skills[0]?.id ?? "");
       if (options.direct_delivery.status !== "available") setExternalDispatchMode("group");
       setExternalDispatchFeedback("");
@@ -3679,8 +3705,9 @@ function DaweibaApp() {
   }
 
   async function createExternalDispatchTask() {
-    if (!externalDispatchOptions || !externalDispatchFile || !externalDispatchSourceTaskId.trim() || !externalDispatchProjectName.trim() || !externalDispatchPerson || !externalDispatchSkill) {
-      setExternalDispatchFeedback("请完整填写外部任务编号、项目、专业能力、编制人并上传 .xlsx 模板。");
+    const dispatchTemplateFile = externalDispatchFile ?? (file?.name.toLowerCase().endsWith(".xlsx") ? file : null);
+    if (!externalDispatchOptions || !dispatchTemplateFile || !externalDispatchPerson || !externalDispatchSkill || !externalDispatchReviewers.length) {
+      setExternalDispatchFeedback("请选择专业能力、编制人和至少一名复核人，并上传 .xlsx 模板。");
       return;
     }
     const skill = externalDispatchOptions.skills.find((item) => item.id === externalDispatchSkill);
@@ -3691,17 +3718,22 @@ function DaweibaApp() {
     setIsCreatingExternalDispatch(true);
     setExternalDispatchFeedback("正在先落库任务和模板快照，再向授权目标投递经典卡片与 Excel……");
     try {
+      const sourceTaskId = externalDispatchSourceTaskId.trim() || generateExternalDispatchSourceTaskId();
+      const projectName = externalDispatchProjectName.trim() || generateExternalDispatchProjectName();
+      setExternalDispatchSourceTaskId(sourceTaskId);
+      setExternalDispatchProjectName(projectName);
       const data = new FormData();
-      data.append("file", externalDispatchFile);
+      data.append("file", dispatchTemplateFile);
       data.append("event_id", window.crypto.randomUUID());
-      data.append("source_task_id", externalDispatchSourceTaskId.trim());
+      data.append("source_task_id", sourceTaskId);
       data.append("task_name", externalDispatchTaskName.trim());
-      data.append("project_name", externalDispatchProjectName.trim());
+      data.append("project_name", projectName);
       data.append("skill_id", skill.id);
       data.append("skill_version", skill.version);
       data.append("delivery_mode", externalDispatchMode);
       data.append("platform_profile_id", externalDispatchProfile);
       data.append("assignee_ref", externalDispatchPerson);
+      data.append("reviewer_refs_json", JSON.stringify(externalDispatchReviewers));
       data.append("deadline", new Date(externalDispatchDeadline).toISOString());
       data.append("instructions", externalDispatchInstructions.trim());
       data.append("template_version", externalDispatchTemplateVersion.trim());
@@ -3712,6 +3744,10 @@ function DaweibaApp() {
       setExternalDispatchFeedback(payload.created
         ? `任务 ${payload.task.task_id} 已落库；卡片 ${payload.task.card_status}，附件 ${payload.task.file_status}。`
         : `已命中外部任务幂等键，返回原任务 ${payload.task.task_id}，未重复投递。`);
+      if (payload.created) {
+        setExternalDispatchSourceTaskId(generateExternalDispatchSourceTaskId());
+        setExternalDispatchProjectName(generateExternalDispatchProjectName());
+      }
     } catch (err) {
       setExternalDispatchFeedback(err instanceof Error ? err.message : "外部任务派发失败");
     } finally {
@@ -9128,7 +9164,7 @@ function DaweibaApp() {
               <div className="daweiba-collaboration-section-title">
                 <div>
                   <h3>外部任务接入模拟 · P0</h3>
-                  <p>模拟造价系统指派真实任务：任务先落库，再向唯一授权群发送经典卡片和任务专属 Excel副本。</p>
+                  <p>模拟造价系统指派真实任务：编制人领取并提交，多名复核人逐一复核，全部通过后完成。</p>
                 </div>
                 <span className={`daweiba-collaboration-badge ${externalDispatchOptions?.target_group.available ? "is-success" : "is-warning"}`}>
                   {isLoadingExternalDispatch ? "正在校验投递目标" : externalDispatchOptions ? `授权目标 · ${externalDispatchOptions.target_group.name}` : "目标待校验"}
@@ -9137,24 +9173,25 @@ function DaweibaApp() {
 
               <div className="daweiba-external-dispatch-form">
                 <label><span>来源系统</span><input value={externalDispatchOptions?.source_system ?? "模拟造价系统"} readOnly /></label>
-                <label><span>外部任务编号</span><input value={externalDispatchSourceTaskId} placeholder="例如：COST-20260722-001" onChange={(event) => setExternalDispatchSourceTaskId(event.target.value)} /></label>
+                <label><span>外部任务编号</span><input value={externalDispatchSourceTaskId} placeholder="留空自动生成" onChange={(event) => setExternalDispatchSourceTaskId(event.target.value)} /><small>默认自动编写，也可手动修改。</small></label>
                 <label><span>任务名称</span><input value={externalDispatchTaskName} onChange={(event) => setExternalDispatchTaskName(event.target.value)} /></label>
-                <label><span>项目名称</span><input value={externalDispatchProjectName} placeholder="请填写项目名称" onChange={(event) => setExternalDispatchProjectName(event.target.value)} /></label>
+                <label><span>项目名称</span><input value={externalDispatchProjectName} placeholder="留空自动生成“项目-XXXXXX”" onChange={(event) => setExternalDispatchProjectName(event.target.value)} /><small>清空后提交时会自动补写。</small></label>
                 <label><span>专业能力</span><select value={externalDispatchSkill} onChange={(event) => setExternalDispatchSkill(event.target.value)}>{externalDispatchOptions?.skills.map((skill) => <option key={skill.id} value={skill.id}>{skill.display_name} · {skill.version}</option>)}</select></label>
                 <label><span>截止时间</span><input type="datetime-local" value={externalDispatchDeadline} onChange={(event) => setExternalDispatchDeadline(event.target.value)} /></label>
                 <label><span>投递平台</span><select value={externalDispatchProfile} disabled={isLoadingExternalDispatch} onChange={(event) => { setExternalDispatchProfile(event.target.value); void loadExternalDispatchData(event.target.value); }}>{externalDispatchPlatforms.map((platform) => <option key={platform.profile_id} value={platform.profile_id} disabled={!platform.configuration_ok}>{platform.label}{platform.configuration_ok ? "" : "（配置异常）"}</option>)}</select></label>
-                <label><span>目标编制人</span><select value={externalDispatchPerson} onChange={(event) => setExternalDispatchPerson(event.target.value)}>{externalDispatchOptions?.people.map((person) => <option key={person.person_ref} value={person.person_ref}>{person.display_name}</option>)}</select></label>
+                <label><span>目标编制人</span><select value={externalDispatchPerson} onChange={(event) => { const next = event.target.value; setExternalDispatchPerson(next); setExternalDispatchReviewers((current) => current.filter((ref) => ref !== next)); }}>{externalDispatchOptions?.people.map((person) => <option key={person.person_ref} value={person.person_ref}>{person.display_name}</option>)}</select></label>
+                <fieldset className="is-wide daweiba-external-dispatch-reviewers"><legend>多人复核</legend><small>至少选择 1 人；编制人不能兼任复核人。全部复核通过后任务才完成。</small><div>{externalDispatchOptions?.people.filter((person) => person.person_ref !== externalDispatchPerson).map((person) => <label key={person.person_ref}><input type="checkbox" checked={externalDispatchReviewers.includes(person.person_ref)} onChange={(event) => setExternalDispatchReviewers((current) => event.target.checked ? [...new Set([...current, person.person_ref])] : current.filter((ref) => ref !== person.person_ref))} /><span>{person.display_name}</span></label>)}</div></fieldset>
                 <label><span>投递方式</span><select value={externalDispatchMode} onChange={(event) => setExternalDispatchMode(event.target.value as "group" | "direct")}><option value="group">群卡片 + @目标人</option><option value="direct" disabled={externalDispatchOptions?.direct_delivery.status !== "available"}>精准单聊（{externalDispatchOptions?.direct_delivery.label ?? "待验证"}）</option></select></label>
                 <label><span>模板版本</span><input value={externalDispatchTemplateVersion} onChange={(event) => setExternalDispatchTemplateVersion(event.target.value)} /></label>
                 <label className="is-wide"><span>任务说明</span><textarea rows={2} value={externalDispatchInstructions} onChange={(event) => setExternalDispatchInstructions(event.target.value)} /></label>
-                <label className="is-wide daweiba-external-dispatch-file"><span>待填 Excel 模板</span><input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => setExternalDispatchFile(event.target.files?.[0] ?? null)} /><small>{externalDispatchFile ? `已选：${externalDispatchFile.name}` : "仅允许 .xlsx；原模板只读留存，任务使用独立副本。"}</small></label>
+                <div className="is-wide daweiba-external-dispatch-file"><span>待填 Excel 模板</span><div className="daweiba-external-dispatch-file-control"><label htmlFor="external-dispatch-file"><Upload size={15} />{externalDispatchFile || file?.name.toLowerCase().endsWith(".xlsx") ? "更换文件" : "选择文件"}</label><strong>{externalDispatchFile?.name ?? (file?.name.toLowerCase().endsWith(".xlsx") ? `${file.name}（沿用刚刚上传）` : "尚未选择")}</strong></div><input id="external-dispatch-file" className="visually-hidden" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => setExternalDispatchFile(event.target.files?.[0] ?? null)} /><small>默认沿用本次会话刚上传的 .xlsx；另选后仅覆盖当前派发模板。原文件只读留存，任务使用独立副本。</small></div>
               </div>
               <div className="daweiba-collaboration-actions">
                 <button className="ghost-button" type="button" disabled={isCreatingExternalDispatch || !externalDispatchOptions} onClick={() => void createExternalDispatchTask()}>{isCreatingExternalDispatch ? <Loader2 size={16} className="spin" /> : <Send size={16} />}创建并投递任务</button>
                 <button className="ghost-button" type="button" disabled={isLoadingExternalDispatch} onClick={() => void loadExternalDispatchData()}><RefreshCw size={16} className={isLoadingExternalDispatch ? "spin" : ""} />刷新派发配置</button>
               </div>
               {externalDispatchFeedback && <p className={`daweiba-collaboration-feedback ${/(失败|拒绝|异常|未找到)/.test(externalDispatchFeedback) ? "is-error" : ""}`}>{externalDispatchFeedback}</p>}
-              {externalDispatchTasks.length ? <div className="daweiba-external-dispatch-table" role="table"><div className="is-header" role="row"><span>任务</span><span>项目 / 编制人</span><span>状态</span><span>投递步骤</span><span>操作</span></div>{externalDispatchTasks.slice(0, 8).map((task) => <div role="row" key={task.task_id}><span title={task.task_id}><strong>{task.source_task_id}</strong><small>{task.task_id}</small></span><span><strong>{task.project_name}</strong><small>{task.assignee_name} · {task.target_group_name || "精准单聊"}</small></span><span><b className={task.status === "dispatch_failed" ? "is-error" : "is-success"}>{task.status_label}</b>{task.error && <small title={task.error}>{task.error}</small>}</span><span><small>卡片 {task.card_status} · 文件 {task.file_status}</small><small>重试 {task.delivery_retry_count} 次</small></span><span>{task.can_retry ? <button className="ghost-button" type="button" disabled={retryingExternalDispatchTaskId === task.task_id} onClick={() => void retryExternalDispatchTask(task.task_id)}>{retryingExternalDispatchTaskId === task.task_id ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />}重试</button> : "-"}</span></div>)}</div> : <p className="daweiba-collaboration-empty">暂无外部派发任务。前端只显示人员名称和状态，不回显平台用户 ID、群 ID 或文件 Key。</p>}
+              {externalDispatchTasks.length ? <div className="daweiba-external-dispatch-table" role="table"><div className="is-header" role="row"><span>任务</span><span>项目</span><span>流程人员</span><span>状态</span><span>投递步骤</span><span>操作</span></div>{externalDispatchTasks.slice(0, 8).map((task) => <div role="row" key={task.task_id}><span title={task.task_id}><strong>{task.source_task_id}</strong><small>{task.task_id}</small></span><span><strong>{task.project_name}</strong><small>{task.target_group_name || "精准单聊"}</small></span><span>{(task.participants?.length ? task.participants : [{ role: "编制人", name: task.assignee_name, status: task.status === "claimed" ? "已领取" : "待领取" }]).map((person) => <small className="daweiba-external-dispatch-person" key={`${person.role}-${person.name}`}><b>{person.role}</b>{person.name} · {person.status}</small>)}</span><span><b className={task.status === "dispatch_failed" ? "is-error" : "is-success"}>{task.status_label}</b>{task.review_round ? <small>第 {task.review_round} 轮复核</small> : null}{task.error && <small title={task.error}>{task.error}</small>}</span><span><small>任务卡 {task.card_status} · 文件 {task.file_status}</small>{task.review_card_status ? <small>复核卡 {task.review_card_status}</small> : null}<small>重试 {task.delivery_retry_count} 次</small></span><span>{task.can_retry ? <button className="ghost-button" type="button" disabled={retryingExternalDispatchTaskId === task.task_id} onClick={() => void retryExternalDispatchTask(task.task_id)}>{retryingExternalDispatchTaskId === task.task_id ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />}重试</button> : "-"}</span></div>)}</div> : <p className="daweiba-collaboration-empty">暂无外部派发任务。前端只显示人员名称和状态，不回显平台用户 ID、群 ID 或文件 Key。</p>}
             </section>
 
             <section className="daweiba-collaboration-settings is-second-layer" aria-label="第二层企业应用机器人状态">

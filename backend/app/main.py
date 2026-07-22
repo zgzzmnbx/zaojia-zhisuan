@@ -126,7 +126,7 @@ from .professional_skills import (
 from .report import append_risk_report, write_report
 
 
-APP_VERSION = "v5.14.0"
+APP_VERSION = "v5.14.2"
 OUTPUT_FILE_PREFIX = "【输出】"
 TEMP_FILE_PREFIX = "【临时】"
 PROCESS_STATE_FILENAME = "process-state.json"
@@ -466,14 +466,15 @@ def get_external_dispatch_tasks(limit: int = Query(default=30, ge=1, le=100)) ->
 async def create_external_dispatch_task(
     file: UploadFile = File(...),
     event_id: str = Form(...),
-    source_task_id: str = Form(...),
+    source_task_id: str = Form(default=""),
     task_name: str = Form(...),
-    project_name: str = Form(...),
+    project_name: str = Form(default=""),
     skill_id: str = Form(...),
     skill_version: str = Form(default=""),
     delivery_mode: str = Form(default="group"),
     platform_profile_id: str = Form(...),
     assignee_ref: str = Form(...),
+    reviewer_refs_json: str = Form(default="[]"),
     deadline: str = Form(...),
     instructions: str = Form(...),
     template_version: str = Form(default="v1.0"),
@@ -489,13 +490,21 @@ async def create_external_dispatch_task(
             raise external_task_dispatch.DispatchValidationError(
                 f"待填模板超过 {max_bytes // 1024 // 1024} MB 上限"
             )
+        resolved_source_task_id = source_task_id.strip() or external_task_dispatch.generate_dispatch_source_task_id()
+        resolved_project_name = project_name.strip() or external_task_dispatch.generate_dispatch_project_name()
+        try:
+            reviewer_refs_value = json.loads(reviewer_refs_json)
+        except json.JSONDecodeError as exc:
+            raise external_task_dispatch.DispatchValidationError("复核人参数格式无效") from exc
+        if not isinstance(reviewer_refs_value, list):
+            raise external_task_dispatch.DispatchValidationError("复核人参数必须是列表")
         envelope = external_task_dispatch.TaskEnvelope(
             event_id=event_id.strip(),
             event_type=external_task_dispatch.EVENT_TYPE,
             source_system=external_task_dispatch.SOURCE_SYSTEM,
-            source_task_id=source_task_id.strip(),
+            source_task_id=resolved_source_task_id,
             task_name=task_name.strip(),
-            project_name=project_name.strip(),
+            project_name=resolved_project_name,
             skill_id=skill_id.strip(),
             skill_version=skill_version.strip(),
             delivery_mode=delivery_mode.strip(),
@@ -507,6 +516,7 @@ async def create_external_dispatch_task(
                 template_asset_id=str(file.filename or "").strip(),
                 template_version=template_version.strip(),
             ),
+            reviewer_refs=tuple(str(item).strip() for item in reviewer_refs_value if str(item).strip()),
         )
         task, created = service.create_and_deliver(
             envelope,

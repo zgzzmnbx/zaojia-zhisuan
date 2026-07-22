@@ -79,7 +79,11 @@ def service(tmp_path: Path):
     return dispatch, store, feishu, options
 
 
-def envelope(person_ref: str, **overrides: str) -> external_task_dispatch.TaskEnvelope:
+def envelope(person_ref: str, **overrides: object) -> external_task_dispatch.TaskEnvelope:
+    known_refs = [
+        "PM-" + __import__("hashlib").sha256(f"weact\n{user_id}".encode()).hexdigest()[:16].upper()
+        for user_id in ("ou-user-1", "ou-user-2")
+    ]
     values = {
         "event_id": "evt-001",
         "event_type": external_task_dispatch.EVENT_TYPE,
@@ -95,6 +99,7 @@ def envelope(person_ref: str, **overrides: str) -> external_task_dispatch.TaskEn
         "deadline": "2026-07-31T18:00:00+08:00",
         "instructions": "请按模板完成测试任务。",
         "input_artifact": external_task_dispatch.TaskArtifact("待填模板.xlsx", "v1.0"),
+        "reviewer_refs": tuple(ref for ref in known_refs if ref != person_ref),
     }
     values.update(overrides)
     return external_task_dispatch.TaskEnvelope(**values)
@@ -130,6 +135,13 @@ def test_full_group_delivery_copies_template_and_uses_classic_card(service):
     assert set(card) == {"config", "header", "elements"}
     assert "schema" not in card and "update_multi" not in card
     assert "<at id=ou-user-2>" in json.dumps(card, ensure_ascii=False)
+    claim_button = next(
+        action
+        for element in card["elements"] if element.get("tag") == "action"
+        for action in element["actions"] if action.get("value", {}).get("action") == "claim_external_task"
+    )
+    assert claim_button["text"]["content"] == "领取任务"
+    assert claim_button["value"]["task_id"] == task["task_id"]
     row = store.get_task(task["task_id"])
     task_path = dispatch.runtime_root / row["task_excel_path"]
     source_path = dispatch.runtime_root / row["template_source_path"]
@@ -255,6 +267,90 @@ def test_public_task_never_exposes_platform_identifiers(service):
     encoded = json.dumps(public, ensure_ascii=False)
     for secret in ("chat-test", "ou-user", "file_key", "token", "task_excel_path"):
         assert secret not in encoded
+
+
+def test_target_assignee_can_claim_once_and_card_becomes_read_only(service):
+    dispatch, store, _, options = service
+    task, _ = dispatch.create_and_deliver(
+        envelope(options["people"][0]["person_ref"]), file_name="a.xlsx", file_bytes=xlsx_bytes(),
+    )
+    stored = store.get_task(task["task_id"])
+    claimed, created = store.claim_task(
+        task["task_id"],
+        operator_open_id=stored["assignee_user_id"],
+        platform_profile_id="weact",
+    )
+    assert created is True
+    assert claimed["status"] == claimed["stage"] == "claimed"
+    assert claimed["claimed_at"]
+    public = external_task_dispatch.public_dispatch_task(claimed)
+    assert public["status_label"] == "已领取"
+    assert public["participants"] == [
+        {"role": "编制人", "name": "测试人员", "status": "已领取"},
+        {"role": "复核人", "name": "石萌", "status": "待编制"},
+    ]
+    repeated, repeated_created = store.claim_task(
+        task["task_id"],
+        operator_open_id=stored["assignee_user_id"],
+        platform_profile_id="weact",
+    )
+    assert repeated_created is False
+    assert repeated["claimed_at"] == claimed["claimed_at"]
+    claimed_card = external_task_dispatch.build_external_task_card(claimed)
+    assert "已领取" in json.dumps(claimed_card, ensure_ascii=False)
+    assert "领取任务" not in json.dumps(claimed_card, ensure_ascii=False)
+    assert "提交多人复核" in json.dumps(claimed_card, ensure_ascii=False)
+
+
+def test_multi_reviewer_flow_completes_only_after_every_reviewer_approves(service):
+    dispatch, store, _, options = service
+    compiler = options["people"][0]
+    reviewer = options["people"][1]
+    task, _ = dispatch.create_and_deliver(
+        envelope(compiler["person_ref"]), file_name="a.xlsx", file_bytes=xlsx_bytes(),
+    )
+    stored = store.get_task(task["task_id"])
+    store.claim_task(task["task_id"], operator_open_id=stored["assignee_user_id"], platform_profile_id="weact")
+    submitted, created = store.submit_for_review(
+        task["task_id"], operator_open_id=stored["assignee_user_id"], platform_profile_id="weact",
+    )
+    assert created is True and submitted["status"] == "pending_review" and submitted["review_round"] == 1
+    reviewer_row = store.get_person(reviewer["person_ref"], "weact")
+    completed, decided = store.review_task(
+        task["task_id"], operator_open_id=reviewer_row["platform_user_id"], platform_profile_id="weact", decision="approve",
+    )
+    assert decided is True and completed["status"] == "completed" and completed["completed_at"]
+    assert "复核通过" not in json.dumps(external_task_dispatch.build_external_review_card(completed), ensure_ascii=False)
+
+
+def test_reviewer_can_return_and_compiler_can_start_next_round(service):
+    dispatch, store, _, options = service
+    task, _ = dispatch.create_and_deliver(envelope(options["people"][0]["person_ref"]), file_name="a.xlsx", file_bytes=xlsx_bytes())
+    stored = store.get_task(task["task_id"])
+    store.claim_task(task["task_id"], operator_open_id=stored["assignee_user_id"], platform_profile_id="weact")
+    store.submit_for_review(task["task_id"], operator_open_id=stored["assignee_user_id"], platform_profile_id="weact")
+    reviewer = store.get_person(options["people"][1]["person_ref"], "weact")
+    returned, _ = store.review_task(task["task_id"], operator_open_id=reviewer["platform_user_id"], platform_profile_id="weact", decision="reject")
+    assert returned["status"] == "returned"
+    next_round, _ = store.submit_for_review(task["task_id"], operator_open_id=stored["assignee_user_id"], platform_profile_id="weact")
+    assert next_round["status"] == "pending_review" and next_round["review_round"] == 2
+
+
+def test_claim_rejects_wrong_person_and_platform(service):
+    dispatch, store, _, options = service
+    task, _ = dispatch.create_and_deliver(
+        envelope(options["people"][0]["person_ref"]), file_name="a.xlsx", file_bytes=xlsx_bytes(),
+    )
+    with pytest.raises(external_task_dispatch.DispatchValidationError, match="指定给其他编制人"):
+        store.claim_task(task["task_id"], operator_open_id="ou-other", platform_profile_id="weact")
+    with pytest.raises(external_task_dispatch.DispatchValidationError, match="其他平台"):
+        store.claim_task(task["task_id"], operator_open_id="ou-user-2", platform_profile_id="feishu")
+    assert store.get_task(task["task_id"])["status"] == "pending_claim"
+
+
+def test_simulator_defaults_have_stable_human_readable_prefixes():
+    assert external_task_dispatch.generate_dispatch_source_task_id().startswith("SIM-")
+    assert external_task_dispatch.generate_dispatch_project_name().startswith("项目-")
 
 
 def test_card_failure_is_persisted_without_crashing_other_capabilities(service):

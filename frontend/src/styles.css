@@ -10689,7 +10689,96 @@ tbody tr:hover .row-ai-cell {
 
 .shell.layout-daweiba .daweiba-external-dispatch-file {
   grid-column: span 2 !important;
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-width: 0;
+  color: var(--db-text-muted);
+  font-size: 12px;
 }
+
+.shell.layout-daweiba .daweiba-external-dispatch-file > span { color: var(--db-text-strong); font-weight: 600; }
+.shell.layout-daweiba .daweiba-external-dispatch-file > input.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.shell.layout-daweiba .daweiba-external-dispatch-file-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  padding: 5px 8px;
+  border: 1px solid var(--db-border);
+  border-radius: 8px;
+  background: #fff;
+}
+.shell.layout-daweiba .daweiba-external-dispatch-file-control label {
+  display: inline-flex;
+  grid-auto-flow: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 4px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  background: #f8fafc;
+  color: #1e293b;
+  font-weight: 600;
+  cursor: pointer;
+}
+.shell.layout-daweiba .daweiba-external-dispatch-file-control label:hover { background: #eef4fb; border-color: #94a3b8; }
+.shell.layout-daweiba .daweiba-external-dispatch-file-control strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #475569;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell.layout-daweiba .daweiba-external-dispatch-reviewers {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #dbe5f2;
+  border-radius: 10px;
+}
+
+.shell.layout-daweiba .daweiba-external-dispatch-reviewers legend {
+  padding: 0 5px;
+  color: #21324a;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.shell.layout-daweiba .daweiba-external-dispatch-reviewers > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.shell.layout-daweiba .daweiba-external-dispatch-reviewers > div label {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 1px solid #dbe5f2;
+  border-radius: 999px;
+  background: #f8fafc;
+}
+
+.shell.layout-daweiba .daweiba-external-dispatch-reviewers input { width: auto; min-height: 0; }
 
 .shell.layout-daweiba .daweiba-external-dispatch-table {
   width: 100%;
@@ -10701,8 +10790,8 @@ tbody tr:hover .row-ai-cell {
 
 .shell.layout-daweiba .daweiba-external-dispatch-table > div {
   display: grid;
-  grid-template-columns: 1.2fr 1.4fr .75fr .9fr 72px;
-  min-width: 760px;
+  grid-template-columns: 1.15fr 1.15fr 1.35fr .72fr .9fr 72px;
+  min-width: 920px;
   align-items: center;
   gap: 10px;
   min-height: 44px;
@@ -10738,6 +10827,18 @@ tbody tr:hover .row-ai-cell {
 
 .shell.layout-daweiba .daweiba-external-dispatch-table b.is-success { color: #166534; }
 .shell.layout-daweiba .daweiba-external-dispatch-table b.is-error { color: #b91c1c; }
+.shell.layout-daweiba .daweiba-external-dispatch-table .daweiba-external-dispatch-person {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.shell.layout-daweiba .daweiba-external-dispatch-table .daweiba-external-dispatch-person b {
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 10px;
+}
 .shell.layout-daweiba .daweiba-external-dispatch-table .ghost-button { min-height: 28px; padding: 0 8px; }
 
 .shell.layout-daweiba .daweiba-collaboration-settings.is-webhook-layer {
