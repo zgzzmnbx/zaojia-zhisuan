@@ -28,6 +28,7 @@ class FakeFeishu:
         }
         self.cards: list[tuple[str, str, dict]] = []
         self.files: list[tuple[str, str, Path]] = []
+        self.delivery_events: list[str] = []
         self.fail_card = False
         self.fail_file = False
         self.card_error = ""
@@ -48,6 +49,7 @@ class FakeFeishu:
     def send_card_to(self, receive_id: str, receive_id_type: str, card: dict) -> str:
         if self.fail_card:
             raise RuntimeError(self.card_error or "卡片发送失败 token=secret")
+        self.delivery_events.append("card")
         self.cards.append((receive_id, receive_id_type, card))
         return f"card-{len(self.cards)}"
 
@@ -55,6 +57,7 @@ class FakeFeishu:
         if self.fail_file:
             raise RuntimeError("文件发送失败 token=secret")
         assert path.is_file()
+        self.delivery_events.append("file")
         self.files.append((receive_id, receive_id_type, path))
         return f"file-{len(self.files)}"
 
@@ -264,9 +267,12 @@ def test_full_group_delivery_copies_template_and_uses_classic_card(service):
     assert task["status"] == "pending_claim"
     assert task["card_status"] == task["file_status"] == "sent"
     assert len(feishu.cards) == len(feishu.files) == 1
+    assert feishu.delivery_events == ["file", "card"]
     card = feishu.cards[0][2]
     assert set(card) == {"config", "header", "elements"}
     assert "schema" not in card and "update_multi" not in card
+    assert "待领取" in json.dumps(card, ensure_ascii=False)
+    assert "投递中" not in json.dumps(card, ensure_ascii=False)
     assert "<at id=ou-user-2>" in json.dumps(card, ensure_ascii=False)
     claim_button = next(
         action
@@ -296,18 +302,20 @@ def test_business_idempotency_does_not_send_twice(service):
     assert len(feishu.cards) == len(feishu.files) == 1
 
 
-def test_retry_only_resends_failed_file_step(service):
+def test_file_failure_does_not_expose_claim_card_and_retry_finishes_in_order(service):
     dispatch, _, feishu, options = service
     feishu.fail_file = True
     task, _ = dispatch.create_and_deliver(
         envelope(options["people"][0]["person_ref"]), file_name="a.xlsx", file_bytes=xlsx_bytes(),
     )
     assert task["status"] == "dispatch_failed"
-    assert task["card_status"] == "sent" and task["file_status"] == "pending"
+    assert task["card_status"] == task["file_status"] == "pending"
+    assert not feishu.cards
     feishu.fail_file = False
     retried = dispatch.retry(task["task_id"])
     assert retried["status"] == "pending_claim"
     assert len(feishu.cards) == 1 and len(feishu.files) == 1
+    assert feishu.delivery_events == ["file", "card"]
     assert retried["delivery_retry_count"] == 1
 
 
@@ -335,6 +343,7 @@ def test_mixed_stage_policy_delivers_each_artifact_to_selected_channels(service)
     assert created is True
     assert task["delivery_mode"] == "mixed"
     assert task["delivery_policy"] == policy
+    assert feishu.delivery_events == ["file", "card", "card"]
     assert [(receive_id, receive_type) for receive_id, receive_type, _ in feishu.cards] == [
         ("chat-test", "chat_id"),
         ("ou-user-2", "open_id"),
@@ -396,6 +405,7 @@ def test_mixed_delivery_retry_skips_already_sent_group_target(tmp_path: Path):
         file_bytes=xlsx_bytes(),
     )
     assert task["status"] == "dispatch_failed"
+    assert feishu.delivery_events == ["file", "card"]
     assert [(target, target_type) for target, target_type, _ in feishu.cards] == [("chat-test", "chat_id")]
 
     retried = dispatch.retry(task["task_id"])
@@ -405,6 +415,7 @@ def test_mixed_delivery_retry_skips_already_sent_group_target(tmp_path: Path):
         ("ou-user-2", "open_id"),
     ]
     assert [(target, target_type) for target, target_type, _ in feishu.files] == [("chat-test", "chat_id")]
+    assert feishu.delivery_events == ["file", "card", "card"]
     assert retried["delivery_retry_count"] == 1
 
 
@@ -479,9 +490,9 @@ def test_direct_delivery_records_permission_or_unreachable_failure(service, plat
     )
     assert created is True
     assert task["status"] == "dispatch_failed"
-    assert task["card_status"] == task["file_status"] == "pending"
+    assert task["card_status"] == "pending" and task["file_status"] == "sent"
     assert task["error"] == platform_error
-    assert not feishu.files
+    assert len(feishu.files) == 1
 
 
 def test_inactive_skill_and_profile_mismatch_are_rejected(service):
@@ -557,6 +568,25 @@ def test_target_assignee_can_claim_once_and_card_becomes_read_only(service):
     assert "已领取" in json.dumps(claimed_card, ensure_ascii=False)
     assert "领取任务" not in json.dumps(claimed_card, ensure_ascii=False)
     assert "提交成果并进入复核" in json.dumps(claimed_card, ensure_ascii=False)
+
+
+def test_claim_accepts_delivered_card_before_card_status_persistence_finishes(service):
+    dispatch, store, _, options = service
+    task, _ = dispatch.create_and_deliver(
+        envelope(options["people"][0]["person_ref"]),
+        file_name="a.xlsx",
+        file_bytes=xlsx_bytes(),
+    )
+    stored = store.update_delivery(task["task_id"], card_status="pending")
+
+    claimed, created = store.claim_task(
+        task["task_id"],
+        operator_open_id=stored["assignee_user_id"],
+        platform_profile_id="weact",
+    )
+
+    assert created is True
+    assert claimed["status"] == "claimed"
 
 
 def test_submission_window_binds_result_file_before_review(service):

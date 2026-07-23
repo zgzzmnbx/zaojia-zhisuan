@@ -46,7 +46,7 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.14.5";
+const APP_VERSION = "v5.14.6";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const KNOWLEDGE_QA_ENTRY_COUNT = 3922;
 const KNOWLEDGE_QA_SOURCE_COUNT = 17;
@@ -9490,7 +9490,7 @@ function DaweibaApp() {
                 <div className="is-wide daweiba-external-dispatch-file"><span>待填 Excel 模板</span><div className="daweiba-external-dispatch-file-control"><label htmlFor="external-dispatch-file"><Upload size={15} />{externalDispatchFile || file?.name.toLowerCase().endsWith(".xlsx") ? "更换文件" : "选择文件"}</label><strong>{externalDispatchFile?.name ?? (file?.name.toLowerCase().endsWith(".xlsx") ? `${file.name}（沿用刚刚上传）` : "尚未选择")}</strong></div><input id="external-dispatch-file" className="visually-hidden" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => setExternalDispatchFile(event.target.files?.[0] ?? null)} /><small>默认沿用本次会话刚上传的 .xlsx；另选后仅覆盖当前派发模板。原文件只读留存，任务使用独立副本。</small></div>
               </div>
               <div className="daweiba-collaboration-actions">
-                <button className="ghost-button" type="button" disabled={isCreatingExternalDispatch || !externalDispatchOptions} onClick={() => void createExternalDispatchTask()}>{isCreatingExternalDispatch ? <Loader2 size={16} className="spin" /> : <Send size={16} />}创建并投递任务</button>
+                <button className="primary-button" type="button" disabled={isCreatingExternalDispatch || !externalDispatchOptions} onClick={() => void createExternalDispatchTask()}>{isCreatingExternalDispatch ? <Loader2 size={16} className="spin" /> : <Send size={16} />}创建并投递任务</button>
                 <button className="ghost-button" type="button" disabled={isLoadingExternalDispatch} onClick={() => void loadExternalDispatchData(undefined, true)}><RefreshCw size={16} className={isLoadingExternalDispatch ? "spin" : ""} />读取群与成员</button>
               </div>
               {externalDispatchFeedback && <p className={`daweiba-collaboration-feedback ${/(失败|拒绝|异常|未找到)/.test(externalDispatchFeedback) ? "is-error" : ""}`}>{externalDispatchFeedback}</p>}

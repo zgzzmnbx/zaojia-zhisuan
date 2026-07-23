@@ -215,6 +215,7 @@ def main() -> int:
         return 2
 
     store = TaskStore(DB_PATH)
+    dispatch_store = external_task_dispatch.ExternalDispatchStore(DB_PATH)
     recovered = store.recover_interrupted()
     cleanup_expired(store)
     domain = credentials.get("domain") or "https://open.feishu.cn"
@@ -561,7 +562,6 @@ def main() -> int:
             form_value = form_value.to_dict()
         if not isinstance(form_value, dict):
             form_value = {}
-        dispatch_store = external_task_dispatch.ExternalDispatchStore()
         try:
             if action_name == "submit_external_review":
                 review_task, created = dispatch_store.open_submission_window(

@@ -441,7 +441,7 @@ class ExternalDispatchStore:
                 raise DispatchValidationError("该任务已指定给其他编制人，您不能领取", status_code=403)
             if task.get("status") == "claimed":
                 return self._with_reviewers(task), False
-            if task.get("status") != "pending_claim" or task.get("card_status") != "sent" or task.get("file_status") != "sent":
+            if task.get("status") != "pending_claim" or task.get("file_status") != "sent":
                 raise DispatchValidationError("任务尚未完成投递，暂时不能领取", status_code=409)
             connection.execute(
                 "UPDATE tasks SET status='claimed',stage='claimed',claimed_at=?,updated_at=? WHERE task_id=? AND task_kind=?",
@@ -1116,8 +1116,29 @@ class ExternalTaskDispatchService:
                 target_chat_id=target_chat_id,
                 target_chat_name=target_chat_name,
             )
+            if task["file_status"] != "sent":
+                try:
+                    path = self.runtime_root / str(task["task_excel_path"])
+                    task, message_ids = self._deliver_stage(
+                        task,
+                        "task_file",
+                        lambda receive_id, receive_id_type: self.feishu.send_file_to(receive_id, receive_id_type, path),
+                    )
+                    task = self.store.update_delivery(
+                        task_id,
+                        file_status="sent",
+                        file_message_id=json.dumps(message_ids, ensure_ascii=False),
+                    )
+                except Exception as exc:
+                    return self._delivery_failed(task_id, "file", exc)
             if task["card_status"] != "sent":
                 try:
+                    task = self.store.update_delivery(
+                        task_id,
+                        status="pending_claim",
+                        stage="pending_claim",
+                        delivery_error="",
+                    )
                     task, message_ids = self._deliver_stage(
                         task,
                         "task_card",
@@ -1134,21 +1155,8 @@ class ExternalTaskDispatchService:
                     )
                 except Exception as exc:
                     return self._delivery_failed(task_id, "card", exc)
-            if task["file_status"] != "sent":
-                try:
-                    path = self.runtime_root / str(task["task_excel_path"])
-                    task, message_ids = self._deliver_stage(
-                        task,
-                        "task_file",
-                        lambda receive_id, receive_id_type: self.feishu.send_file_to(receive_id, receive_id_type, path),
-                    )
-                    task = self.store.update_delivery(
-                        task_id,
-                        file_status="sent",
-                        file_message_id=json.dumps(message_ids, ensure_ascii=False),
-                    )
-                except Exception as exc:
-                    return self._delivery_failed(task_id, "file", exc)
+            if task.get("status") != "pending_claim":
+                return task
             return self.store.update_delivery(
                 task_id,
                 status="pending_claim",
