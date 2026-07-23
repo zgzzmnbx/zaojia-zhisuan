@@ -128,7 +128,7 @@ python tools/check_prd_consistency.py --strict
 - P0 产品设计和新任务开发交接已完成；左侧继续使用“填价工作台”，中间增加“项目看板｜新建填价”双视图，不新增一级菜单。
 - 项目看板将建立真实项目台账，严格区分项目、处理任务、业务版本和复核轮次，并汇总网页、对话式工作台和智能协同任务。
 - 首屏规划真实 KPI、项目趋势柱状图、状态环形图、风险排行、匹配质量和历史项目表；图表与列表共用后端筛选口径，不使用前端假数据。
-- 视觉参考指定 Mobbin Dashboard 的筛选、分析网格、强数字和趋势图节奏，最终颜色、字体、圆角、边框和状态语义仍服从项目 UI 规范。
+- 视觉参考指定 Mobbin Dashboard 的信息组织，并以 shadcn/ui preset `b27I2r68` 的 Rhea / Neutral / Blue / Inter / Lucide 作为组件质感基准；采用 `.project-dashboard` 局部转译，不全量引入 Tailwind / shadcn，最终颜色、状态语义和响应式仍服从项目 UI 规范。
 
 详细需求和开发交接见：
 

@@ -199,9 +199,10 @@ Excel 工作台 + 规则审查台 + AI 复核助手 + 成果输出中心
 
 ```text
 01-assets/01-UI参考图/00-reference/【设计资源】mobbin下载-压缩包/【网页】SaaS、Pc软件/【mobbin合集】-Dashboard页-前100下载/Web Screens 11.png
+https://ui.shadcn.com/create?preset=b27I2r68
 ```
 
-吸收参考图的紧凑时间筛选、周期对比、统一分析网格、小标题＋强数字＋趋势图和稳定基线；不照搬 Shopify 品牌、黑色顶栏、绿色品牌色和电商指标。最终仍执行造价智算的白底、细边框、低圆角、无常驻阴影、深蓝主操作和固定业务状态色。
+吸收 Mobbin 参考图的紧凑时间筛选、周期对比、统一分析网格、小标题＋强数字＋趋势图和稳定基线；吸收 shadcn/ui preset `b27I2r68` 的 Rhea、Neutral、Blue、Inter、Lucide、默认圆角和 subtle 菜单语言。不照搬 Shopify 品牌、黑色顶栏、绿色品牌色和电商指标，也不在现有前端全量执行 shadcn preset。最终仍执行造价智算的白底、细边框、低圆角、无常驻阴影、深蓝主操作和固定业务状态色，并以 `.project-dashboard` 局部作用域防止影响其他页面。
 
 右侧“随行助手 / 智算”窗口要求：
 
