@@ -22,6 +22,148 @@ from app.feishu_app_bot import (
 from app import external_task_dispatch
 
 
+def deliver_external_review_bundle(
+    task_id: str,
+    *,
+    profile_id: str,
+    feishu: FeishuApi,
+) -> dict:
+    dispatch_store = external_task_dispatch.ExternalDispatchStore()
+    task = dispatch_store.get_task(task_id)
+    if not task:
+        raise external_task_dispatch.DispatchValidationError("未找到外部派发任务", status_code=404)
+    result_path = Path(str(task.get("submission_excel_path") or ""))
+    if not result_path.is_file():
+        raise external_task_dispatch.DispatchValidationError("编制成果文件不存在，无法发起复核", status_code=409)
+    try:
+        file_message_ids: list[str] = []
+        card_message_ids: list[str] = []
+        for receive_id, receive_id_type in external_task_dispatch.review_delivery_targets(task):
+            file_message_ids.append(feishu.send_file_to(receive_id, receive_id_type, result_path))
+            card_message_ids.append(
+                feishu.send_card_to(
+                    receive_id,
+                    receive_id_type,
+                    external_task_dispatch.build_external_review_card(task),
+                )
+            )
+        dispatch_store.record_attempt(task_id, "review_file", "sent")
+        dispatch_store.mark_submission_delivery(task_id, status="sent", message_ids=file_message_ids)
+        dispatch_store.record_attempt(task_id, "review_card", "sent")
+        task = dispatch_store.mark_review_card(
+            task_id,
+            status="sent",
+            message_id=json.dumps([item for item in card_message_ids if item], ensure_ascii=False),
+        )
+        append_runtime_event(
+            "task",
+            f"外部任务 {task_id} 的编制成果和第 {task.get('review_round')} 轮复核卡已投递",
+            level="success",
+            task_id=task_id,
+            profile_id=profile_id,
+        )
+        return task
+    except Exception as exc:
+        dispatch_store.record_attempt(task_id, "review_bundle", "failed", str(exc))
+        dispatch_store.mark_submission_delivery(task_id, status="failed", error=exc)
+        dispatch_store.rollback_review_submission(task_id, exc)
+        raise
+
+
+def deliver_external_completion_notification(
+    task_id: str,
+    *,
+    profile_id: str,
+    feishu: FeishuApi,
+) -> None:
+    dispatch_store = external_task_dispatch.ExternalDispatchStore()
+    task = dispatch_store.get_task(task_id)
+    if not task:
+        return
+    try:
+        message_ids = [
+            feishu.send_card_to(
+                receive_id,
+                receive_id_type,
+                external_task_dispatch.build_external_review_card(task),
+            )
+            for receive_id, receive_id_type in external_task_dispatch.completion_delivery_targets(task)
+        ]
+        dispatch_store.record_attempt(task_id, "completion_card", "sent")
+        dispatch_store.mark_completion_card(
+            task_id,
+            status="sent",
+            message_id=json.dumps([item for item in message_ids if item], ensure_ascii=False),
+        )
+    except Exception as exc:
+        dispatch_store.record_attempt(task_id, "completion_card", "failed", str(exc))
+        dispatch_store.mark_completion_card(task_id, status="failed", error=str(exc))
+        append_runtime_event(
+            "task",
+            f"外部任务 {task_id} 结论已保存，但完结通知发送失败：{external_task_dispatch.sanitize_dispatch_error(exc)}",
+            level="warning",
+            task_id=task_id,
+            profile_id=profile_id,
+        )
+
+
+def process_external_submission_event(
+    envelope,
+    *,
+    profile_id: str,
+    feishu: FeishuApi,
+) -> None:
+    dispatch_store = external_task_dispatch.ExternalDispatchStore()
+    is_private = envelope.chat_type in {"p2p", "private", "single"}
+    task = dispatch_store.find_submission_window(
+        operator_open_id=envelope.sender_id,
+        platform_profile_id=profile_id,
+        chat_id=envelope.chat_id,
+        is_private=is_private,
+        sent_at=envelope.message_created_at or utc_now(),
+    )
+    if not task or len(envelope.files) != 1:
+        return
+    file_key, file_name = envelope.files[0]
+    target_path = dispatch_store.submission_target_path(task, file_name)
+    try:
+        feishu.download_file(envelope.message_id, file_key, target_path)
+        dispatch_store.attach_submission(
+            str(task["task_id"]),
+            operator_open_id=envelope.sender_id,
+            platform_profile_id=profile_id,
+            message_id=envelope.message_id,
+            file_name=file_name,
+            file_path=target_path,
+        )
+        review_task, created = dispatch_store.submit_for_review(
+            str(task["task_id"]),
+            operator_open_id=envelope.sender_id,
+            platform_profile_id=profile_id,
+        )
+        if created:
+            deliver_external_review_bundle(str(task["task_id"]), profile_id=profile_id, feishu=feishu)
+        feishu.send_text(
+            envelope.chat_id,
+            f"已收到任务 {task['task_id']} 的编制成果，已进入第 {review_task.get('review_round')} 轮多人复核。",
+        )
+    except Exception as exc:
+        append_runtime_event(
+            "task",
+            f"外部任务 {task.get('task_id')} 编制成果接收或复核投递失败：{external_task_dispatch.sanitize_dispatch_error(exc)}",
+            level="error",
+            task_id=str(task.get("task_id") or ""),
+            profile_id=profile_id,
+        )
+        try:
+            feishu.send_text(
+                envelope.chat_id,
+                f"任务 {task.get('task_id')} 的编制成果提交失败：{external_task_dispatch.sanitize_dispatch_error(exc)}",
+            )
+        except Exception:
+            pass
+
+
 def main() -> int:
     defaults = load_bot_defaults()
     credentials = load_credentials()
@@ -184,6 +326,17 @@ def main() -> int:
 
         try:
             envelope = parse_message_envelope(data)
+            dispatch_store = external_task_dispatch.ExternalDispatchStore()
+            is_private = envelope.chat_type in {"p2p", "private", "single"}
+            external_submission_task = None
+            if len(envelope.files) == 1 and Path(envelope.files[0][1]).suffix.lower() == ".xlsx":
+                external_submission_task = dispatch_store.find_submission_window(
+                    operator_open_id=envelope.sender_id,
+                    platform_profile_id=profile_id,
+                    chat_id=envelope.chat_id,
+                    is_private=is_private,
+                    sent_at=envelope.message_created_at or received_at,
+                )
             accepted, duplicate_key = store.record_inbound_message(
                 event_id=envelope.event_id,
                 message_id=envelope.message_id,
@@ -209,7 +362,12 @@ def main() -> int:
                 store,
                 received_at=received_at,
             )
-            if stale and not delayed_pending_file:
+            delayed_external_submission = (
+                stale
+                and external_submission_task is not None
+                and not message_is_stale(envelope, received_at=received_at, max_age_seconds=15 * 60)
+            )
+            if stale and not delayed_pending_file and not delayed_external_submission:
                 append_runtime_event(
                     "message",
                     "过期消息已静默拦截（平台创建时间超过 5 分钟）｜" + event_context(),
@@ -224,6 +382,33 @@ def main() -> int:
                     level="warning",
                     profile_id=profile_id,
                 )
+            if delayed_external_submission:
+                append_runtime_event(
+                    "message",
+                    "平台延迟的编制成果文件已通过原 1 分钟提交窗口校验｜" + event_context(),
+                    level="warning",
+                    task_id=str(external_submission_task.get("task_id") or ""),
+                    profile_id=profile_id,
+                )
+            if external_submission_task is not None:
+                schedule_acknowledgement(
+                    data,
+                    received_at=received_at,
+                    validated_pending_file=True,
+                )
+                append_runtime_event(
+                    "message",
+                    "收到编制成果 Excel，正在绑定任务并投递多人复核｜" + event_context(),
+                    task_id=str(external_submission_task.get("task_id") or ""),
+                    profile_id=profile_id,
+                )
+                threading.Thread(
+                    target=process_external_submission_event,
+                    kwargs={"envelope": envelope, "profile_id": profile_id, "feishu": feishu},
+                    name="feishu-external-review-submission",
+                    daemon=True,
+                ).start()
+                return
             pending_file = bool(envelope.files) and store.matches_upload_window(
                 envelope.chat_id,
                 envelope.sender_id,
@@ -350,25 +535,20 @@ def main() -> int:
         dispatch_store = external_task_dispatch.ExternalDispatchStore()
         try:
             if action_name == "submit_external_review":
-                review_task, created = dispatch_store.submit_for_review(
+                review_task, created = dispatch_store.open_submission_window(
                     task_id, operator_open_id=operator_open_id, platform_profile_id=profile_id,
                 )
-                if created:
-                    chat_id = str(review_task.get("target_chat_id") or "").strip()
-                    if not chat_id or str(review_task.get("target_chat_name") or "") != external_task_dispatch.AUTHORIZED_TEST_GROUP_NAME:
-                        dispatch_store.rollback_review_submission(task_id, "复核卡片仅允许投递到唯一授权群")
-                        raise external_task_dispatch.DispatchValidationError("复核卡片仅允许投递到唯一授权群", status_code=409)
-                    try:
-                        message_id = feishu.send_card_to(chat_id, "chat_id", external_task_dispatch.build_external_review_card(review_task))
-                        dispatch_store.record_attempt(task_id, "review_card", "sent")
-                        review_task = dispatch_store.mark_review_card(task_id, status="sent", message_id=message_id or "")
-                    except Exception as exc:
-                        dispatch_store.record_attempt(task_id, "review_card", "failed", str(exc))
-                        dispatch_store.rollback_review_submission(task_id, exc)
-                        raise external_task_dispatch.DispatchValidationError(f"复核卡片发送失败：{external_task_dispatch.sanitize_dispatch_error(exc)}", status_code=502) from exc
-                append_runtime_event("task", f"外部任务 {task_id} 已提交第 {review_task.get('review_round')} 轮多人复核", task_id=task_id, profile_id=profile_id)
+                append_runtime_event(
+                    "task",
+                    f"外部任务 {task_id} 已开启 1 分钟编制成果接收窗口",
+                    task_id=task_id,
+                    profile_id=profile_id,
+                )
                 return P2CardActionTriggerResponse({
-                    "toast": {"type": "success", "content": "已提交多人复核。" if created else "任务已在复核中。"},
+                    "toast": {
+                        "type": "success",
+                        "content": "请在 1 分钟内发送编制完成的 .xlsx 文件。" if created else "正在等待您的 .xlsx 文件。",
+                    },
                     "card": {"type": "raw", "data": external_task_dispatch.build_external_task_card(review_task, app_url=load_completion_card_app_url())},
                 })
             if action_name == "review_external_task":
@@ -377,6 +557,13 @@ def main() -> int:
                     task_id, operator_open_id=operator_open_id, platform_profile_id=profile_id, decision=decision,
                 )
                 result_text = "复核通过" if decision == "approve" else "已退回编制"
+                if created and str(reviewed_task.get("status") or "") in {"completed", "returned"}:
+                    threading.Thread(
+                        target=deliver_external_completion_notification,
+                        kwargs={"task_id": task_id, "profile_id": profile_id, "feishu": feishu},
+                        name="feishu-external-completion-delivery",
+                        daemon=True,
+                    ).start()
                 append_runtime_event("task", f"外部任务 {task_id}：{result_text}", task_id=task_id, profile_id=profile_id)
                 return P2CardActionTriggerResponse({
                     "toast": {"type": "success", "content": result_text if created else "本轮结论已记录。"},
@@ -402,7 +589,7 @@ def main() -> int:
         except external_task_dispatch.DispatchValidationError as exc:
             append_runtime_event(
                 "task",
-                f"外部任务领取被拒绝：{task_id or '缺少任务编号'}（{exc}）",
+                f"外部任务卡片操作被拒绝：{task_id or '缺少任务编号'}（{exc}）",
                 level="warning",
                 task_id=task_id,
                 profile_id=profile_id,

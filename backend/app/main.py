@@ -126,7 +126,7 @@ from .professional_skills import (
 from .report import append_risk_report, write_report
 
 
-APP_VERSION = "v5.14.2"
+APP_VERSION = "v5.14.3"
 OUTPUT_FILE_PREFIX = "【输出】"
 TEMP_FILE_PREFIX = "【临时】"
 PROCESS_STATE_FILENAME = "process-state.json"
@@ -433,14 +433,17 @@ def update_feishu_app_bot_settings(payload: dict[str, object] = Body(...)) -> di
 
 
 @app.get("/api/collaboration/external-dispatch/options")
-def get_external_dispatch_options(profile_id: str | None = Query(default=None)) -> dict[str, object]:
+def get_external_dispatch_options(
+    profile_id: str | None = Query(default=None),
+    refresh_directory: bool = Query(default=False),
+) -> dict[str, object]:
     try:
         service = external_task_dispatch.build_service(
             registry=PROFESSIONAL_SKILL_REGISTRY,
             profile_id=profile_id,
         )
         return {
-            **service.options(),
+            **service.options(refresh_directory=refresh_directory),
             "active_profile": service.profile_id,
             "platforms": external_task_dispatch.configured_platforms(),
             "skills": [
@@ -472,6 +475,7 @@ async def create_external_dispatch_task(
     skill_id: str = Form(...),
     skill_version: str = Form(default=""),
     delivery_mode: str = Form(default="group"),
+    delivery_policy_json: str = Form(default="{}"),
     platform_profile_id: str = Form(...),
     assignee_ref: str = Form(...),
     reviewer_refs_json: str = Form(default="[]"),
@@ -498,6 +502,12 @@ async def create_external_dispatch_task(
             raise external_task_dispatch.DispatchValidationError("复核人参数格式无效") from exc
         if not isinstance(reviewer_refs_value, list):
             raise external_task_dispatch.DispatchValidationError("复核人参数必须是列表")
+        try:
+            delivery_policy_value = json.loads(delivery_policy_json)
+        except json.JSONDecodeError as exc:
+            raise external_task_dispatch.DispatchValidationError("投递策略参数格式无效") from exc
+        if not isinstance(delivery_policy_value, dict):
+            raise external_task_dispatch.DispatchValidationError("投递策略参数必须是对象")
         envelope = external_task_dispatch.TaskEnvelope(
             event_id=event_id.strip(),
             event_type=external_task_dispatch.EVENT_TYPE,
@@ -517,6 +527,7 @@ async def create_external_dispatch_task(
                 template_version=template_version.strip(),
             ),
             reviewer_refs=tuple(str(item).strip() for item in reviewer_refs_value if str(item).strip()),
+            delivery_policy=delivery_policy_value,
         )
         task, created = service.create_and_deliver(
             envelope,

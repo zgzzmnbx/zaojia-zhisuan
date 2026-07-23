@@ -46,7 +46,7 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.14.2";
+const APP_VERSION = "v5.14.3";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const KNOWLEDGE_QA_ENTRY_COUNT = 3922;
 const KNOWLEDGE_QA_SOURCE_COUNT = 17;
@@ -348,13 +348,32 @@ type FeishuAppBotProfile = { profile_id: string; label: string; app_id_suffix?: 
 type FeishuAppBotTask = { task_id: string; file_name: string; status: string; stage: string; error?: string; created_at: string; updated_at: string; risk_total?: number; risk_high?: number; };
 type FeishuAppBotStatus = { configured: boolean; profile_consistent?: boolean; configuration_error?: string; enabled: boolean; running: boolean; active_profile: string; profiles: FeishuAppBotProfile[]; connection_mode: string; concurrency: number; retention_days: number; counts: Record<string, number>; current_task?: FeishuAppBotTask | null; recent_tasks: FeishuAppBotTask[]; };
 type ExternalDispatchPerson = { person_ref: string; display_name: string };
+type ExternalDeliveryStage = "task_card" | "task_file" | "review_card" | "completion_card";
+type ExternalDeliveryChannel = "group" | "direct";
+type ExternalDeliveryPolicy = Record<ExternalDeliveryStage, { group: boolean; direct: boolean }>;
+type ExternalDeliveryPreset = "mixed" | "group" | "direct" | "custom";
 type ExternalDispatchPlatform = { profile_id: string; label: string; domain_host?: string; configuration_ok: boolean };
+type ExternalDispatchGroup = {
+  group_ref: string;
+  name: string;
+  member_count: number;
+  members_available: boolean;
+  authorized: boolean;
+  people: ExternalDispatchPerson[];
+};
 type ExternalDispatchOptions = {
   source_system: string;
   event_type: string;
   active_profile: string;
   target_group: { name: string; available: boolean };
   people: ExternalDispatchPerson[];
+  directory: {
+    updated_at: string;
+    source: "live" | "cache";
+    refresh_error?: string;
+    groups: ExternalDispatchGroup[];
+    people: ExternalDispatchPerson[];
+  };
   direct_delivery: { status: "available" | "pending_verification"; label: string };
   platforms: ExternalDispatchPlatform[];
   skills: ProfessionalSkillSummary[];
@@ -365,7 +384,8 @@ type ExternalDispatchTask = {
   task_name: string;
   project_name: string;
   skill: { id: string; version: string };
-  delivery_mode: "group" | "direct";
+  delivery_mode: "group" | "direct" | "mixed";
+  delivery_policy?: Record<ExternalDeliveryStage, ExternalDeliveryChannel[]>;
   platform: string;
   target_group_name: string;
   assignee_name: string;
@@ -385,6 +405,9 @@ type ExternalDispatchTask = {
   claimed_at?: string;
   review_round?: number;
   review_card_status?: string;
+  completion_card_status?: string;
+  submission_file_name?: string;
+  submission_delivery_status?: string;
   completed_at?: string;
   can_retry: boolean;
 };
@@ -486,6 +509,19 @@ type ChatMessage = {
   rowDetailContext?: RowAiContext;
   knowledgeCandidate?: KnowledgeCandidateSeed;
   projectMemories?: ProjectMemory[];
+  attachment?: ChatFileAttachment;
+  inlineAction?: ChatInlineAction;
+};
+
+type ChatFileAttachment = {
+  name: string;
+  size: number;
+  type: string;
+};
+
+type ChatInlineAction = {
+  type: "start-conversion";
+  fileName: string;
 };
 
 type ZhisuanCommand = "batch-match" | "experience-warning" | "risk-report" | "download-excel" | "download-word";
@@ -1672,6 +1708,28 @@ function generateExternalDispatchProjectName() {
   return `项目-${randomExternalDispatchCode(6)}`;
 }
 
+const EXTERNAL_DELIVERY_STAGES: Array<{ id: ExternalDeliveryStage; label: string; audience: string }> = [
+  { id: "task_card", label: "新任务卡", audience: "编制人" },
+  { id: "task_file", label: "待填 Excel", audience: "编制人" },
+  { id: "review_card", label: "多人复核卡", audience: "全部复核人" },
+  { id: "completion_card", label: "完成／退回通知", audience: "编制人和复核人" },
+];
+
+function externalDeliveryPolicyForPreset(preset: Exclude<ExternalDeliveryPreset, "custom">): ExternalDeliveryPolicy {
+  if (preset === "group") {
+    return Object.fromEntries(EXTERNAL_DELIVERY_STAGES.map((stage) => [stage.id, { group: true, direct: false }])) as ExternalDeliveryPolicy;
+  }
+  if (preset === "direct") {
+    return Object.fromEntries(EXTERNAL_DELIVERY_STAGES.map((stage) => [stage.id, { group: false, direct: true }])) as ExternalDeliveryPolicy;
+  }
+  return {
+    task_card: { group: true, direct: false },
+    task_file: { group: true, direct: false },
+    review_card: { group: false, direct: true },
+    completion_card: { group: true, direct: true },
+  };
+}
+
 export function App() {
   if (window.location.pathname === "/v2-preview") {
     return <DaweibaLayoutV2 />;
@@ -1739,7 +1797,7 @@ function DaweibaApp() {
   const [rowAiAnswer, setRowAiAnswer] = useState("");
   const [isRowAiLoading, setIsRowAiLoading] = useState(false);
   const [rowAiDetailPrompt, setRowAiDetailPrompt] = useState<RowAiContext | null>(null);
-  const [activeDaweibaModule, setActiveDaweibaModule] = useState<DaweibaModuleId>("fill");
+  const [activeDaweibaModule, setActiveDaweibaModule] = useState<DaweibaModuleId>("agent");
   const [digitalProjectAssistantFrameKey, setDigitalProjectAssistantFrameKey] = useState(0);
   const [digitalProjectAssistantFrameStatus, setDigitalProjectAssistantFrameStatus] = useState<"loading" | "ready" | "timeout">("loading");
   const [feishuWebhookStatus, setFeishuWebhookStatus] = useState<FeishuWebhookStatus>(EMPTY_FEISHU_WEBHOOK_STATUS);
@@ -1759,10 +1817,13 @@ function DaweibaApp() {
   const [externalDispatchPlatforms, setExternalDispatchPlatforms] = useState<ExternalDispatchPlatform[]>([]);
   const [externalDispatchTasks, setExternalDispatchTasks] = useState<ExternalDispatchTask[]>([]);
   const [externalDispatchProfile, setExternalDispatchProfile] = useState("");
+  const [externalDispatchGroup, setExternalDispatchGroup] = useState("");
+  const [externalDispatchPeopleSource, setExternalDispatchPeopleSource] = useState<"group" | "all">("group");
   const [externalDispatchPerson, setExternalDispatchPerson] = useState("");
   const [externalDispatchReviewers, setExternalDispatchReviewers] = useState<string[]>([]);
   const [externalDispatchSkill, setExternalDispatchSkill] = useState("");
-  const [externalDispatchMode, setExternalDispatchMode] = useState<"group" | "direct">("group");
+  const [externalDeliveryPreset, setExternalDeliveryPreset] = useState<ExternalDeliveryPreset>("mixed");
+  const [externalDeliveryPolicy, setExternalDeliveryPolicy] = useState<ExternalDeliveryPolicy>(() => externalDeliveryPolicyForPreset("mixed"));
   const [externalDispatchSourceTaskId, setExternalDispatchSourceTaskId] = useState(generateExternalDispatchSourceTaskId);
   const [externalDispatchTaskName, setExternalDispatchTaskName] = useState("勘察测量限价编制");
   const [externalDispatchProjectName, setExternalDispatchProjectName] = useState(generateExternalDispatchProjectName);
@@ -1905,8 +1966,8 @@ function DaweibaApp() {
   const previousDaweibaModuleRef = useRef<Exclude<DaweibaModuleId, "agent">>("fill");
   const didWelcomeRef = useRef(false);
   const lastProcessingStageRef = useRef("");
+  const processingMessageIdRef = useRef("");
   const lastDaweibaResultKeyRef = useRef("");
-  const previewGuideResultKeyRef = useRef("");
   const previewScrollRef = useRef<HTMLDivElement | null>(null);
   const previewFocusTimeoutRef = useRef<number | null>(null);
   const cancelPreviewEditRef = useRef(false);
@@ -2180,7 +2241,14 @@ function DaweibaApp() {
     }
     if (lastProcessingStageRef.current === processingStage.title) return;
     lastProcessingStageRef.current = processingStage.title;
-    appendZhisuanMessage(`${processingStage.title}：${processingStage.description}`, "system");
+    if (processingMessageIdRef.current) {
+      replaceZhisuanMessage(
+        processingMessageIdRef.current,
+        describeProcessingForZhisuan(processingStage.title),
+        "system",
+        { typing: false },
+      );
+    }
   }, [isProcessing, processingStage]);
 
   useEffect(() => {
@@ -2596,7 +2664,7 @@ function DaweibaApp() {
     return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   }
 
-  function appendUserCommand(content: string) {
+  function appendUserCommand(content: string, attachment?: ChatFileAttachment) {
     setIsChatOpen(true);
     setIsAiDockCollapsed(false);
     setChatMessages((current) => [
@@ -2608,6 +2676,7 @@ function DaweibaApp() {
         displayContent: content,
         isTyping: false,
         source: "command",
+        attachment,
       },
     ]);
   }
@@ -2620,6 +2689,7 @@ function DaweibaApp() {
       rowDetailContext?: RowAiContext;
       knowledgeCandidate?: KnowledgeCandidateSeed;
       projectMemories?: ProjectMemory[];
+      inlineAction?: ChatInlineAction;
     } = {},
   ) {
     const id = makeZhisuanMessageId();
@@ -2637,6 +2707,7 @@ function DaweibaApp() {
         rowDetailContext: options.rowDetailContext,
         knowledgeCandidate: options.knowledgeCandidate,
         projectMemories: options.projectMemories,
+        inlineAction: options.inlineAction,
       },
     ]);
     return id;
@@ -2693,20 +2764,58 @@ function DaweibaApp() {
     return `我把预警结果收拢好了。\n高风险前5条：\n${highText}\n\n低风险前5条：\n${lowText}`;
   }
 
+  function describeProcessingForZhisuan(activeStageTitle: string) {
+    const activeIndex = Math.max(0, PROCESSING_STAGES.findIndex((stage) => stage.title === activeStageTitle));
+    return [
+      "开始转换。我会按读取输入、结构化匹配、公式重算、报告与预览逐步处理。",
+      "",
+      "当前先读取表格、列映射和候选 Sheet，生成待匹配预览；价格和两个系数暂不批量写入。",
+      "",
+      "处理进度：",
+      ...PROCESSING_STAGES.map((stage, index) => (
+        `- ${stage.title}：${index < activeIndex ? "已完成" : index === activeIndex ? "进行中" : "等待"}`
+      )),
+    ].join("\n");
+  }
+
   function summarizeResultForZhisuan(payload: ProcessResult) {
     const summary = payload.summary;
     if (summary.matching_status === "pending") {
       return [
-        "已完成表格读取和可视化预览。",
-        `我识别到 ${summary.total_data_rows} 行待处理明细，还没有批量填写价格和两个系数。`,
-        "请点击下方按钮进入表格预览页，再在预览窗口点击“批量匹配”。我会按知识库和规则层开始逐行填价，并同步刷新 Excel、公式和报告。",
-        ZHISUAN_PREVIEW_ACTION,
+        "转换准备完成，已读取表格、列映射和候选 Sheet，并生成可视化预览。",
+        "",
+        `共识别 ${summary.total_data_rows} 行待处理明细，当前尚未批量写入价格和两个系数。`,
+        "",
+        "本轮结果：",
+        "- 输入表与列映射：已读取",
+        "- 候选 Sheet 与待匹配预览：已生成",
+        "- 基价和两类调整系数：等待批量匹配",
+        "- 下一步：进入表格预览并执行“批量匹配”",
       ].join("\n");
     }
     return [
       "批量匹配完成，我先给你报个数。",
       `输入 ${summary.total_data_rows} 行，已填 ${summary.filled_rows} 行，结构匹配 ${summary.matched_rows} 行，待复核 ${summary.review_rows} 行。`,
       "下一步可以让我跑“经验池预警分析”，也可以直接“输出风险报告”。",
+    ].join("\n");
+  }
+
+  function describePreviewReadyForZhisuan(payload: ProcessResult) {
+    const firstPreview = previewSheetsFromTablePreview(payload.summary.table_preview)[0];
+    const previewRowCount = firstPreview?.rows.length ?? 0;
+    return [
+      "表格预览已准备好，可以从下方按钮进入查看。",
+      "",
+      previewRowCount > 0
+        ? `首个候选 Sheet 已生成 ${previewRowCount} 行预览数据。`
+        : "候选 Sheet 与字段映射已经生成。",
+      "",
+      "可核对内容：",
+      "- 切换 Sheet 并查看匹配状态",
+      "- 调整列宽或人工修改普通单元格",
+      "- 在 AI 列打开辅助填价与行级复核",
+      "- 当前尚未批量填写基价和两类调整系数",
+      ZHISUAN_PREVIEW_ACTION,
     ].join("\n");
   }
 
@@ -3532,14 +3641,22 @@ function DaweibaApp() {
   function handleAgentFileChange(event: ChangeEvent<HTMLInputElement>) {
     const nextFile = event.target.files?.[0] ?? null;
     if (nextFile) {
-      appendUserCommand(`上传 Excel：${nextFile.name}`);
+      appendUserCommand(`上传 Excel：${nextFile.name}`, {
+        name: nextFile.name,
+        size: nextFile.size,
+        type: nextFile.type,
+      });
       void selectFile(nextFile);
     }
     event.target.value = "";
   }
 
   function handleAgentFileDrop(nextFile: File) {
-    appendUserCommand(`上传 Excel：${nextFile.name}`);
+    appendUserCommand(`上传 Excel：${nextFile.name}`, {
+      name: nextFile.name,
+      size: nextFile.size,
+      type: nextFile.type,
+    });
     void selectFile(nextFile);
   }
 
@@ -3665,11 +3782,56 @@ function DaweibaApp() {
     }
   }
 
-  async function loadExternalDispatchData(profileId?: string) {
+  function externalDispatchPeople(
+    options = externalDispatchOptions,
+    groupRef = externalDispatchGroup,
+    source = externalDispatchPeopleSource,
+  ) {
+    if (!options) return [];
+    if (source === "all") return options.directory.people ?? [];
+    return options.directory.groups.find((item) => item.group_ref === groupRef)?.people ?? [];
+  }
+
+  function applyExternalDispatchGroup(groupRef: string, options = externalDispatchOptions, source = externalDispatchPeopleSource) {
+    const group = options?.directory.groups.find((item) => item.group_ref === groupRef);
+    const people = externalDispatchPeople(options, group?.group_ref ?? "", source);
+    setExternalDispatchGroup(group?.group_ref ?? "");
+    setExternalDispatchPerson((current) => people.some((item) => item.person_ref === current) ? current : people[0]?.person_ref ?? "");
+    setExternalDispatchReviewers((current) => {
+      const valid = current.filter((ref) => people.some((item) => item.person_ref === ref));
+      return valid.length ? valid : people.map((item) => item.person_ref);
+    });
+  }
+
+  function applyExternalDispatchPeopleSource(source: "group" | "all") {
+    setExternalDispatchPeopleSource(source);
+    applyExternalDispatchGroup(externalDispatchGroup, externalDispatchOptions, source);
+  }
+
+  function applyExternalDeliveryPreset(preset: ExternalDeliveryPreset) {
+    setExternalDeliveryPreset(preset);
+    if (preset !== "custom") setExternalDeliveryPolicy(externalDeliveryPolicyForPreset(preset));
+  }
+
+  function toggleExternalDeliveryChannel(stage: ExternalDeliveryStage, channel: ExternalDeliveryChannel) {
+    const nextStage = { ...externalDeliveryPolicy[stage], [channel]: !externalDeliveryPolicy[stage][channel] };
+    if (!nextStage.group && !nextStage.direct) {
+      setExternalDispatchFeedback("每个投递阶段至少保留一个通道。");
+      return;
+    }
+    setExternalDeliveryPreset("custom");
+    setExternalDispatchFeedback("");
+    setExternalDeliveryPolicy((current) => ({ ...current, [stage]: nextStage }));
+  }
+
+  async function loadExternalDispatchData(profileId?: string, refreshDirectory = false) {
     setIsLoadingExternalDispatch(true);
     try {
       const selectedProfile = String(profileId || externalDispatchProfile || feishuAppBotStatus?.active_profile || "").trim();
-      const query = selectedProfile ? `?profile_id=${encodeURIComponent(selectedProfile)}` : "";
+      const queryParameters = new URLSearchParams();
+      if (selectedProfile) queryParameters.set("profile_id", selectedProfile);
+      if (refreshDirectory) queryParameters.set("refresh_directory", "true");
+      const query = queryParameters.size ? `?${queryParameters.toString()}` : "";
       const [optionsResponse, tasksResponse] = await Promise.all([
         fetch(`${API_BASE}/api/collaboration/external-dispatch/options${query}`),
         fetch(`${API_BASE}/api/collaboration/external-dispatch/tasks?limit=20`),
@@ -3686,15 +3848,20 @@ function DaweibaApp() {
       setExternalDispatchOptions(options);
       setExternalDispatchPlatforms(options.platforms);
       setExternalDispatchProfile(options.active_profile);
-      const nextCompiler = options.people.some((item) => item.person_ref === externalDispatchPerson) ? externalDispatchPerson : options.people[0]?.person_ref ?? "";
-      setExternalDispatchPerson(nextCompiler);
-      setExternalDispatchReviewers((current) => {
-        const valid = current.filter((ref) => ref !== nextCompiler && options.people.some((item) => item.person_ref === ref));
-        return valid.length ? valid : options.people.filter((item) => item.person_ref !== nextCompiler).map((item) => item.person_ref);
-      });
+      const nextGroup = options.directory.groups.find((item) => item.group_ref === externalDispatchGroup)
+        ?? options.directory.groups.find((item) => item.authorized)
+        ?? options.directory.groups[0];
+      applyExternalDispatchGroup(nextGroup?.group_ref ?? "", options);
       setExternalDispatchSkill((current) => options.skills.some((item) => item.id === current) ? current : options.skills[0]?.id ?? "");
-      if (options.direct_delivery.status !== "available") setExternalDispatchMode("group");
-      setExternalDispatchFeedback("");
+      if (options.direct_delivery.status !== "available") {
+        setExternalDeliveryPreset("group");
+        setExternalDeliveryPolicy(externalDeliveryPolicyForPreset("group"));
+      }
+      setExternalDispatchFeedback(refreshDirectory
+        ? options.directory.refresh_error
+          ? `平台目录刷新失败，已继续使用上次缓存：${options.directory.refresh_error}`
+          : `已读取并临时保存 ${options.directory.groups.length} 个群及其成员，下次打开可继续使用。`
+        : "");
     } catch (err) {
       setExternalDispatchOptions(null);
       if (profileId) setExternalDispatchProfile(profileId);
@@ -3715,6 +3882,14 @@ function DaweibaApp() {
       setExternalDispatchFeedback("已选专业能力不可用，请刷新后重试。");
       return;
     }
+    if (EXTERNAL_DELIVERY_STAGES.some((stage) => !externalDeliveryPolicy[stage.id].group && !externalDeliveryPolicy[stage.id].direct)) {
+      setExternalDispatchFeedback("每个投递阶段至少选择“工作群”或“个人”中的一个通道。");
+      return;
+    }
+    if (externalDispatchOptions.direct_delivery.status !== "available" && EXTERNAL_DELIVERY_STAGES.some((stage) => externalDeliveryPolicy[stage.id].direct)) {
+      setExternalDispatchFeedback("当前机器人尚未验证主动单聊能力，请取消个人通道或更换平台。");
+      return;
+    }
     setIsCreatingExternalDispatch(true);
     setExternalDispatchFeedback("正在先落库任务和模板快照，再向授权目标投递经典卡片与 Excel……");
     try {
@@ -3730,7 +3905,20 @@ function DaweibaApp() {
       data.append("project_name", projectName);
       data.append("skill_id", skill.id);
       data.append("skill_version", skill.version);
-      data.append("delivery_mode", externalDispatchMode);
+      const allChannels = EXTERNAL_DELIVERY_STAGES.flatMap((stage) => [
+        ...(externalDeliveryPolicy[stage.id].group ? ["group"] : []),
+        ...(externalDeliveryPolicy[stage.id].direct ? ["direct"] : []),
+      ]);
+      const deliveryMode = allChannels.every((channel) => channel === "group")
+        ? "group"
+        : allChannels.every((channel) => channel === "direct") ? "direct" : "mixed";
+      data.append("delivery_mode", deliveryMode);
+      data.append("delivery_policy_json", JSON.stringify(Object.fromEntries(
+        EXTERNAL_DELIVERY_STAGES.map((stage) => [stage.id, [
+          ...(externalDeliveryPolicy[stage.id].group ? ["group"] : []),
+          ...(externalDeliveryPolicy[stage.id].direct ? ["direct"] : []),
+        ]]),
+      )));
       data.append("platform_profile_id", externalDispatchProfile);
       data.append("assignee_ref", externalDispatchPerson);
       data.append("reviewer_refs_json", JSON.stringify(externalDispatchReviewers));
@@ -5247,7 +5435,11 @@ function DaweibaApp() {
       return;
     }
     setFile(nextFile);
-    appendZhisuanMessage(`收到 ${nextFile.name}，准备复核表头和列映射。你可以先看左侧字段识别，我会在右边跟着提示下一步。`);
+    appendZhisuanMessage(
+      `收到 ${nextFile.name}，准备复核表头和列映射。你可以先看左侧字段识别，我会在右边跟着提示下一步。`,
+      "system",
+      { inlineAction: { type: "start-conversion", fileName: nextFile.name } },
+    );
     await inspectFile(nextFile);
   }
 
@@ -5419,7 +5611,11 @@ function DaweibaApp() {
 
     const requestId = ++processRequestSequenceRef.current;
     activeResultJobIdRef.current = null;
-    appendZhisuanMessage("开始转换。我会按读取输入、结构化匹配、公式重算、生成报告与预览这几步盯着。");
+    processingMessageIdRef.current = appendZhisuanMessage(
+      describeProcessingForZhisuan(PROCESSING_STAGES[0].title),
+      "system",
+      { typing: false },
+    );
     setIsProcessing(true);
     setProgressPercent(1);
     setError("");
@@ -5472,7 +5668,6 @@ function DaweibaApp() {
     });
 
     try {
-      appendZhisuanMessage("我先读取表格、列映射和候选 sheet，生成待匹配预览；价格和两个系数先不批量写入。", "system");
       const response = await fetch(`${API_BASE}/api/process`, {
         method: "POST",
         body,
@@ -5495,7 +5690,15 @@ function DaweibaApp() {
       activeResultJobIdRef.current = finalPayload.job_id;
       setResult(finalPayload);
       setProgressPercent(100);
-      appendZhisuanMessage(summarizeResultForZhisuan(finalPayload));
+      replaceZhisuanMessage(
+        processingMessageIdRef.current,
+        summarizeResultForZhisuan(finalPayload),
+        "system",
+        { typing: false },
+      );
+      if (finalPayload.summary.matching_status === "pending") {
+        appendZhisuanMessage(describePreviewReadyForZhisuan(finalPayload), "command", { typing: false });
+      }
       void sendCollaborationNotification("progress", {
         task_name: file.name,
         job_id: finalPayload.job_id,
@@ -5506,7 +5709,21 @@ function DaweibaApp() {
       const messageText = err instanceof Error ? err.message : "处理失败";
       setError(messageText);
       setProgressPercent(0);
-      appendZhisuanMessage(`转换失败：${messageText}。主流程已经停下，我没有改动任何输出文件。`);
+      replaceZhisuanMessage(
+        processingMessageIdRef.current,
+        [
+          `转换失败：${messageText}。`,
+          "",
+          "主流程已经停下，没有改动任何输出文件。",
+          "",
+          "处理结果：",
+          "- 当前转换：已停止",
+          "- 输出文件：未写入",
+          "- 下一步：检查列映射或文件内容后重试",
+        ].join("\n"),
+        "system",
+        { typing: false },
+      );
       void sendCollaborationNotification("task_failed", {
         task_name: file.name,
         error: messageText,
@@ -6666,22 +6883,6 @@ function DaweibaApp() {
 
   function openPreviewFromZhisuanGuide() {
     setActiveDaweibaModule("preview");
-    if (!result) return;
-    const resultKey = result.summary.output_excel || result.job_id || "preview";
-    if (previewGuideResultKeyRef.current === resultKey) return;
-    previewGuideResultKeyRef.current = resultKey;
-    const rowsText = visiblePreviewRows.length > 0 ? `当前窗口先展示 ${visiblePreviewRows.length} 行预览数据` : "当前窗口会展示转换后的表格预览";
-    appendZhisuanMessage(
-      [
-        "这里是表格预览页。",
-        `${rowsText}，可以切换 Sheet、查看匹配状态、调整列宽、人工修改普通单元格，也可以在 AI 列打开辅助填价或行级复核。`,
-        result.summary.matching_status === "pending"
-          ? "当前还没有正式批量填写价格和两个系数。点击下方“批量匹配”后，我会按知识库、标准规则和第二层经验提示开始填价。"
-          : "当前已经完成批量匹配，可以继续运行经验池预警、查看风险清单或输出报告。",
-        ZHISUAN_BATCH_MATCH_ACTION,
-      ].join("\n"),
-      "command",
-    );
   }
 
   function renderZhisuanBatchMatchAction() {
@@ -6851,10 +7052,99 @@ function DaweibaApp() {
     return nodes.length > 0 ? nodes : renderZhisuanRichInlineText(text);
   }
 
+  function renderZhisuanFileAttachment(attachment: ChatFileAttachment) {
+    const extension = attachment.name.split(".").pop()?.toUpperCase() || "FILE";
+    const size = attachment.size < 1024 * 1024
+      ? `${Math.max(0.01, attachment.size / 1024).toFixed(2)} KB`
+      : `${(attachment.size / 1024 / 1024).toFixed(2)} MB`;
+
+    return (
+      <div className="zhisuan-file-attachment" role="group" aria-label={`Excel 附件 ${attachment.name}`}>
+        <span className="zhisuan-file-attachment__icon" aria-hidden="true">
+          <FileSpreadsheet size={22} strokeWidth={1.8} />
+        </span>
+        <span className="zhisuan-file-attachment__content">
+          <strong title={attachment.name}>{attachment.name}</strong>
+          <small>{extension} · {size}</small>
+        </span>
+      </div>
+    );
+  }
+
+  function renderZhisuanModuleLinks() {
+    const links: Array<{ id: Exclude<DaweibaModuleId, "agent" | "collaboration" | "digital-project-assistant">; label: string; icon: ReactNode }> = [
+      { id: "fill", label: "填价工作台", icon: <FileSpreadsheet size={14} /> },
+      { id: "preview", label: "结果预览", icon: <PanelTop size={14} /> },
+      { id: "experience", label: "经验池预警", icon: <AlertTriangle size={14} /> },
+      { id: "workload", label: "工作量抓取", icon: <Columns3 size={14} /> },
+      { id: "knowledge", label: "知识库问答", icon: <Database size={14} /> },
+      { id: "report", label: "Word 报告", icon: <FileText size={14} /> },
+    ];
+
+    return (
+      <nav className="zhisuan-module-links" aria-label="相关功能模块">
+        {links.map((link) => (
+          <button
+            key={link.id}
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              setActiveDaweibaModule(link.id);
+            }}
+          >
+            {link.icon}
+            <span>{link.label}</span>
+          </button>
+        ))}
+      </nav>
+    );
+  }
+
+  function renderZhisuanInlineAction(message: ChatMessage) {
+    if (message.inlineAction?.type !== "start-conversion") return null;
+    const isCurrentFile = file?.name === message.inlineAction.fileName;
+    const isCompleted = isCurrentFile && Boolean(result);
+    const label = !isCurrentFile
+      ? "文件已切换"
+      : isProcessing
+        ? "正在转换"
+        : isCompleted
+          ? "转换完成"
+          : "开始转换";
+    return (
+      <div className="zhisuan-message-actions">
+        <button
+          className="zhisuan-action-button"
+          type="button"
+          disabled={!isCurrentFile || agentTaskBusy || isCompleted}
+          onClick={(event) => {
+            event.stopPropagation();
+            appendUserCommand("开始转换");
+            void processFile();
+          }}
+        >
+          {isProcessing && isCurrentFile
+            ? <Loader2 size={14} className="spin" />
+            : isCompleted
+              ? <CheckCircle2 size={14} />
+              : <Sparkles size={14} />}
+          {label}
+        </button>
+      </div>
+    );
+  }
+
   function renderZhisuanMessageBody(message: ChatMessage) {
     return (
       <div className="chat-message-body">
-        {renderZhisuanMessageText(message.role === "assistant" ? (message.displayContent ?? message.content) : message.content)}
+        {message.attachment
+          ? renderZhisuanFileAttachment(message.attachment)
+          : renderZhisuanMessageText(message.role === "assistant" ? (message.displayContent ?? message.content) : message.content)}
+        {message.role === "assistant"
+          && !message.isTyping
+          && message.content === zhisuanWelcomeMessage
+          && renderZhisuanModuleLinks()}
+        {message.role === "assistant" && !message.isTyping && renderZhisuanInlineAction(message)}
         {message.role === "assistant" && message.isTyping && <i className="typing-caret" />}
         {message.role === "assistant" && !message.isTyping && (message.projectMemories?.length ?? 0) > 0 && (
           <div className="knowledge-memory-hit-list">
@@ -9163,8 +9453,8 @@ function DaweibaApp() {
             <section className="daweiba-collaboration-settings is-external-dispatch" aria-label="外部任务主动派发模拟">
               <div className="daweiba-collaboration-section-title">
                 <div>
-                  <h3>外部任务接入模拟 · P0</h3>
-                  <p>模拟造价系统指派真实任务：编制人领取并提交，多名复核人逐一复核，全部通过后完成。</p>
+                  <h3>外部任务接入模拟</h3>
+                  <p>模拟造价系统指派真实任务：编制人领取后点击“提交成果并进入复核”，在 1 分钟内发送完成的 .xlsx；机器人把成果文件和复核卡发给全部复核人。</p>
                 </div>
                 <span className={`daweiba-collaboration-badge ${externalDispatchOptions?.target_group.available ? "is-success" : "is-warning"}`}>
                   {isLoadingExternalDispatch ? "正在校验投递目标" : externalDispatchOptions ? `授权目标 · ${externalDispatchOptions.target_group.name}` : "目标待校验"}
@@ -9179,19 +9469,32 @@ function DaweibaApp() {
                 <label><span>专业能力</span><select value={externalDispatchSkill} onChange={(event) => setExternalDispatchSkill(event.target.value)}>{externalDispatchOptions?.skills.map((skill) => <option key={skill.id} value={skill.id}>{skill.display_name} · {skill.version}</option>)}</select></label>
                 <label><span>截止时间</span><input type="datetime-local" value={externalDispatchDeadline} onChange={(event) => setExternalDispatchDeadline(event.target.value)} /></label>
                 <label><span>投递平台</span><select value={externalDispatchProfile} disabled={isLoadingExternalDispatch} onChange={(event) => { setExternalDispatchProfile(event.target.value); void loadExternalDispatchData(event.target.value); }}>{externalDispatchPlatforms.map((platform) => <option key={platform.profile_id} value={platform.profile_id} disabled={!platform.configuration_ok}>{platform.label}{platform.configuration_ok ? "" : "（配置异常）"}</option>)}</select></label>
-                <label><span>目标编制人</span><select value={externalDispatchPerson} onChange={(event) => { const next = event.target.value; setExternalDispatchPerson(next); setExternalDispatchReviewers((current) => current.filter((ref) => ref !== next)); }}>{externalDispatchOptions?.people.map((person) => <option key={person.person_ref} value={person.person_ref}>{person.display_name}</option>)}</select></label>
-                <fieldset className="is-wide daweiba-external-dispatch-reviewers"><legend>多人复核</legend><small>至少选择 1 人；编制人不能兼任复核人。全部复核通过后任务才完成。</small><div>{externalDispatchOptions?.people.filter((person) => person.person_ref !== externalDispatchPerson).map((person) => <label key={person.person_ref}><input type="checkbox" checked={externalDispatchReviewers.includes(person.person_ref)} onChange={(event) => setExternalDispatchReviewers((current) => event.target.checked ? [...new Set([...current, person.person_ref])] : current.filter((ref) => ref !== person.person_ref))} /><span>{person.display_name}</span></label>)}</div></fieldset>
-                <label><span>投递方式</span><select value={externalDispatchMode} onChange={(event) => setExternalDispatchMode(event.target.value as "group" | "direct")}><option value="group">群卡片 + @目标人</option><option value="direct" disabled={externalDispatchOptions?.direct_delivery.status !== "available"}>精准单聊（{externalDispatchOptions?.direct_delivery.label ?? "待验证"}）</option></select></label>
+                <label><span>目标群／成员来源群</span><select value={externalDispatchGroup} disabled={isLoadingExternalDispatch} onChange={(event) => applyExternalDispatchGroup(event.target.value)}>{externalDispatchOptions?.directory.groups.map((group) => <option key={group.group_ref} value={group.group_ref}>{group.name} · {group.member_count} 人{group.members_available ? "" : "（使用缓存）"}</option>)}</select><small>群通道仍只允许“智算测试”；其他群可作为人员查找来源。</small></label>
+                <label><span>人员选择范围</span><select value={externalDispatchPeopleSource} onChange={(event) => applyExternalDispatchPeopleSource(event.target.value as "group" | "all")}><option value="group">从当前群成员选择</option><option value="all">从全部已读取人员选择</option></select><small>全部人员会按平台身份去重，最终投递位置由下方策略决定。</small></label>
+                <label><span>目标编制人</span><select value={externalDispatchPerson} onChange={(event) => setExternalDispatchPerson(event.target.value)}>{externalDispatchPeople().map((person) => <option key={person.person_ref} value={person.person_ref}>{person.display_name}</option>)}</select></label>
+                <fieldset className="is-wide daweiba-external-dispatch-reviewers"><legend>多人复核</legend><small>测试阶段允许编制人兼任复核人；至少选择 1 人，全部复核通过后任务才完成。</small><div>{externalDispatchPeople().map((person) => <label key={person.person_ref}><input type="checkbox" checked={externalDispatchReviewers.includes(person.person_ref)} onChange={(event) => setExternalDispatchReviewers((current) => event.target.checked ? [...new Set([...current, person.person_ref])] : current.filter((ref) => ref !== person.person_ref))} /><span>{person.display_name}{person.person_ref === externalDispatchPerson ? "（编制人兼任）" : ""}</span></label>)}</div></fieldset>
+                <fieldset className="is-wide daweiba-external-delivery-strategy">
+                  <legend>投递策略</legend>
+                  <div className="daweiba-external-delivery-strategy-head">
+                    <div><strong>按阶段配置</strong><small>每个阶段可同时推送到工作群和个人；工作群消息会按阶段 @编制人或复核人。</small></div>
+                    <label><span>快捷方案</span><select value={externalDeliveryPreset} onChange={(event) => applyExternalDeliveryPreset(event.target.value as ExternalDeliveryPreset)}><option value="mixed">混合模式（推荐）</option><option value="group">全部群内协作</option><option value="direct" disabled={externalDispatchOptions?.direct_delivery.status !== "available"}>全部个人私聊</option><option value="custom">自定义</option></select></label>
+                  </div>
+                  <div className="daweiba-external-delivery-grid" role="table" aria-label="按阶段投递策略">
+                    <div className="is-header" role="row"><span>内容</span><span>默认接收人</span><span>投递通道</span></div>
+                    {EXTERNAL_DELIVERY_STAGES.map((stage) => <div role="row" key={stage.id}><span><strong>{stage.label}</strong></span><span>{stage.audience}</span><span className="daweiba-external-delivery-channels"><label><input type="checkbox" checked={externalDeliveryPolicy[stage.id].group} onChange={() => toggleExternalDeliveryChannel(stage.id, "group")} />工作群</label><label className={externalDispatchOptions?.direct_delivery.status === "available" ? "" : "is-disabled"}><input type="checkbox" checked={externalDispatchOptions?.direct_delivery.status === "available" && externalDeliveryPolicy[stage.id].direct} disabled={externalDispatchOptions?.direct_delivery.status !== "available"} onChange={() => toggleExternalDeliveryChannel(stage.id, "direct")} />个人</label></span></div>)}
+                  </div>
+                  <p className="daweiba-external-delivery-summary">群目标：{externalDispatchOptions?.target_group.name ?? "待校验"}；个人目标按阶段自动使用编制人或全部复核人。相同人员在同一阶段只发送一次。</p>
+                </fieldset>
                 <label><span>模板版本</span><input value={externalDispatchTemplateVersion} onChange={(event) => setExternalDispatchTemplateVersion(event.target.value)} /></label>
                 <label className="is-wide"><span>任务说明</span><textarea rows={2} value={externalDispatchInstructions} onChange={(event) => setExternalDispatchInstructions(event.target.value)} /></label>
                 <div className="is-wide daweiba-external-dispatch-file"><span>待填 Excel 模板</span><div className="daweiba-external-dispatch-file-control"><label htmlFor="external-dispatch-file"><Upload size={15} />{externalDispatchFile || file?.name.toLowerCase().endsWith(".xlsx") ? "更换文件" : "选择文件"}</label><strong>{externalDispatchFile?.name ?? (file?.name.toLowerCase().endsWith(".xlsx") ? `${file.name}（沿用刚刚上传）` : "尚未选择")}</strong></div><input id="external-dispatch-file" className="visually-hidden" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => setExternalDispatchFile(event.target.files?.[0] ?? null)} /><small>默认沿用本次会话刚上传的 .xlsx；另选后仅覆盖当前派发模板。原文件只读留存，任务使用独立副本。</small></div>
               </div>
               <div className="daweiba-collaboration-actions">
                 <button className="ghost-button" type="button" disabled={isCreatingExternalDispatch || !externalDispatchOptions} onClick={() => void createExternalDispatchTask()}>{isCreatingExternalDispatch ? <Loader2 size={16} className="spin" /> : <Send size={16} />}创建并投递任务</button>
-                <button className="ghost-button" type="button" disabled={isLoadingExternalDispatch} onClick={() => void loadExternalDispatchData()}><RefreshCw size={16} className={isLoadingExternalDispatch ? "spin" : ""} />刷新派发配置</button>
+                <button className="ghost-button" type="button" disabled={isLoadingExternalDispatch} onClick={() => void loadExternalDispatchData(undefined, true)}><RefreshCw size={16} className={isLoadingExternalDispatch ? "spin" : ""} />读取群与成员</button>
               </div>
               {externalDispatchFeedback && <p className={`daweiba-collaboration-feedback ${/(失败|拒绝|异常|未找到)/.test(externalDispatchFeedback) ? "is-error" : ""}`}>{externalDispatchFeedback}</p>}
-              {externalDispatchTasks.length ? <div className="daweiba-external-dispatch-table" role="table"><div className="is-header" role="row"><span>任务</span><span>项目</span><span>流程人员</span><span>状态</span><span>投递步骤</span><span>操作</span></div>{externalDispatchTasks.slice(0, 8).map((task) => <div role="row" key={task.task_id}><span title={task.task_id}><strong>{task.source_task_id}</strong><small>{task.task_id}</small></span><span><strong>{task.project_name}</strong><small>{task.target_group_name || "精准单聊"}</small></span><span>{(task.participants?.length ? task.participants : [{ role: "编制人", name: task.assignee_name, status: task.status === "claimed" ? "已领取" : "待领取" }]).map((person) => <small className="daweiba-external-dispatch-person" key={`${person.role}-${person.name}`}><b>{person.role}</b>{person.name} · {person.status}</small>)}</span><span><b className={task.status === "dispatch_failed" ? "is-error" : "is-success"}>{task.status_label}</b>{task.review_round ? <small>第 {task.review_round} 轮复核</small> : null}{task.error && <small title={task.error}>{task.error}</small>}</span><span><small>任务卡 {task.card_status} · 文件 {task.file_status}</small>{task.review_card_status ? <small>复核卡 {task.review_card_status}</small> : null}<small>重试 {task.delivery_retry_count} 次</small></span><span>{task.can_retry ? <button className="ghost-button" type="button" disabled={retryingExternalDispatchTaskId === task.task_id} onClick={() => void retryExternalDispatchTask(task.task_id)}>{retryingExternalDispatchTaskId === task.task_id ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />}重试</button> : "-"}</span></div>)}</div> : <p className="daweiba-collaboration-empty">暂无外部派发任务。前端只显示人员名称和状态，不回显平台用户 ID、群 ID 或文件 Key。</p>}
+              {externalDispatchTasks.length ? <div className="daweiba-external-dispatch-table" role="table"><div className="is-header" role="row"><span>任务</span><span>项目</span><span>流程人员</span><span>状态</span><span>投递步骤</span><span>操作</span></div>{externalDispatchTasks.slice(0, 8).map((task) => <div role="row" key={task.task_id}><span title={task.task_id}><strong>{task.source_task_id}</strong><small>{task.task_id}</small></span><span><strong>{task.project_name}</strong><small>{task.target_group_name || "个人 · 编制人"}</small></span><span>{(task.participants?.length ? task.participants : [{ role: "编制人", name: task.assignee_name, status: task.status === "claimed" ? "已领取" : "待领取" }]).map((person) => <small className="daweiba-external-dispatch-person" key={`${person.role}-${person.name}`}><b>{person.role}</b>{person.name} · {person.status}</small>)}</span><span><b className={task.status === "dispatch_failed" ? "is-error" : "is-success"}>{task.status_label}</b>{task.review_round ? <small>第 {task.review_round} 轮复核</small> : null}{task.error && <small title={task.error}>{task.error}</small>}</span><span><small>任务卡 {task.card_status} · 待填文件 {task.file_status}</small>{task.submission_file_name ? <small title={task.submission_file_name}>编制成果 {task.submission_delivery_status || "待投递"} · {task.submission_file_name}</small> : <small>编制成果 待提交</small>}{task.review_card_status ? <small>复核卡 {task.review_card_status}</small> : null}{task.completion_card_status ? <small>结果通知 {task.completion_card_status}</small> : null}<small>重试 {task.delivery_retry_count} 次</small></span><span>{task.can_retry ? <button className="ghost-button" type="button" disabled={retryingExternalDispatchTaskId === task.task_id} onClick={() => void retryExternalDispatchTask(task.task_id)}>{retryingExternalDispatchTaskId === task.task_id ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />}重试</button> : "-"}</span></div>)}</div> : <p className="daweiba-collaboration-empty">暂无外部派发任务。前端只显示人员名称和状态，不回显平台用户 ID、群 ID 或文件 Key。</p>}
             </section>
 
             <section className="daweiba-collaboration-settings is-second-layer" aria-label="第二层企业应用机器人状态">
@@ -9472,9 +9775,8 @@ function DaweibaApp() {
                   </div>
                 </div>
                 <div className="ai-dock-actions">
-                  <button className="ai-focus-mode-button" type="button" aria-label="进入智算助手" title="进入智算助手" onClick={openAgentWorkspace}>
-                    <Sparkles size={15} />
-                    进入智算助手
+                  <button className="icon-button ai-focus-mode-button" type="button" aria-label="进入智算助手" title="进入智算助手" onClick={openAgentWorkspace}>
+                    <Sparkles size={18} />
                   </button>
                   <button className="icon-button" type="button" aria-label="知识记忆" title="知识记忆" onClick={() => void openKnowledgeMemory()}>
                     <Database size={18} />
@@ -9518,7 +9820,14 @@ function DaweibaApp() {
                           >
                             <span className="chat-message-speaker">{message.role === "user" ? "U" : "Z"}</span>
                             <div className="chat-message-body">
-                              {renderZhisuanMessageText(message.role === "assistant" ? (message.displayContent ?? message.content) : message.content)}
+                              {message.attachment
+                                ? renderZhisuanFileAttachment(message.attachment)
+                                : renderZhisuanMessageText(message.role === "assistant" ? (message.displayContent ?? message.content) : message.content)}
+                              {message.role === "assistant"
+                                && !message.isTyping
+                                && message.content === zhisuanWelcomeMessage
+                                && renderZhisuanModuleLinks()}
+                              {message.role === "assistant" && !message.isTyping && renderZhisuanInlineAction(message)}
                               {message.role === "assistant" && message.isTyping && <i className="typing-caret" />}
                               {message.role === "assistant" && !message.isTyping && (message.projectMemories?.length ?? 0) > 0 && (
                                 <div className="knowledge-memory-hit-list">

@@ -13,8 +13,19 @@ from backend.app.professional_skills import ProfessionalSkillRegistry
 
 
 class FakeFeishu:
-    def __init__(self, *, chats: list[dict[str, str]] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        chats: list[dict[str, str]] | None = None,
+        members_by_chat: dict[str, list[dict[str, str]]] | None = None,
+    ) -> None:
         self.chats = chats if chats is not None else [{"chat_id": "chat-test", "name": "智算测试"}]
+        self.members_by_chat = members_by_chat or {
+            "chat-test": [
+                {"member_id": "ou-user-1", "name": "石萌"},
+                {"member_id": "ou-user-2", "name": "测试人员"},
+            ]
+        }
         self.cards: list[tuple[str, str, dict]] = []
         self.files: list[tuple[str, str, Path]] = []
         self.fail_card = False
@@ -31,11 +42,8 @@ class FakeFeishu:
         return ""
 
     def list_chat_members(self, chat_id: str) -> dict:
-        assert chat_id == "chat-test"
-        return {"member_total": 2, "members": [
-            {"member_id": "ou-user-1", "name": "石萌"},
-            {"member_id": "ou-user-2", "name": "测试人员"},
-        ]}
+        members = self.members_by_chat[chat_id]
+        return {"member_total": len(members), "members": members}
 
     def send_card_to(self, receive_id: str, receive_id_type: str, card: dict) -> str:
         if self.fail_card:
@@ -105,11 +113,43 @@ def envelope(person_ref: str, **overrides: object) -> external_task_dispatch.Tas
     return external_task_dispatch.TaskEnvelope(**values)
 
 
+def attach_review_result(dispatch, store, task: dict) -> dict:
+    stored = store.get_task(task["task_id"])
+    operator_id = stored["assignee_user_id"]
+    waiting, _ = store.open_submission_window(
+        task["task_id"],
+        operator_open_id=operator_id,
+        platform_profile_id="weact",
+    )
+    target = dispatch.runtime_root / "external-dispatch" / task["task_id"] / "submissions" / "round-1" / "编制成果.xlsx"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(xlsx_bytes())
+    return store.attach_submission(
+        task["task_id"],
+        operator_open_id=operator_id,
+        platform_profile_id="weact",
+        message_id=f"msg-{task['task_id']}",
+        file_name=target.name,
+        file_path=target,
+    )
+
+
 def test_envelope_rejects_missing_and_wrong_event(person_ref: str = "PM-X"):
     with pytest.raises(external_task_dispatch.DispatchValidationError, match="缺少必填字段"):
         envelope(person_ref, task_name="").validate()
     with pytest.raises(external_task_dispatch.DispatchValidationError, match="不支持"):
         envelope(person_ref, event_type="task.changed").validate()
+    with pytest.raises(external_task_dispatch.DispatchValidationError, match="task_file 至少选择"):
+        envelope(
+            person_ref,
+            delivery_mode="mixed",
+            delivery_policy={
+                "task_card": ["group"],
+                "task_file": [],
+                "review_card": ["direct"],
+                "completion_card": ["group", "direct"],
+            },
+        ).validate()
 
 
 def test_options_returns_names_but_not_platform_ids(service):
@@ -119,6 +159,54 @@ def test_options_returns_names_but_not_platform_ids(service):
     assert [item["display_name"] for item in options["people"]] == ["测试人员", "石萌"]
     assert "ou-user" not in encoded
     assert "chat-test" not in encoded
+
+
+def test_directory_refresh_lists_all_groups_and_reuses_runtime_cache(tmp_path: Path):
+    chats = [
+        {"chat_id": "chat-test", "name": "智算测试"},
+        {"chat_id": "chat-project", "name": "项目协同群"},
+    ]
+    feishu = FakeFeishu(
+        chats=chats,
+        members_by_chat={
+            "chat-test": [{"member_id": "ou-user-1", "name": "石萌"}],
+            "chat-project": [{"member_id": "ou-user-3", "name": "复核人甲"}],
+        },
+    )
+    store = external_task_dispatch.ExternalDispatchStore(tmp_path / "tasks.sqlite3")
+    registry = ProfessionalSkillRegistry(PROJECT_ROOT, BUSINESS_SKILLS_DIR, PROJECT_DEFAULT_SETTINGS_PATH)
+    dispatch = external_task_dispatch.ExternalTaskDispatchService(
+        store=store,
+        registry=registry,
+        feishu=feishu,
+        profile_id="weact",
+        runtime_root=tmp_path / "runtime",
+    )
+
+    live = dispatch.options(refresh_directory=True)
+    assert live["directory"]["source"] == "live"
+    assert [item["name"] for item in live["directory"]["groups"]] == ["智算测试", "项目协同群"]
+    assert [item["display_name"] for item in live["directory"]["groups"][1]["people"]] == ["复核人甲"]
+    assert [item["display_name"] for item in live["directory"]["people"]] == ["复核人甲", "石萌"]
+    encoded = json.dumps(live, ensure_ascii=False)
+    assert "chat-project" not in encoded and "ou-user-3" not in encoded
+    assert dispatch.directory_cache_path.is_file()
+
+    class OfflineFeishu(FakeFeishu):
+        def list_chats(self) -> list[dict[str, str]]:
+            raise RuntimeError("平台暂不可用")
+
+    cached_dispatch = external_task_dispatch.ExternalTaskDispatchService(
+        store=store,
+        registry=registry,
+        feishu=OfflineFeishu(),
+        profile_id="weact",
+        runtime_root=tmp_path / "runtime",
+    )
+    cached = cached_dispatch.options()
+    assert cached["directory"]["source"] == "cache"
+    assert [item["name"] for item in cached["directory"]["groups"]] == ["智算测试", "项目协同群"]
+    assert [item["display_name"] for item in cached["directory"]["people"]] == ["复核人甲", "石萌"]
 
 
 def test_full_group_delivery_copies_template_and_uses_classic_card(service):
@@ -178,6 +266,103 @@ def test_retry_only_resends_failed_file_step(service):
     assert retried["delivery_retry_count"] == 1
 
 
+def test_mixed_stage_policy_delivers_each_artifact_to_selected_channels(service):
+    dispatch, store, feishu, options = service
+    dispatch.direct_delivery_verified = True
+    policy = {
+        "task_card": ["group", "direct"],
+        "task_file": ["direct"],
+        "review_card": ["group", "direct"],
+        "completion_card": ["group", "direct"],
+    }
+    task, created = dispatch.create_and_deliver(
+        envelope(
+            options["people"][0]["person_ref"],
+            delivery_mode="mixed",
+            delivery_policy=policy,
+            source_task_id="EXT-MIXED",
+            event_id="evt-mixed",
+        ),
+        file_name="mixed.xlsx",
+        file_bytes=xlsx_bytes(),
+    )
+
+    assert created is True
+    assert task["delivery_mode"] == "mixed"
+    assert task["delivery_policy"] == policy
+    assert [(receive_id, receive_type) for receive_id, receive_type, _ in feishu.cards] == [
+        ("chat-test", "chat_id"),
+        ("ou-user-2", "open_id"),
+    ]
+    assert [(receive_id, receive_type) for receive_id, receive_type, _ in feishu.files] == [
+        ("ou-user-2", "open_id"),
+    ]
+
+    stored = store.get_task(task["task_id"])
+    assert external_task_dispatch.review_delivery_targets(stored) == [
+        ("ou-user-1", "open_id"),
+        ("chat-test", "chat_id"),
+    ]
+    assert external_task_dispatch.completion_delivery_targets(stored) == [
+        ("ou-user-1", "open_id"),
+        ("ou-user-2", "open_id"),
+        ("chat-test", "chat_id"),
+    ]
+
+
+def test_mixed_delivery_retry_skips_already_sent_group_target(tmp_path: Path):
+    class FailDirectCardOnceFeishu(FakeFeishu):
+        def __init__(self) -> None:
+            super().__init__()
+            self.failed_once = False
+
+        def send_card_to(self, receive_id: str, receive_id_type: str, card: dict) -> str:
+            if receive_id_type == "open_id" and not self.failed_once:
+                self.failed_once = True
+                raise RuntimeError("direct card unavailable")
+            return super().send_card_to(receive_id, receive_id_type, card)
+
+    feishu = FailDirectCardOnceFeishu()
+    store = external_task_dispatch.ExternalDispatchStore(tmp_path / "tasks.sqlite3")
+    dispatch = external_task_dispatch.ExternalTaskDispatchService(
+        store=store,
+        registry=ProfessionalSkillRegistry(PROJECT_ROOT, BUSINESS_SKILLS_DIR, PROJECT_DEFAULT_SETTINGS_PATH),
+        feishu=feishu,
+        profile_id="weact",
+        runtime_root=tmp_path / "runtime",
+        direct_delivery_verified=True,
+    )
+    options = dispatch.options()
+    policy = {
+        "task_card": ["group", "direct"],
+        "task_file": ["group"],
+        "review_card": ["group"],
+        "completion_card": ["group"],
+    }
+    task, _ = dispatch.create_and_deliver(
+        envelope(
+            options["people"][0]["person_ref"],
+            delivery_mode="mixed",
+            delivery_policy=policy,
+            source_task_id="EXT-MIXED-RETRY",
+            event_id="evt-mixed-retry",
+        ),
+        file_name="retry.xlsx",
+        file_bytes=xlsx_bytes(),
+    )
+    assert task["status"] == "dispatch_failed"
+    assert [(target, target_type) for target, target_type, _ in feishu.cards] == [("chat-test", "chat_id")]
+
+    retried = dispatch.retry(task["task_id"])
+    assert retried["status"] == "pending_claim"
+    assert [(target, target_type) for target, target_type, _ in feishu.cards] == [
+        ("chat-test", "chat_id"),
+        ("ou-user-2", "open_id"),
+    ]
+    assert [(target, target_type) for target, target_type, _ in feishu.files] == [("chat-test", "chat_id")]
+    assert retried["delivery_retry_count"] == 1
+
+
 def test_direct_delivery_is_guarded_until_verified(service):
     dispatch, _, feishu, options = service
     direct = envelope(options["people"][0]["person_ref"], delivery_mode="direct")
@@ -191,6 +376,33 @@ def test_direct_delivery_is_guarded_until_verified(service):
     )
     assert task["status"] == "pending_claim"
     assert feishu.cards[-1][1] == feishu.files[-1][1] == "open_id"
+
+
+def test_review_delivery_targets_follow_selected_mode(service):
+    dispatch, store, _, options = service
+    group_task, _ = dispatch.create_and_deliver(
+        envelope(options["people"][0]["person_ref"]), file_name="group.xlsx", file_bytes=xlsx_bytes(),
+    )
+    assert external_task_dispatch.review_delivery_targets(store.get_task(group_task["task_id"])) == [
+        ("chat-test", "chat_id")
+    ]
+
+    dispatch.direct_delivery_verified = True
+    direct_task, _ = dispatch.create_and_deliver(
+        envelope(
+            options["people"][0]["person_ref"],
+            delivery_mode="direct",
+            source_task_id="EXT-DIRECT-REVIEW",
+            event_id="evt-direct-review",
+        ),
+        file_name="direct.xlsx",
+        file_bytes=xlsx_bytes(),
+    )
+    stored = store.get_task(direct_task["task_id"])
+    reviewer_ids = sorted(item["platform_user_id"] for item in stored["_reviewers"])
+    assert external_task_dispatch.review_delivery_targets(stored) == [
+        (user_id, "open_id") for user_id in reviewer_ids
+    ]
 
 
 def test_direct_delivery_rejects_missing_person_mapping(service):
@@ -299,7 +511,42 @@ def test_target_assignee_can_claim_once_and_card_becomes_read_only(service):
     claimed_card = external_task_dispatch.build_external_task_card(claimed)
     assert "已领取" in json.dumps(claimed_card, ensure_ascii=False)
     assert "领取任务" not in json.dumps(claimed_card, ensure_ascii=False)
-    assert "提交多人复核" in json.dumps(claimed_card, ensure_ascii=False)
+    assert "提交成果并进入复核" in json.dumps(claimed_card, ensure_ascii=False)
+
+
+def test_submission_window_binds_result_file_before_review(service):
+    dispatch, store, _, options = service
+    task, _ = dispatch.create_and_deliver(
+        envelope(options["people"][0]["person_ref"]), file_name="a.xlsx", file_bytes=xlsx_bytes(),
+    )
+    stored = store.get_task(task["task_id"])
+    operator_id = stored["assignee_user_id"]
+    store.claim_task(task["task_id"], operator_open_id=operator_id, platform_profile_id="weact")
+    waiting, created = store.open_submission_window(
+        task["task_id"], operator_open_id=operator_id, platform_profile_id="weact",
+    )
+    assert created is True
+    assert waiting["status"] == "awaiting_review_file"
+    assert store.find_submission_window(
+        operator_open_id=operator_id,
+        platform_profile_id="weact",
+        chat_id=stored["target_chat_id"],
+        is_private=False,
+        sent_at=waiting["updated_at"],
+    )["task_id"] == task["task_id"]
+    with pytest.raises(external_task_dispatch.DispatchValidationError, match="请先提交编制完成的 Excel 成果"):
+        store.submit_for_review(
+            task["task_id"], operator_open_id=operator_id, platform_profile_id="weact",
+        )
+    attached = attach_review_result(dispatch, store, task)
+    assert attached["submission_file_name"] == "编制成果.xlsx"
+    assert len(attached["submission_hash"]) == 64
+    submitted, submitted_created = store.submit_for_review(
+        task["task_id"], operator_open_id=operator_id, platform_profile_id="weact",
+    )
+    assert submitted_created is True
+    assert submitted["status"] == "pending_review"
+    assert "编制成果.xlsx" in json.dumps(external_task_dispatch.build_external_review_card(submitted), ensure_ascii=False)
 
 
 def test_multi_reviewer_flow_completes_only_after_every_reviewer_approves(service):
@@ -311,6 +558,7 @@ def test_multi_reviewer_flow_completes_only_after_every_reviewer_approves(servic
     )
     stored = store.get_task(task["task_id"])
     store.claim_task(task["task_id"], operator_open_id=stored["assignee_user_id"], platform_profile_id="weact")
+    attach_review_result(dispatch, store, task)
     submitted, created = store.submit_for_review(
         task["task_id"], operator_open_id=stored["assignee_user_id"], platform_profile_id="weact",
     )
@@ -328,12 +576,33 @@ def test_reviewer_can_return_and_compiler_can_start_next_round(service):
     task, _ = dispatch.create_and_deliver(envelope(options["people"][0]["person_ref"]), file_name="a.xlsx", file_bytes=xlsx_bytes())
     stored = store.get_task(task["task_id"])
     store.claim_task(task["task_id"], operator_open_id=stored["assignee_user_id"], platform_profile_id="weact")
+    attach_review_result(dispatch, store, task)
     store.submit_for_review(task["task_id"], operator_open_id=stored["assignee_user_id"], platform_profile_id="weact")
     reviewer = store.get_person(options["people"][1]["person_ref"], "weact")
     returned, _ = store.review_task(task["task_id"], operator_open_id=reviewer["platform_user_id"], platform_profile_id="weact", decision="reject")
     assert returned["status"] == "returned"
+    attach_review_result(dispatch, store, task)
     next_round, _ = store.submit_for_review(task["task_id"], operator_open_id=stored["assignee_user_id"], platform_profile_id="weact")
     assert next_round["status"] == "pending_review" and next_round["review_round"] == 2
+
+
+def test_trial_mode_allows_compiler_to_review_own_task(service):
+    dispatch, store, _, options = service
+    compiler_ref = options["people"][0]["person_ref"]
+    task, _ = dispatch.create_and_deliver(
+        envelope(compiler_ref, reviewer_refs=(compiler_ref,)), file_name="a.xlsx", file_bytes=xlsx_bytes(),
+    )
+    stored = store.get_task(task["task_id"])
+    operator_id = stored["assignee_user_id"]
+    store.claim_task(task["task_id"], operator_open_id=operator_id, platform_profile_id="weact")
+    attach_review_result(dispatch, store, task)
+    store.submit_for_review(task["task_id"], operator_open_id=operator_id, platform_profile_id="weact")
+    completed, created = store.review_task(
+        task["task_id"], operator_open_id=operator_id, platform_profile_id="weact", decision="approve",
+    )
+    assert created is True
+    assert completed["status"] == "completed"
+    assert completed["_reviewers"][0]["display_name"] == completed["assignee_name"]
 
 
 def test_claim_rejects_wrong_person_and_platform(service):
