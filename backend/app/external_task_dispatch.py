@@ -21,6 +21,7 @@ from .professional_skills import ProfessionalSkillError, ProfessionalSkillRegist
 
 AUTHORIZED_TEST_GROUP_NAME = "智算测试"
 MAX_OUTBOUND_RECIPIENTS = 10
+REVIEW_COMMENT_MAX_LENGTH = 500
 SOURCE_SYSTEM = "模拟造价系统"
 EVENT_TYPE = "task.assigned"
 DELIVERY_MODES = {"group", "direct", "mixed"}
@@ -74,6 +75,17 @@ class DispatchValidationError(ValueError):
     def __init__(self, message: str, *, status_code: int = 400) -> None:
         super().__init__(message)
         self.status_code = status_code
+
+
+def sanitize_review_comment(value: object) -> str:
+    comment = str(value or "").replace("\x00", "").strip()
+    if len(comment) > REVIEW_COMMENT_MAX_LENGTH:
+        raise DispatchValidationError(f"复核评论不能超过 {REVIEW_COMMENT_MAX_LENGTH} 字")
+    return comment
+
+
+def display_review_comment(value: object) -> str:
+    return sanitize_review_comment(value).replace("\r\n", "；").replace("\r", "；").replace("\n", "；")
 
 
 def normalize_delivery_policy(value: object, *, legacy_mode: str = "group") -> dict[str, list[str]]:
@@ -280,6 +292,8 @@ class ExternalDispatchStore:
                     display_name TEXT NOT NULL,
                     status TEXT NOT NULL DEFAULT 'waiting',
                     review_round INTEGER NOT NULL DEFAULT 0,
+                    comment TEXT NOT NULL DEFAULT '',
+                    commented_at TEXT NOT NULL DEFAULT '',
                     decided_at TEXT NOT NULL DEFAULT '',
                     updated_at TEXT NOT NULL,
                     PRIMARY KEY(task_id, mapping_id)
@@ -291,10 +305,19 @@ class ExternalDispatchStore:
                     reviewer_mapping_id TEXT NOT NULL,
                     reviewer_name TEXT NOT NULL,
                     decision TEXT NOT NULL,
+                    comment TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL
                 );
                 """
             )
+            reviewer_columns = {str(row["name"]) for row in connection.execute("PRAGMA table_info(dispatch_reviewers)")}
+            if "comment" not in reviewer_columns:
+                connection.execute("ALTER TABLE dispatch_reviewers ADD COLUMN comment TEXT NOT NULL DEFAULT ''")
+            if "commented_at" not in reviewer_columns:
+                connection.execute("ALTER TABLE dispatch_reviewers ADD COLUMN commented_at TEXT NOT NULL DEFAULT ''")
+            action_columns = {str(row["name"]) for row in connection.execute("PRAGMA table_info(dispatch_review_actions)")}
+            if "comment" not in action_columns:
+                connection.execute("ALTER TABLE dispatch_review_actions ADD COLUMN comment TEXT NOT NULL DEFAULT ''")
 
     def known_chat_ids(self) -> list[str]:
         with self._connect() as connection:
@@ -628,7 +651,7 @@ class ExternalDispatchStore:
                 raise DispatchValidationError("任务未配置复核人", status_code=409)
             review_round = int(task.get("review_round") or 0) + 1
             connection.execute(
-                "UPDATE dispatch_reviewers SET status='pending',review_round=?,decided_at='',updated_at=? WHERE task_id=?",
+                "UPDATE dispatch_reviewers SET status='pending',review_round=?,comment='',commented_at='',decided_at='',updated_at=? WHERE task_id=?",
                 (review_round, now, task_id),
             )
             connection.execute(
@@ -673,9 +696,20 @@ class ExternalDispatchStore:
             )
         return self.get_task(task_id) or {}
 
-    def review_task(self, task_id: str, *, operator_open_id: str, platform_profile_id: str, decision: str) -> tuple[dict[str, Any], bool]:
+    def review_task(
+        self,
+        task_id: str,
+        *,
+        operator_open_id: str,
+        platform_profile_id: str,
+        decision: str,
+        comment: str = "",
+    ) -> tuple[dict[str, Any], bool]:
         if decision not in {"approve", "reject"}:
             raise DispatchValidationError("不支持的复核结论")
+        review_comment = sanitize_review_comment(comment)
+        if decision == "reject" and not review_comment:
+            raise DispatchValidationError("退回编制时必须填写复核评论")
         operator_id = str(operator_open_id or "").strip()
         now = feishu_app_bot.utc_now()
         with self._connect() as connection:
@@ -704,12 +738,23 @@ class ExternalDispatchStore:
                     return self._with_reviewers(task), False
                 raise DispatchValidationError("您已提交本轮复核结论", status_code=409)
             connection.execute(
-                "UPDATE dispatch_reviewers SET status=?,decided_at=?,updated_at=? WHERE task_id=? AND mapping_id=?",
-                (target_status, now, now, task_id, reviewer_data["mapping_id"]),
+                """UPDATE dispatch_reviewers SET status=?,comment=?,commented_at=?,
+                decided_at=?,updated_at=? WHERE task_id=? AND mapping_id=?""",
+                (target_status, review_comment, now if review_comment else "", now, now, task_id, reviewer_data["mapping_id"]),
             )
             connection.execute(
-                "INSERT INTO dispatch_review_actions(task_id,review_round,reviewer_mapping_id,reviewer_name,decision,created_at) VALUES (?,?,?,?,?,?)",
-                (task_id, review_round, reviewer_data["mapping_id"], reviewer_data["display_name"], decision, now),
+                """INSERT INTO dispatch_review_actions
+                (task_id,review_round,reviewer_mapping_id,reviewer_name,decision,comment,created_at)
+                VALUES (?,?,?,?,?,?,?)""",
+                (
+                    task_id,
+                    review_round,
+                    reviewer_data["mapping_id"],
+                    reviewer_data["display_name"],
+                    decision,
+                    review_comment,
+                    now,
+                ),
             )
             if decision == "reject":
                 connection.execute(
@@ -1317,7 +1362,15 @@ def build_external_review_card(task: dict[str, Any]) -> dict[str, Any]:
     status = str(task.get("status") or "")
     labels = {"waiting": "待编制", "pending": "待复核", "approved": "已通过", "rejected": "已退回"}
     reviewer_lines = "\n".join(
-        f"- {item.get('display_name') or '未命名'}：{labels.get(str(item.get('status') or ''), item.get('status') or '-')}"
+        (
+            f"- {item.get('display_name') or '未命名'}："
+            f"{labels.get(str(item.get('status') or ''), item.get('status') or '-')}"
+            + (
+                f"\n  评论：{display_review_comment(item.get('comment'))}"
+                if str(item.get("comment") or "").strip()
+                else ""
+            )
+        )
         for item in (task.get("_reviewers") or [])
     ) or "- 未配置复核人"
     content = (
@@ -1332,10 +1385,44 @@ def build_external_review_card(task: dict[str, Any]) -> dict[str, Any]:
     )
     elements: list[dict[str, Any]] = [{"tag": "div", "text": {"tag": "lark_md", "content": content}}]
     if status == "pending_review":
-        elements.append({"tag": "action", "actions": [
-            {"tag": "button", "text": {"tag": "plain_text", "content": "复核通过"}, "type": "primary", "value": {"action": "review_external_task", "decision": "approve", "task_id": str(task.get("task_id") or "")}},
-            {"tag": "button", "text": {"tag": "plain_text", "content": "退回编制"}, "type": "danger", "value": {"action": "review_external_task", "decision": "reject", "task_id": str(task.get("task_id") or "")}},
-        ]})
+        elements.append({
+            "tag": "form",
+            "name": "review_form",
+            "elements": [
+                {
+                    "tag": "input",
+                    "name": "review_comment",
+                    "label": {"tag": "plain_text", "content": "复核评论"},
+                    "label_position": "top",
+                    "placeholder": {"tag": "plain_text", "content": "通过时可选；退回编制时必填，最多 500 字"},
+                    "max_length": REVIEW_COMMENT_MAX_LENGTH,
+                },
+                {
+                    "tag": "button",
+                    "name": "approve_review",
+                    "action_type": "form_submit",
+                    "text": {"tag": "plain_text", "content": "复核通过"},
+                    "type": "primary",
+                    "value": {
+                        "action": "review_external_task",
+                        "decision": "approve",
+                        "task_id": str(task.get("task_id") or ""),
+                    },
+                },
+                {
+                    "tag": "button",
+                    "name": "reject_review",
+                    "action_type": "form_submit",
+                    "text": {"tag": "plain_text", "content": "退回编制"},
+                    "type": "danger",
+                    "value": {
+                        "action": "review_external_task",
+                        "decision": "reject",
+                        "task_id": str(task.get("task_id") or ""),
+                    },
+                },
+            ],
+        })
     return {
         "config": {"wide_screen_mode": True},
         "header": {"title": {"tag": "plain_text", "content": "造价智算 · 多人复核"}, "template": "green" if status == "completed" else ("yellow" if status == "returned" else "blue")},
@@ -1469,7 +1556,12 @@ def public_dispatch_task(task: dict[str, Any]) -> dict[str, Any]:
     claimed = bool(task.get("claimed_at")) or status in {"claimed", "pending_review", "returned", "completed"}
     reviewer_labels = {"waiting": "待编制", "pending": "待复核", "approved": "已通过", "rejected": "已退回"}
     participants = [{"role": "编制人", "name": str(task.get("assignee_name") or ""), "status": "已领取" if claimed else "待领取"}]
-    participants.extend({"role": "复核人", "name": str(item.get("display_name") or ""), "status": reviewer_labels.get(str(item.get("status") or ""), str(item.get("status") or ""))} for item in (task.get("_reviewers") or []))
+    participants.extend({
+        "role": "复核人",
+        "name": str(item.get("display_name") or ""),
+        "status": reviewer_labels.get(str(item.get("status") or ""), str(item.get("status") or "")),
+        "comment": str(item.get("comment") or ""),
+    } for item in (task.get("_reviewers") or []))
     return {
         "task_id": str(task.get("task_id") or ""),
         "source_task_id": str(task.get("source_task_id") or ""),

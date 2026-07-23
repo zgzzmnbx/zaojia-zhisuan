@@ -544,7 +544,7 @@ def test_target_assignee_can_claim_once_and_card_becomes_read_only(service):
     assert public["status_label"] == "已领取"
     assert public["participants"] == [
         {"role": "编制人", "name": "测试人员", "status": "已领取"},
-        {"role": "复核人", "name": "石萌", "status": "待编制"},
+        {"role": "复核人", "name": "石萌", "status": "待编制", "comment": ""},
     ]
     repeated, repeated_created = store.claim_task(
         task["task_id"],
@@ -610,10 +610,26 @@ def test_multi_reviewer_flow_completes_only_after_every_reviewer_approves(servic
     assert created is True and submitted["status"] == "pending_review" and submitted["review_round"] == 1
     reviewer_row = store.get_person(reviewer["person_ref"], "weact")
     completed, decided = store.review_task(
-        task["task_id"], operator_open_id=reviewer_row["platform_user_id"], platform_profile_id="weact", decision="approve",
+        task["task_id"],
+        operator_open_id=reviewer_row["platform_user_id"],
+        platform_profile_id="weact",
+        decision="approve",
+        comment="金额及风险项已核对，同意通过。",
     )
     assert decided is True and completed["status"] == "completed" and completed["completed_at"]
+    assert completed["_reviewers"][0]["comment"] == "金额及风险项已核对，同意通过。"
+    assert public_comment(completed) == "金额及风险项已核对，同意通过。"
+    with store._connect() as connection:
+        action = connection.execute(
+            "SELECT decision,comment FROM dispatch_review_actions WHERE task_id=?",
+            (task["task_id"],),
+        ).fetchone()
+    assert dict(action) == {"decision": "approve", "comment": "金额及风险项已核对，同意通过。"}
     assert "复核通过" not in json.dumps(external_task_dispatch.build_external_review_card(completed), ensure_ascii=False)
+    assert "金额及风险项已核对" in json.dumps(
+        external_task_dispatch.build_external_review_card(completed),
+        ensure_ascii=False,
+    )
 
 
 def test_reviewer_can_return_and_compiler_can_start_next_round(service):
@@ -624,8 +640,15 @@ def test_reviewer_can_return_and_compiler_can_start_next_round(service):
     attach_review_result(dispatch, store, task)
     store.submit_for_review(task["task_id"], operator_open_id=stored["assignee_user_id"], platform_profile_id="weact")
     reviewer = store.get_person(options["people"][1]["person_ref"], "weact")
-    returned, _ = store.review_task(task["task_id"], operator_open_id=reviewer["platform_user_id"], platform_profile_id="weact", decision="reject")
+    returned, _ = store.review_task(
+        task["task_id"],
+        operator_open_id=reviewer["platform_user_id"],
+        platform_profile_id="weact",
+        decision="reject",
+        comment="第 3 项计量依据不足，请补充后重新提交。",
+    )
     assert returned["status"] == "returned"
+    assert returned["_reviewers"][0]["comment"] == "第 3 项计量依据不足，请补充后重新提交。"
     attach_review_result(dispatch, store, task)
     next_round, _ = store.submit_for_review(task["task_id"], operator_open_id=stored["assignee_user_id"], platform_profile_id="weact")
     assert next_round["status"] == "pending_review" and next_round["review_round"] == 2
@@ -648,6 +671,50 @@ def test_trial_mode_allows_compiler_to_review_own_task(service):
     assert created is True
     assert completed["status"] == "completed"
     assert completed["_reviewers"][0]["display_name"] == completed["assignee_name"]
+
+
+def test_reject_requires_comment_and_card_uses_classic_form(service):
+    dispatch, store, _, options = service
+    task, _ = dispatch.create_and_deliver(
+        envelope(options["people"][0]["person_ref"]),
+        file_name="a.xlsx",
+        file_bytes=xlsx_bytes(),
+    )
+    stored = store.get_task(task["task_id"])
+    store.claim_task(
+        task["task_id"],
+        operator_open_id=stored["assignee_user_id"],
+        platform_profile_id="weact",
+    )
+    attach_review_result(dispatch, store, task)
+    pending, _ = store.submit_for_review(
+        task["task_id"],
+        operator_open_id=stored["assignee_user_id"],
+        platform_profile_id="weact",
+    )
+    reviewer = pending["_reviewers"][0]
+
+    with pytest.raises(external_task_dispatch.DispatchValidationError, match="必须填写复核评论"):
+        store.review_task(
+            task["task_id"],
+            operator_open_id=reviewer["platform_user_id"],
+            platform_profile_id="weact",
+            decision="reject",
+        )
+
+    card = external_task_dispatch.build_external_review_card(pending)
+    form = card["elements"][-1]
+    assert form["tag"] == "form"
+    assert form["elements"][0]["tag"] == "input"
+    assert form["elements"][0]["name"] == "review_comment"
+    assert form["elements"][0]["max_length"] == 500
+    assert [item["action_type"] for item in form["elements"][1:]] == ["form_submit", "form_submit"]
+
+
+def public_comment(task: dict) -> str:
+    participants = external_task_dispatch.public_dispatch_task(task)["participants"]
+    reviewer = next(item for item in participants if item["role"] == "复核人")
+    return reviewer["comment"]
 
 
 def test_claim_rejects_wrong_person_and_platform(service):

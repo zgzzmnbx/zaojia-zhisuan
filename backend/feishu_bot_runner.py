@@ -556,6 +556,11 @@ def main() -> int:
         task_id = str(value.get("task_id") or "").strip()
         operator_open_id = str(getattr(operator, "open_id", "") or "").strip()
         action_name = str(value.get("action") or "")
+        form_value = getattr(action, "form_value", None) or {}
+        if hasattr(form_value, "to_dict"):
+            form_value = form_value.to_dict()
+        if not isinstance(form_value, dict):
+            form_value = {}
         dispatch_store = external_task_dispatch.ExternalDispatchStore()
         try:
             if action_name == "submit_external_review":
@@ -577,8 +582,13 @@ def main() -> int:
                 })
             if action_name == "review_external_task":
                 decision = str(value.get("decision") or "")
+                review_comment = str(form_value.get("review_comment") or value.get("review_comment") or "")
                 reviewed_task, created = dispatch_store.review_task(
-                    task_id, operator_open_id=operator_open_id, platform_profile_id=profile_id, decision=decision,
+                    task_id,
+                    operator_open_id=operator_open_id,
+                    platform_profile_id=profile_id,
+                    decision=decision,
+                    comment=review_comment,
                 )
                 result_text = "复核通过" if decision == "approve" else "已退回编制"
                 if created and str(reviewed_task.get("status") or "") in {"completed", "returned"}:
