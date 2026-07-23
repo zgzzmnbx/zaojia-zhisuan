@@ -20,6 +20,7 @@ from .professional_skills import ProfessionalSkillError, ProfessionalSkillRegist
 
 
 AUTHORIZED_TEST_GROUP_NAME = "智算测试"
+MAX_OUTBOUND_RECIPIENTS = 10
 SOURCE_SYSTEM = "模拟造价系统"
 EVENT_TYPE = "task.assigned"
 DELIVERY_MODES = {"group", "direct", "mixed"}
@@ -156,6 +157,11 @@ class TaskEnvelope:
             raise DispatchValidationError("至少选择一名复核人")
         if len(set(self.reviewer_refs)) != len(self.reviewer_refs):
             raise DispatchValidationError("复核人不能重复")
+        named_people = {self.assignee_ref, *self.reviewer_refs}
+        if len(named_people) > MAX_OUTBOUND_RECIPIENTS:
+            raise DispatchValidationError(
+                f"单个任务最多只能向 {MAX_OUTBOUND_RECIPIENTS} 名明确指定人员发送消息"
+            )
         for name, value in required.items():
             limit = TEXT_LIMITS.get(name)
             if limit and len(str(value)) > limit:
@@ -969,11 +975,15 @@ class ExternalTaskDispatchService:
         person = self.store.get_person(envelope.assignee_ref, envelope.platform_profile_id)
         if not person:
             raise DispatchValidationError("目标编制人未建立可用的平台人员映射", status_code=409)
+        if not str(person.get("display_name") or "").strip():
+            raise DispatchValidationError("目标编制人缺少明确姓名，已拒绝投递", status_code=409)
         reviewers: list[dict[str, Any]] = []
         for reviewer_ref in envelope.reviewer_refs:
             reviewer = self.store.get_person(reviewer_ref, envelope.platform_profile_id)
             if not reviewer:
                 raise DispatchValidationError("存在未建立平台人员映射的复核人", status_code=409)
+            if not str(reviewer.get("display_name") or "").strip():
+                raise DispatchValidationError("存在未明确姓名的复核人，已拒绝投递", status_code=409)
             reviewers.append(reviewer)
         if any("direct" in channels for channels in delivery_policy.values()) and not self.direct_delivery_verified:
             raise DispatchValidationError("当前机器人的主动单聊触达能力尚未完成验证", status_code=409)
@@ -1157,7 +1167,15 @@ class ExternalTaskDispatchService:
         state = self._json_dict(task.get("delivery_state_json"))
         stage_state = state.get(stage) if isinstance(state.get(stage), dict) else {}
         message_ids: list[str] = []
-        for receive_id, receive_id_type in self._delivery_targets(task, stage):
+        targets = self._delivery_targets(task, stage)
+        enforce_outbound_audience_safety(
+            self.feishu,
+            targets,
+            named_recipients={
+                str(task.get("assignee_user_id") or "").strip(): str(task.get("assignee_name") or "").strip(),
+            },
+        )
+        for receive_id, receive_id_type in targets:
             target_key = f"{receive_id_type}:{hashlib.sha256(receive_id.encode('utf-8')).hexdigest()[:16]}"
             current = stage_state.get(target_key) if isinstance(stage_state.get(target_key), dict) else {}
             if current.get("status") == "sent":
@@ -1334,11 +1352,7 @@ def review_delivery_targets(
     channels = stored_delivery_policy(task)["review_card"]
     targets: list[tuple[str, str]] = []
     if "direct" in channels:
-        recipients = {
-            str(item.get("platform_user_id") or "").strip()
-            for item in task.get("_reviewers") or []
-        }
-        recipients.discard("")
+        recipients = _explicit_named_recipients(task.get("_reviewers") or [], role="复核人")
         if not recipients:
             raise DispatchValidationError("复核人没有稳定平台 ID，无法个人投递", status_code=409)
         targets.extend((user_id, "open_id") for user_id in sorted(recipients))
@@ -1360,9 +1374,16 @@ def completion_delivery_targets(
     channels = stored_delivery_policy(task)["completion_card"]
     targets: list[tuple[str, str]] = []
     if "direct" in channels:
-        recipients = {str(task.get("assignee_user_id") or "").strip()}
-        recipients.update(str(item.get("platform_user_id") or "").strip() for item in task.get("_reviewers") or [])
-        recipients.discard("")
+        recipients = _explicit_named_recipients(
+            [
+                {
+                    "platform_user_id": task.get("assignee_user_id"),
+                    "display_name": task.get("assignee_name"),
+                },
+                *(task.get("_reviewers") or []),
+            ],
+            role="完结通知接收人",
+        )
         if not recipients:
             raise DispatchValidationError("完结通知没有可用的个人接收人", status_code=409)
         targets.extend((user_id, "open_id") for user_id in sorted(recipients))
@@ -1373,6 +1394,66 @@ def completion_delivery_targets(
             raise DispatchValidationError("完结通知仅允许投递到唯一授权群", status_code=409)
         targets.append((chat_id, "chat_id"))
     return list(dict.fromkeys(targets))
+
+
+def _explicit_named_recipients(people: list[dict[str, Any]], *, role: str) -> dict[str, str]:
+    recipients: dict[str, str] = {}
+    for person in people:
+        user_id = str(person.get("platform_user_id") or "").strip()
+        name = str(person.get("display_name") or "").strip()
+        if not user_id or not name:
+            raise DispatchValidationError(f"{role}必须是已明确指定姓名并完成平台映射的人员", status_code=409)
+        recipients[user_id] = name
+    if len(recipients) > MAX_OUTBOUND_RECIPIENTS:
+        raise DispatchValidationError(
+            f"单次最多只能向 {MAX_OUTBOUND_RECIPIENTS} 名明确指定人员发送消息",
+            status_code=409,
+        )
+    return recipients
+
+
+def enforce_outbound_audience_safety(
+    feishu: Any,
+    targets: list[tuple[str, str]],
+    *,
+    named_recipients: dict[str, str],
+) -> None:
+    """Fail closed unless the complete outbound audience is named and no larger than the hard limit."""
+    audience: dict[str, str] = {}
+    for receive_id, receive_id_type in dict.fromkeys(targets):
+        normalized_id = str(receive_id or "").strip()
+        if receive_id_type == "open_id":
+            name = str(named_recipients.get(normalized_id) or "").strip()
+            if not normalized_id or not name:
+                raise DispatchValidationError("已拒绝向未明确指定姓名的人员发送消息", status_code=409)
+            audience[normalized_id] = name
+            continue
+        if receive_id_type != "chat_id" or not normalized_id:
+            raise DispatchValidationError("消息投递目标无效，已拒绝发送", status_code=409)
+        try:
+            directory = feishu.list_chat_members(normalized_id)
+        except Exception as exc:
+            raise DispatchValidationError("无法核验工作群成员，已按安全准则拒绝发送", status_code=409) from exc
+        members = directory.get("members") if isinstance(directory, dict) else None
+        if not isinstance(members, list):
+            raise DispatchValidationError("工作群成员目录无效，已按安全准则拒绝发送", status_code=409)
+        for member in members:
+            member_id = str(member.get("member_id") or "").strip()
+            member_name = str(member.get("name") or "").strip()
+            if not member_id or not member_name or member_name == "未命名成员":
+                raise DispatchValidationError("工作群存在未明确姓名的成员，已拒绝发送", status_code=409)
+            audience[member_id] = member_name
+        member_total = int(directory.get("member_total") or len(members))
+        if member_total > MAX_OUTBOUND_RECIPIENTS:
+            raise DispatchValidationError(
+                f"工作群共有 {member_total} 人，超过单次 {MAX_OUTBOUND_RECIPIENTS} 人安全上限，已拒绝发送",
+                status_code=409,
+            )
+    if len(audience) > MAX_OUTBOUND_RECIPIENTS:
+        raise DispatchValidationError(
+            f"本次消息将触达 {len(audience)} 人，超过单次 {MAX_OUTBOUND_RECIPIENTS} 人安全上限，已拒绝发送",
+            status_code=409,
+        )
 
 
 def stored_delivery_policy(task: dict[str, Any]) -> dict[str, list[str]]:

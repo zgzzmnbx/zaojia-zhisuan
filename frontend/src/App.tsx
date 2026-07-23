@@ -46,7 +46,7 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.14.3";
+const APP_VERSION = "v5.14.4";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const KNOWLEDGE_QA_ENTRY_COUNT = 3922;
 const KNOWLEDGE_QA_SOURCE_COUNT = 17;
@@ -9472,7 +9472,7 @@ function DaweibaApp() {
                 <label><span>目标群／成员来源群</span><select value={externalDispatchGroup} disabled={isLoadingExternalDispatch} onChange={(event) => applyExternalDispatchGroup(event.target.value)}>{externalDispatchOptions?.directory.groups.map((group) => <option key={group.group_ref} value={group.group_ref}>{group.name} · {group.member_count} 人{group.members_available ? "" : "（使用缓存）"}</option>)}</select><small>群通道仍只允许“智算测试”；其他群可作为人员查找来源。</small></label>
                 <label><span>人员选择范围</span><select value={externalDispatchPeopleSource} onChange={(event) => applyExternalDispatchPeopleSource(event.target.value as "group" | "all")}><option value="group">从当前群成员选择</option><option value="all">从全部已读取人员选择</option></select><small>全部人员会按平台身份去重，最终投递位置由下方策略决定。</small></label>
                 <label><span>目标编制人</span><select value={externalDispatchPerson} onChange={(event) => setExternalDispatchPerson(event.target.value)}>{externalDispatchPeople().map((person) => <option key={person.person_ref} value={person.person_ref}>{person.display_name}</option>)}</select></label>
-                <fieldset className="is-wide daweiba-external-dispatch-reviewers"><legend>多人复核</legend><small>测试阶段允许编制人兼任复核人；至少选择 1 人，全部复核通过后任务才完成。</small><div>{externalDispatchPeople().map((person) => <label key={person.person_ref}><input type="checkbox" checked={externalDispatchReviewers.includes(person.person_ref)} onChange={(event) => setExternalDispatchReviewers((current) => event.target.checked ? [...new Set([...current, person.person_ref])] : current.filter((ref) => ref !== person.person_ref))} /><span>{person.display_name}{person.person_ref === externalDispatchPerson ? "（编制人兼任）" : ""}</span></label>)}</div></fieldset>
+                <fieldset className="is-wide daweiba-external-dispatch-reviewers"><legend>多人复核</legend><small>测试阶段允许编制人兼任复核人；至少选择 1 人，编制人和复核人合计最多 10 名。机器人只向这里明确勾选并完成姓名映射的人员发送个人消息。</small><div>{externalDispatchPeople().map((person) => <label key={person.person_ref}><input type="checkbox" checked={externalDispatchReviewers.includes(person.person_ref)} onChange={(event) => setExternalDispatchReviewers((current) => event.target.checked ? [...new Set([...current, person.person_ref])] : current.filter((ref) => ref !== person.person_ref))} /><span>{person.display_name}{person.person_ref === externalDispatchPerson ? "（编制人兼任）" : ""}</span></label>)}</div></fieldset>
                 <fieldset className="is-wide daweiba-external-delivery-strategy">
                   <legend>投递策略</legend>
                   <div className="daweiba-external-delivery-strategy-head">

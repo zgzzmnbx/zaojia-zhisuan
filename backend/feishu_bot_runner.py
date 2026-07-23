@@ -38,7 +38,16 @@ def deliver_external_review_bundle(
     try:
         file_message_ids: list[str] = []
         card_message_ids: list[str] = []
-        for receive_id, receive_id_type in external_task_dispatch.review_delivery_targets(task):
+        targets = external_task_dispatch.review_delivery_targets(task)
+        external_task_dispatch.enforce_outbound_audience_safety(
+            feishu,
+            targets,
+            named_recipients={
+                str(item.get("platform_user_id") or "").strip(): str(item.get("display_name") or "").strip()
+                for item in task.get("_reviewers") or []
+            },
+        )
+        for receive_id, receive_id_type in targets:
             file_message_ids.append(feishu.send_file_to(receive_id, receive_id_type, result_path))
             card_message_ids.append(
                 feishu.send_card_to(
@@ -81,13 +90,28 @@ def deliver_external_completion_notification(
     if not task:
         return
     try:
+        targets = external_task_dispatch.completion_delivery_targets(task)
+        external_task_dispatch.enforce_outbound_audience_safety(
+            feishu,
+            targets,
+            named_recipients={
+                str(item.get("platform_user_id") or "").strip(): str(item.get("display_name") or "").strip()
+                for item in [
+                    {
+                        "platform_user_id": task.get("assignee_user_id"),
+                        "display_name": task.get("assignee_name"),
+                    },
+                    *(task.get("_reviewers") or []),
+                ]
+            },
+        )
         message_ids = [
             feishu.send_card_to(
                 receive_id,
                 receive_id_type,
                 external_task_dispatch.build_external_review_card(task),
             )
-            for receive_id, receive_id_type in external_task_dispatch.completion_delivery_targets(task)
+            for receive_id, receive_id_type in targets
         ]
         dispatch_store.record_attempt(task_id, "completion_card", "sent")
         dispatch_store.mark_completion_card(

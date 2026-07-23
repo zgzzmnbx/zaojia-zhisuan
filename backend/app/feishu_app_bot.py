@@ -46,7 +46,7 @@ ACK_REACTION_EMOJI = "Get"
 MESSAGE_MAX_AGE_SECONDS = 5 * 60
 DELAYED_FILE_MAX_AGE_SECONDS = 15 * 60
 UPLOAD_WINDOW_MINUTES = 1
-UPLOAD_COMMANDS = {"@上传", "@上传文件"}
+UPLOAD_COMMANDS = {"@上传", "@上传文件", "@辅助审核"}
 GREETING_COMMANDS = {"你好"}
 GROUP_MEMBER_COMMANDS = {"群里有几个人", "群成员", "都有谁"}
 HELP_COMMANDS = {"帮助", "指令"}
@@ -76,7 +76,7 @@ TASK_COMMAND_HELP = (
     "• 风险 FS-任务编号：查看任务风险统计；\n"
     "• 高风险：查看当前会话最近的高风险任务；\n"
     "• 结果 FS-任务编号：重新发送已完成任务的 Excel、Word 和完成卡片；\n"
-    "• @上传 / @上传文件：开启 1 分钟文件接收窗口；\n"
+    "• @上传 / @上传文件 / @辅助审核：开启 1 分钟文件接收窗口并自动完成辅助审核；\n"
     "• @知识库：问题：查询本地规则、知识库和依据来源；\n"
     "• 群成员：在群聊中查询真实人数和名单。\n\n"
     "群聊请先 @当前机器人；单聊可直接发送。任务信息只在原任务所在会话内可查询。"
@@ -90,7 +90,7 @@ BOT_INTRODUCTION = (
     "4. 任务查询与成果重发：查询当前会话的任务进度、风险和历史成果；\n"
     "5. 普通智能问答：其他文字问题由大模型提供辅助回答。\n\n"
     "使用方法：\n"
-    "• 群聊：先 @机器人，再发送“@上传”“@知识库：问题”“任务”“帮助”或其他问题；\n"
+    "• 群聊：先 @机器人，再发送“@上传”“@辅助审核”“@知识库：问题”“任务”“帮助”或其他问题；\n"
     "• 单聊：直接发送上传、知识库、问候、任务或普通问题；群成员请到目标群中查询；\n"
     "• 上传时请在收到提示后的 1 分钟内发送一个 .xlsx 文件。\n\n"
     "说明：价格和系数仍由造价智算规则与知识库处理，大模型不会直接裁决最终结果。"
@@ -1801,9 +1801,14 @@ def accept_event(
         if not is_private and not _mentions_current_bot(envelope, bot_open_id, bot_name):
             raise IgnoreEvent("非机器人上传指令")
         if not envelope.sender_id:
-            raise ValueError("无法识别发起人，请重新发送 @上传")
+            raise ValueError("无法识别发起人，请重新发送 @上传 或 @辅助审核")
         store.open_upload_window(envelope.chat_id, envelope.sender_id)
-        feishu.send_text(envelope.chat_id, "已进入收件状态，请在 1 分钟内直接拖入并发送一个 .xlsx 文件。")
+        prompt = (
+            "已进入辅助审核收件状态，请在 1 分钟内直接拖入并发送一个 .xlsx 文件。"
+            if clean_bot_command_text(envelope.text) == "@辅助审核"
+            else "已进入收件状态，请在 1 分钟内直接拖入并发送一个 .xlsx 文件。"
+        )
+        feishu.send_text(envelope.chat_id, prompt)
         return {"pending": True}
 
     incoming = _incoming_task(envelope)
@@ -1821,7 +1826,7 @@ def accept_event(
     ):
         if not is_private and not _mentions_current_bot(envelope, bot_open_id, bot_name):
             raise IgnoreEvent("非机器人任务消息")
-        raise ValueError("请先发送“@上传”或“@上传文件”，再在 1 分钟内发送一个 .xlsx 文件")
+        raise ValueError("请先发送“@上传”“@上传文件”或“@辅助审核”，再在 1 分钟内发送一个 .xlsx 文件")
     task, created = store.enqueue(
         event_id=incoming.event_id, message_id=incoming.message_id, chat_id=incoming.chat_id,
         file_key=incoming.file_key, file_name=incoming.file_name,

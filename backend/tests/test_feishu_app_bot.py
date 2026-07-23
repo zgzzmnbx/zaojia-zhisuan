@@ -453,7 +453,10 @@ def test_non_upload_text_is_not_treated_as_upload_command(tmp_path):
     assert feishu.texts == []
 
 
-@pytest.mark.parametrize("command", ["@上传", "@上传文件", "@_user_ @上传！", "@_user_1  @上传"])
+@pytest.mark.parametrize(
+    "command",
+    ["@上传", "@上传文件", "@辅助审核", "@_user_ @上传！", "@_user_1  @上传", "@_user_1 @辅助审核！"],
+)
 def test_only_explicit_upload_commands_open_one_minute_window(tmp_path, command):
     store = feishu_app_bot.TaskStore(tmp_path / f"{len(command)}-tasks.sqlite3")
     feishu = FakeFeishu()
@@ -462,7 +465,21 @@ def test_only_explicit_upload_commands_open_one_minute_window(tmp_path, command)
     assert "1 分钟" in feishu.texts[0][1]
 
 
-@pytest.mark.parametrize("text", ["上传", "请上传", "@上传一下", "我要@上传文件了"])
+def test_assisted_review_command_has_clear_receipt_prompt(tmp_path):
+    store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
+    feishu = FakeFeishu()
+
+    result = feishu_app_bot.accept_event(
+        event_payload(files=[], text="@辅助审核"),
+        store,
+        feishu,
+    )
+
+    assert result["pending"] is True
+    assert "辅助审核收件状态" in feishu.texts[0][1]
+
+
+@pytest.mark.parametrize("text", ["上传", "请上传", "@上传一下", "我要@上传文件了", "辅助审核", "@辅助审核一下"])
 def test_similar_phrases_do_not_open_upload_window(tmp_path, text):
     store = feishu_app_bot.TaskStore(tmp_path / f"{len(text)}-tasks.sqlite3")
     assert feishu_app_bot.accept_event(event_payload(files=[], text=text), store, FakeFeishu()) is None
@@ -477,6 +494,7 @@ def test_greeting_returns_introduction_and_usage(tmp_path):
     assert result["kind"] == "greeting"
     assert "我是造价智算机器人" in feishu.texts[0][1]
     assert "@上传" in feishu.texts[0][1]
+    assert "@辅助审核" in feishu.texts[0][1]
     assert "@知识库" in feishu.texts[0][1]
     assert "Excel 自动处理" in feishu.texts[0][1]
     assert "普通智能问答" in feishu.texts[0][1]

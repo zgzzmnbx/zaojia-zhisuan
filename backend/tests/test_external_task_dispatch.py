@@ -152,6 +152,51 @@ def test_envelope_rejects_missing_and_wrong_event(person_ref: str = "PM-X"):
         ).validate()
 
 
+def test_envelope_rejects_more_than_ten_explicit_people():
+    with pytest.raises(external_task_dispatch.DispatchValidationError, match="最多只能向 10 名"):
+        envelope(
+            "PM-ASSIGNEE",
+            reviewer_refs=tuple(f"PM-REVIEWER-{index}" for index in range(10)),
+        ).validate()
+
+
+def test_outbound_audience_rejects_group_larger_than_ten():
+    feishu = FakeFeishu(
+        members_by_chat={
+            "chat-test": [
+                {"member_id": f"ou-user-{index}", "name": f"成员{index}"}
+                for index in range(11)
+            ]
+        }
+    )
+
+    with pytest.raises(external_task_dispatch.DispatchValidationError, match="超过单次 10 人安全上限"):
+        external_task_dispatch.enforce_outbound_audience_safety(
+            feishu,
+            [("chat-test", "chat_id")],
+            named_recipients={},
+        )
+
+
+def test_outbound_audience_rejects_unnamed_or_unselected_person():
+    feishu = FakeFeishu()
+    with pytest.raises(external_task_dispatch.DispatchValidationError, match="未明确指定姓名"):
+        external_task_dispatch.enforce_outbound_audience_safety(
+            feishu,
+            [("ou-not-selected", "open_id")],
+            named_recipients={"ou-user-1": "石萌"},
+        )
+
+
+def test_outbound_audience_allows_only_explicit_named_people():
+    feishu = FakeFeishu()
+    external_task_dispatch.enforce_outbound_audience_safety(
+        feishu,
+        [("ou-user-1", "open_id"), ("ou-user-2", "open_id")],
+        named_recipients={"ou-user-1": "石萌", "ou-user-2": "复核人"},
+    )
+
+
 def test_options_returns_names_but_not_platform_ids(service):
     _, _, _, options = service
     encoded = json.dumps(options, ensure_ascii=False)
