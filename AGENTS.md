@@ -111,6 +111,7 @@
 - Windows 绿色版只负责在目标电脑启动本地后端和本地前端服务，并打开默认浏览器；不得把业务逻辑迁移到启动脚本里。
 - 云端发布包包含中文目录和文件名时，必须使用 UTF-8 保真的 `tar.gz` 在 Linux 服务器解压；不要直接使用 Windows `Compress-Archive` 生成的 ZIP 交给 Linux `unzip`，否则中文路径可能乱码，导致正式二维知识库、报告模板和规则文件报“文件不存在”。
 - 正式 Word 模板含页码文本框，它会使每页 `scrollHeight` 固定多出约 `98px`；File Viewer 报告预览应设置高于该装饰误差的 `paginationTolerance`，并保留有上限的动态分页，不能再次用 `maxDynamicPaginationPasses: 0` 关闭正文自动续页。回归时至少核对正式 3 页样例、一个 5 页以上显式分页样例和一个由长正文自动续排到 7 页左右的实际报告。
+- 项目看板切到“新建填价”或其他模块后，为保留筛选状态可以继续保留 Dashboard 组件，但必须卸载 Recharts 图表子树；不得让图表在 `display:none` 的零尺寸容器中持续挂载并反复输出宽高警告。浏览器验收需确认切换后控制台无该类警告。
 - 统信 UOS 兼容性准备当前只是未来迁移预案，不是日常开发主线；`python tools/check_platform_compat.py` 只在统信/Linux 相关修改、路径/启动/打包规则调整或明确要求兼容性复核时手动运行，不挂入平时启动、`npm run build`、`python -m pytest backend/tests -v`、代码存档或 Windows 绿色版默认流程，避免拖慢当前 Windows 开发。
 - 同一飞书应用的多个长连接实例采用随机集群分发而非广播；本地与服务器迁移时必须只启用一个第二层机器人实例，使用智能协同页“启用接收”开关切换，避免任务、队列和成果随机分裂到不同环境。
 - 云端第二层机器人可能由页面 API 拉起为 uvicorn 子进程，此时 `zaojiazhisuan-feishu-bot.service` 可显示 `inactive`，但真实 `feishu_bot_runner.py` 仍在运行。云端发布不得只看 systemd 状态；切换前同时核对真实进程数，停止主服务后确认 runner 归零，切换后由专用 systemd 单元接管，并验证服务 `active`、WeAct WebSocket 已连接且 runner 恰好一个。

@@ -7656,6 +7656,129 @@ tbody tr:hover .row-ai-cell {
   min-height: 84px;
 }
 
+/* 项目看板入口只协调现有填价工作区；Rhea 视觉变量均封装在 .project-dashboard 内。 */
+.shell.layout-daweiba .daweiba-main-content .daweiba-workspace-frame.is-daweiba-module-fill {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.shell.layout-daweiba .daweiba-fill-view-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-start;
+  justify-self: flex-start;
+  grid-column: 1 / -1;
+  flex: 0 0 40px;
+  width: fit-content;
+  height: 40px;
+  min-height: 40px;
+  max-height: 40px;
+  margin: 0 0 12px;
+  padding: 4px;
+  border: 0;
+  border-radius: 12px;
+  background: #f0f0ef;
+  box-shadow: inset 0 0 0 1px rgb(23 23 23 / 4%);
+  overflow: hidden;
+}
+
+.shell.layout-daweiba .daweiba-fill-view-tabs button {
+  flex: 0 0 auto;
+  height: 32px;
+  min-height: 32px;
+  max-height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #737373;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 32px;
+  cursor: pointer;
+}
+
+.shell.layout-daweiba .daweiba-fill-view-tabs button:hover {
+  color: #171717;
+  background: rgb(255 255 255 / 62%);
+}
+
+.shell.layout-daweiba .daweiba-fill-view-tabs button.is-active {
+  color: #171717;
+  background: #ffffff;
+  box-shadow: 0 0 0 1px rgb(23 23 23 / 5%), 0 1px 2px rgb(23 23 23 / 8%);
+}
+
+.shell.layout-daweiba .daweiba-fill-view-tabs button:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-fill-dashboard-active
+  > :not(.daweiba-fill-view-tabs):not(.daweiba-project-dashboard-host) {
+  display: none !important;
+}
+
+.shell.layout-daweiba .daweiba-project-dashboard-host[hidden],
+.shell.layout-daweiba .daweiba-fill-grid[hidden] {
+  display: none !important;
+}
+
+.shell.layout-daweiba .daweiba-project-dashboard-host {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill > .daweiba-fill-grid {
+  align-self: start;
+}
+
+.shell.layout-daweiba .daweiba-project-dashboard-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 240px;
+  color: #667085;
+  font-size: 13px;
+}
+
+.shell.layout-daweiba .daweiba-project-name-field {
+  display: grid;
+  gap: 6px;
+}
+
+.shell.layout-daweiba .daweiba-project-name-field > span {
+  color: var(--db-text-strong);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.shell.layout-daweiba .daweiba-project-name-field input {
+  width: 100%;
+  min-height: 38px;
+  padding: 0 11px;
+  border: 1px solid var(--db-border);
+  border-radius: 8px;
+  background: var(--db-panel);
+  color: var(--db-text-strong);
+  font: inherit;
+  font-size: 13px;
+}
+
+.shell.layout-daweiba .daweiba-project-name-field input:focus {
+  border-color: #2563eb;
+  outline: 3px solid rgb(37 99 235 / 12%);
+}
+
+.shell.layout-daweiba .daweiba-project-name-field small {
+  color: var(--db-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .shell.layout-daweiba .zhisuan-file-attachment {
   display: flex;
   align-items: center;

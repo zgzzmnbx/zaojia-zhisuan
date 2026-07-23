@@ -1,4 +1,4 @@
-import { CSSProperties, ChangeEvent, DragEvent, KeyboardEvent, MouseEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { CSSProperties, ChangeEvent, DragEvent, KeyboardEvent, lazy, MouseEvent, PointerEvent as ReactPointerEvent, ReactNode, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Bot,
@@ -33,6 +33,7 @@ import ProfessionalSkillSelector, {
 } from "./components/skills/ProfessionalSkillSelector";
 import ConversationalAgentWorkspace from "./components/agent-workspace/ConversationalAgentWorkspace";
 
+const ProjectDashboard = lazy(() => import("./components/project-dashboard/ProjectDashboard"));
 const DEFAULT_API_BASE = import.meta.env.DEV ? "http://127.0.0.1:8000" : "";
 const API_BASE = import.meta.env.VITE_API_BASE ?? DEFAULT_API_BASE;
 const API_BASE_LABEL = API_BASE.replace(/^https?:\/\//, "") || window.location.host;
@@ -46,7 +47,7 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.14.6";
+const APP_VERSION = "v5.15.0";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const KNOWLEDGE_QA_ENTRY_COUNT = 3922;
 const KNOWLEDGE_QA_SOURCE_COUNT = 17;
@@ -145,6 +146,7 @@ const LEFT_COLUMN_COLLAPSED_STORAGE_KEY = "guankanzhisuan-left-column-collapsed"
 type MappingField = (typeof MAPPING_FIELDS)[number];
 type ColumnMapping = Record<MappingField, string>;
 type DaweibaModuleId = "agent" | "fill" | "preview" | "experience" | "workload" | "report" | "knowledge" | "collaboration" | "digital-project-assistant";
+type FillWorkspaceView = "dashboard" | "new";
 
 const UI_TUNER_TARGETS = [
   { id: "hero", name: "主标题区域" },
@@ -320,6 +322,12 @@ type ProcessResult = {
   manual_edits?: ManualEditRecord[];
   needs_recalculate?: boolean;
   professional_skill?: ProfessionalSkillSnapshot;
+  project_tracking?: {
+    status: string;
+    project_id?: string | null;
+    run_id?: string | null;
+    message?: string;
+  };
 };
 
 type FeishuNotificationType = "task_started" | "progress" | "task_completed" | "task_failed";
@@ -1739,6 +1747,9 @@ export function App() {
 
 function DaweibaApp() {
   const [file, setFile] = useState<File | null>(null);
+  const [fillWorkspaceView, setFillWorkspaceView] = useState<FillWorkspaceView>("dashboard");
+  const [projectName, setProjectName] = useState("");
+  const [currentProjectId, setCurrentProjectId] = useState("");
   const [columns, setColumns] = useState<ColumnOption[]>([]);
   const [headerRow, setHeaderRow] = useState(4);
   const [columnMapping, setColumnMapping] = useState<ColumnMapping>(EMPTY_MAPPING);
@@ -1798,6 +1809,7 @@ function DaweibaApp() {
   const [isRowAiLoading, setIsRowAiLoading] = useState(false);
   const [rowAiDetailPrompt, setRowAiDetailPrompt] = useState<RowAiContext | null>(null);
   const [activeDaweibaModule, setActiveDaweibaModule] = useState<DaweibaModuleId>("agent");
+  const [hasOpenedProjectDashboard, setHasOpenedProjectDashboard] = useState(false);
   const [digitalProjectAssistantFrameKey, setDigitalProjectAssistantFrameKey] = useState(0);
   const [digitalProjectAssistantFrameStatus, setDigitalProjectAssistantFrameStatus] = useState<"loading" | "ready" | "timeout">("loading");
   const [feishuWebhookStatus, setFeishuWebhookStatus] = useState<FeishuWebhookStatus>(EMPTY_FEISHU_WEBHOOK_STATUS);
@@ -2100,6 +2112,12 @@ function DaweibaApp() {
     }, 24);
     return () => window.clearTimeout(timer);
   }, [chatMessages]);
+
+  useEffect(() => {
+    if (activeDaweibaModule === "fill") {
+      setHasOpenedProjectDashboard(true);
+    }
+  }, [activeDaweibaModule]);
 
   useEffect(() => {
     chatLogRef.current?.scrollTo({
@@ -5425,8 +5443,10 @@ function DaweibaApp() {
     setIsMappingOpen(false);
     setMergeVerticalCells(true);
     setMergeHorizontalCells(true);
+    setCurrentProjectId("");
     if (!nextFile) {
       setFile(null);
+      setProjectName("");
       return;
     }
     if (!nextFile.name.toLowerCase().endsWith(".xlsx")) {
@@ -5435,6 +5455,7 @@ function DaweibaApp() {
       return;
     }
     setFile(nextFile);
+    setProjectName(nextFile.name.replace(/\.xlsx$/i, "").trim());
     appendZhisuanMessage(
       `收到 ${nextFile.name}，准备复核表头和列映射。你可以先看左侧字段识别，我会在右边跟着提示下一步。`,
       "system",
@@ -5633,6 +5654,11 @@ function DaweibaApp() {
 
     const body = new FormData();
     body.append("file", file);
+    body.append("project_name", projectName.trim() || file.name.replace(/\.xlsx$/i, ""));
+    body.append("source_type", activeDaweibaModule === "agent" ? "agent" : "web");
+    if (currentProjectId) {
+      body.append("project_id", currentProjectId);
+    }
     if (sheetConfigs.length > 0) {
       body.append(
         "sheet_configs",
@@ -5689,6 +5715,9 @@ function DaweibaApp() {
       if (requestId !== processRequestSequenceRef.current) return;
       activeResultJobIdRef.current = finalPayload.job_id;
       setResult(finalPayload);
+      if (finalPayload.project_tracking?.project_id) {
+        setCurrentProjectId(finalPayload.project_tracking.project_id);
+      }
       setProgressPercent(100);
       replaceZhisuanMessage(
         processingMessageIdRef.current,
@@ -7628,6 +7657,27 @@ function DaweibaApp() {
     detail: string;
     icon: ReactNode;
   }>;
+  async function openProjectRun(
+    projectId: string,
+    runId: string,
+    target: "preview" | "report",
+  ) {
+    const response = await fetch(
+      `${API_BASE}/api/projects/${encodeURIComponent(projectId)}/runs/${encodeURIComponent(runId)}/result`,
+    );
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !payload) {
+      throw new Error(apiErrorMessage(payload, `历史任务读取失败：${response.status}`));
+    }
+    const restored = payload as ProcessResult;
+    activeResultJobIdRef.current = restored.job_id;
+    processRequestSequenceRef.current += 1;
+    setResult(restored);
+    setCurrentProjectId(projectId);
+    setActivePreviewSheetName("");
+    setActiveDaweibaModule(target);
+  }
+
   const activeDaweibaModuleMeta =
     daweibaModules.find((item) => item.id === activeDaweibaModule) ?? daweibaModules[0];
   const latestFeishuDelivery = feishuWebhookHistory[0] ?? feishuWebhookStatus.last_delivery ?? null;
@@ -7974,10 +8024,53 @@ function DaweibaApp() {
         <div className="daweiba-main-content">
 
       <section
-        className={`daweiba-workspace-frame daweiba-workspace is-daweiba-module-${activeDaweibaModule}`}
+        className={`daweiba-workspace-frame daweiba-workspace is-daweiba-module-${activeDaweibaModule} ${activeDaweibaModule === "fill" && fillWorkspaceView === "dashboard" ? "is-fill-dashboard-active" : ""}`}
         id="soft-workspace-start"
       >
-        <div className="daweiba-fill-grid">
+        {activeDaweibaModule === "fill" ? (
+          <nav className="daweiba-fill-view-tabs" aria-label="辅助填价视图">
+            <button
+              type="button"
+              className={fillWorkspaceView === "dashboard" ? "is-active" : ""}
+              aria-current={fillWorkspaceView === "dashboard" ? "page" : undefined}
+              onClick={() => setFillWorkspaceView("dashboard")}
+            >
+              项目看板
+            </button>
+            <button
+              type="button"
+              className={fillWorkspaceView === "new" ? "is-active" : ""}
+              aria-current={fillWorkspaceView === "new" ? "page" : undefined}
+              onClick={() => setFillWorkspaceView("new")}
+            >
+              新建填价
+            </button>
+          </nav>
+        ) : null}
+
+        {hasOpenedProjectDashboard ? (
+          <div className="daweiba-project-dashboard-host" hidden={activeDaweibaModule !== "fill" || fillWorkspaceView !== "dashboard"}>
+            <Suspense fallback={<div className="daweiba-project-dashboard-loading"><Loader2 className="spin" size={18} />正在载入项目看板……</div>}>
+              <ProjectDashboard
+                active={activeDaweibaModule === "fill" && fillWorkspaceView === "dashboard"}
+                apiBase={API_BASE}
+                currentTask={result ? {
+                  projectName: projectName || file?.name.replace(/\.xlsx$/i, "") || "当前填价任务",
+                  status: result.summary.matching_status === "completed" ? "已完成匹配" : "待开始匹配",
+                  jobId: result.job_id,
+                } : null}
+                onNewProject={() => setFillWorkspaceView("new")}
+                onOpenCurrentTask={() => setFillWorkspaceView("new")}
+                onOpenRun={openProjectRun}
+              />
+            </Suspense>
+          </div>
+        ) : null}
+
+        <div
+          className="daweiba-fill-grid"
+          hidden={activeDaweibaModule === "fill" && fillWorkspaceView !== "new"}
+        >
           <section className="input-panel" id="daweiba-input" data-ui-key="input-panel" style={uiStyle("input-panel")}>
             <div className="section-heading" data-ui-key="section-heading" style={uiStyle("section-heading")}>
               <span><Upload size={18} /></span>
@@ -8021,6 +8114,21 @@ function DaweibaApp() {
                   </span>
                 </>
               )}
+            </label>
+
+            <label className="daweiba-project-name-field">
+              <span>项目名称</span>
+              <input
+                type="text"
+                value={projectName}
+                maxLength={120}
+                placeholder="选择 Excel 后自动带入，可在处理前修改"
+                onChange={(event) => {
+                  setProjectName(event.target.value);
+                  setCurrentProjectId("");
+                }}
+              />
+              <small>{currentProjectId ? "已绑定当前项目；再次处理会形成新的业务版本。" : "用于生成真实项目台账，不按文件名相似度合并历史任务。"}</small>
             </label>
 
             <div className="action-row">

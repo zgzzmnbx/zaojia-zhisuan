@@ -4,7 +4,7 @@ import json
 import os
 import sqlite3
 from threading import Lock
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -108,6 +108,7 @@ from .paths import (
     DEFAULT_KB_PATH,
     DEFAULT_KNOWLEDGE_MEMORY_DB_PATH,
     DEFAULT_PREVIEW_COLUMN_PREFERENCES_PATH,
+    DEFAULT_PROJECT_LEDGER_DB_PATH,
     DEFAULT_REPORT_TEMPLATE_PATH,
     DEFAULT_UI_PREFERENCES_PATH,
     DEFAULT_WORKLOAD_FIELD_PREFERENCES_PATH,
@@ -116,6 +117,13 @@ from .paths import (
     PROJECT_DEFAULT_SETTINGS_PATH,
     PROJECT_ROOT,
     RUNTIME_DIR,
+)
+from .project_dashboard import backfill_project_ledger
+from .project_ledger import (
+    ProjectArtifactNotFoundError,
+    ProjectLedger,
+    ProjectLedgerError,
+    ProjectNotFoundError,
 )
 from .professional_skills import (
     MAX_RECOMMENDATION_FILE_BYTES,
@@ -126,7 +134,7 @@ from .professional_skills import (
 from .report import append_risk_report, write_report
 
 
-APP_VERSION = "v5.14.6"
+APP_VERSION = "v5.15.0"
 OUTPUT_FILE_PREFIX = "【输出】"
 TEMP_FILE_PREFIX = "【临时】"
 PROCESS_STATE_FILENAME = "process-state.json"
@@ -222,6 +230,198 @@ app.add_middleware(
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "guankanzhisuan", "version": APP_VERSION}
+
+
+def _project_filters(
+    *,
+    date_from: str,
+    date_to: str,
+    skill_id: str,
+    status: str,
+    source_type: str,
+    keyword: str,
+    risk: str,
+    quality: str,
+) -> dict[str, str]:
+    return {
+        "date_from": date_from.strip(),
+        "date_to": date_to.strip(),
+        "skill_id": skill_id.strip(),
+        "status": status.strip(),
+        "source_type": source_type.strip(),
+        "keyword": keyword.strip(),
+        "risk": risk.strip(),
+        "quality": quality.strip(),
+    }
+
+
+@app.get("/api/projects/dashboard")
+def get_projects_dashboard(
+    date_from: str = Query(default=""),
+    date_to: str = Query(default=""),
+    skill_id: str = Query(default=""),
+    status: str = Query(default=""),
+    source_type: str = Query(default=""),
+    keyword: str = Query(default=""),
+    risk: str = Query(default=""),
+    quality: str = Query(default=""),
+    compare: bool = Query(default=False),
+) -> dict[str, object]:
+    try:
+        payload = _project_ledger().dashboard(
+            **_project_filters(
+                date_from=date_from,
+                date_to=date_to,
+                skill_id=skill_id,
+                status=status,
+                source_type=source_type,
+                keyword=keyword,
+                risk=risk,
+                quality=quality,
+            )
+        )
+        payload["comparison"] = _project_dashboard_comparison(
+            compare=compare,
+            date_from=date_from,
+            date_to=date_to,
+            skill_id=skill_id,
+            status=status,
+            source_type=source_type,
+            keyword=keyword,
+            risk=risk,
+            quality=quality,
+        )
+        return payload
+    except ProjectLedgerError as exc:
+        raise HTTPException(status_code=503, detail=f"项目台账暂不可用：{exc}") from exc
+
+
+@app.get("/api/projects")
+def list_projects(
+    date_from: str = Query(default=""),
+    date_to: str = Query(default=""),
+    skill_id: str = Query(default=""),
+    status: str = Query(default=""),
+    source_type: str = Query(default=""),
+    keyword: str = Query(default=""),
+    risk: str = Query(default=""),
+    quality: str = Query(default=""),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    sort_by: str = Query(default="updated_at"),
+    sort_order: str = Query(default="desc"),
+) -> dict[str, object]:
+    try:
+        return _project_ledger().list_projects(
+            page=page,
+            page_size=page_size,
+            sort_by=sort_by,
+            sort_order=sort_order,
+            **_project_filters(
+                date_from=date_from,
+                date_to=date_to,
+                skill_id=skill_id,
+                status=status,
+                source_type=source_type,
+                keyword=keyword,
+                risk=risk,
+                quality=quality,
+            ),
+        )
+    except ProjectLedgerError as exc:
+        raise HTTPException(status_code=503, detail=f"项目台账暂不可用：{exc}") from exc
+
+
+@app.post("/api/projects/backfill")
+def backfill_projects(
+    include_unclassified_legacy: bool = Query(default=False),
+) -> dict[str, object]:
+    try:
+        return backfill_project_ledger(
+            _project_ledger(),
+            runtime_root=RUNTIME_DIR,
+            collaboration_db_path=feishu_app_bot.DB_PATH,
+            collaboration_runtime_root=feishu_app_bot.RUNTIME_ROOT,
+            include_unclassified_legacy=include_unclassified_legacy,
+        )
+    except ProjectLedgerError as exc:
+        raise HTTPException(status_code=503, detail=f"项目台账回填失败：{exc}") from exc
+
+
+@app.get("/api/projects/{project_id}")
+def get_project(project_id: str) -> dict[str, object]:
+    try:
+        return _project_ledger().project_detail(project_id)
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ProjectLedgerError as exc:
+        raise HTTPException(status_code=503, detail=f"项目台账暂不可用：{exc}") from exc
+
+
+@app.get("/api/projects/{project_id}/runs")
+def get_project_runs(project_id: str) -> dict[str, object]:
+    try:
+        return {"items": _project_ledger().list_runs(project_id)}
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/projects/{project_id}/artifacts")
+def get_project_artifacts(project_id: str) -> dict[str, object]:
+    try:
+        return {"items": _project_ledger().list_artifacts(project_id)}
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/projects/{project_id}/runs/{run_id}/result")
+def get_project_run_result(project_id: str, run_id: str) -> dict[str, object]:
+    try:
+        run = _project_ledger().get_run(project_id, run_id)
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    job_id = str(run.get("job_id") or "")
+    if not job_id:
+        raise HTTPException(status_code=409, detail="该协同任务暂无可恢复的网页预览")
+    job_dir = RUNTIME_DIR / job_id
+    if not job_dir.is_dir():
+        raise HTTPException(status_code=410, detail="历史任务运行文件已失效")
+    state = _load_process_state(job_dir)
+    summary = _summary_from_dict(state.get("summary", {}))
+    output_excel = _state_path(job_dir, state, "output_excel", required=False)
+    output_report = _state_path(job_dir, state, "output_report", required=False)
+    return _attach_job_skill(
+        {
+            "job_id": job_id,
+            "summary": summary.to_dict(),
+            "downloads": {
+                "excel": f"/api/download/{job_id}/excel"
+                if output_excel and output_excel.is_file()
+                else "",
+                "report": f"/api/download/{job_id}/report"
+                if output_report and output_report.is_file()
+                else "",
+            },
+            "project_tracking": {
+                "status": "available",
+                "project_id": project_id,
+                "run_id": run_id,
+            },
+        },
+        job_dir,
+        state,
+    )
+
+
+@app.get("/api/projects/{project_id}/artifacts/{artifact_id}/download")
+def download_project_artifact(project_id: str, artifact_id: str) -> FileResponse:
+    try:
+        path = _project_ledger().get_artifact_path(project_id, artifact_id)
+    except ProjectArtifactNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return FileResponse(path, filename=path.name)
 
 
 @app.post("/api/inspect")
@@ -581,6 +781,9 @@ async def process_excel(
     defer_matching: bool = Form(default=False),
     skill_id: str | None = Form(default=None),
     skill_version: str | None = Form(default=None),
+    project_id: str | None = Form(default=None),
+    project_name: str | None = Form(default=None),
+    source_type: str = Form(default="web"),
 ) -> dict[str, object]:
     if not file.filename or not file.filename.lower().endswith(".xlsx"):
         raise HTTPException(status_code=400, detail="请上传 .xlsx 文件")
@@ -649,6 +852,13 @@ async def process_excel(
                 },
             },
         )
+        project_tracking = _sync_project_ledger(
+            job_dir,
+            project_id=project_id,
+            project_name=project_name or "",
+            source_type=source_type,
+            create_project=bool(str(project_name or "").strip()),
+        )
         return _attach_job_skill({
             "job_id": job_id,
             "summary": summary.to_dict(),
@@ -656,6 +866,7 @@ async def process_excel(
                 "excel": "",
                 "report": "",
             },
+            "project_tracking": project_tracking,
         }, job_dir)
     try:
         summary = _build_skill_fill_engine(runtime_context).fill_workbook(
@@ -698,6 +909,13 @@ async def process_excel(
         summary,
         extra={"skill_snapshot": skill_snapshot},
     )
+    project_tracking = _sync_project_ledger(
+        job_dir,
+        project_id=project_id,
+        project_name=project_name or "",
+        source_type=source_type,
+        create_project=bool(str(project_name or "").strip()),
+    )
 
     return _attach_job_skill({
         "job_id": job_id,
@@ -706,6 +924,7 @@ async def process_excel(
             "excel": f"/api/download/{job_id}/excel",
             "report": f"/api/download/{job_id}/report",
         },
+        "project_tracking": project_tracking,
     }, job_dir)
 
 
@@ -776,6 +995,7 @@ async def batch_match_process(payload: dict[str, object] = Body(...)) -> dict[st
             "process_options": options,
         },
     )
+    project_tracking = _sync_project_ledger_from_job(job_dir)
     return _attach_job_skill({
         "job_id": job_id,
         "summary": summary.to_dict(),
@@ -783,6 +1003,7 @@ async def batch_match_process(payload: dict[str, object] = Body(...)) -> dict[st
             "excel": f"/api/download/{job_id}/excel",
             "report": f"/api/download/{job_id}/report",
         },
+        "project_tracking": project_tracking,
     }, job_dir, state)
 
 
@@ -957,6 +1178,7 @@ async def run_experience_warnings(
     summary.output_excel = excel_path.name
     summary.output_report = report_path.name
     _save_process_state(job_dir, input_name, input_path, excel_path, report_path, summary)
+    project_tracking = _sync_project_ledger_from_job(job_dir)
     _set_warning_progress(
         job_id,
         {
@@ -975,6 +1197,7 @@ async def run_experience_warnings(
             "excel": f"/api/download/{job_id}/excel",
             "report": f"/api/download/{job_id}/report",
         },
+        "project_tracking": project_tracking,
     }, job_dir)
 
 
@@ -2494,7 +2717,16 @@ def _save_process_state(
     if state_path.exists():
         try:
             previous_state = json.loads(state_path.read_text(encoding="utf-8"))
-            for key in ("deferred_matching", "process_options", "skill_snapshot"):
+            for key in (
+                "deferred_matching",
+                "process_options",
+                "skill_snapshot",
+                "project_relation",
+                "project_id",
+                "project_name",
+                "source_type",
+                "created_at",
+            ):
                 if key in previous_state:
                     preserved[key] = previous_state[key]
         except json.JSONDecodeError:
@@ -2506,11 +2738,156 @@ def _save_process_state(
         "output_excel": output_excel.name,
         "output_report": output_report.name if output_report else "",
         "summary": summary.to_dict(),
+        "created_at": preserved.get("created_at") or datetime.now().astimezone().isoformat(timespec="seconds"),
         "updated_at": datetime.now().isoformat(timespec="seconds"),
     }
     if extra:
         state.update(extra)
     state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _project_ledger() -> ProjectLedger:
+    return ProjectLedger(RUNTIME_DIR / DEFAULT_PROJECT_LEDGER_DB_PATH.name, RUNTIME_DIR)
+
+
+def _sync_project_ledger(
+    job_dir: Path,
+    *,
+    project_id: str | None,
+    project_name: str,
+    source_type: str,
+    create_project: bool,
+) -> dict[str, object]:
+    try:
+        state = _load_process_state(job_dir)
+        relation = _project_ledger().record_process_state(
+            job_id=job_dir.name,
+            state=state,
+            project_id=str(project_id or "").strip() or None,
+            project_name=str(project_name or "").strip(),
+            source_type=str(source_type or "web").strip(),
+            create_project=create_project,
+        )
+        project_relation = {
+            "project_id": relation.get("project_id") or "",
+            "project_name": str(project_name or "").strip(),
+            "source_type": str(source_type or "web").strip(),
+            "run_id": relation["run_id"],
+        }
+        state["project_relation"] = project_relation
+        state["project_id"] = project_relation["project_id"]
+        state["project_name"] = project_relation["project_name"]
+        state["source_type"] = project_relation["source_type"]
+        (job_dir / PROCESS_STATE_FILENAME).write_text(
+            json.dumps(state, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        return {"status": "available", **relation}
+    except (OSError, ProjectLedgerError, ValueError, json.JSONDecodeError) as exc:
+        return {
+            "status": "unavailable",
+            "message": "专业成果已生成，但项目台账暂时不可用。",
+            "error_type": type(exc).__name__,
+        }
+
+
+def _sync_project_ledger_from_job(job_dir: Path) -> dict[str, object]:
+    state = _load_process_state(job_dir)
+    relation = state.get("project_relation")
+    relation_dict = relation if isinstance(relation, dict) else {}
+    project_id = str(state.get("project_id") or relation_dict.get("project_id") or "").strip()
+    project_name = str(state.get("project_name") or relation_dict.get("project_name") or "").strip()
+    source_type = str(state.get("source_type") or relation_dict.get("source_type") or "web").strip()
+    return _sync_project_ledger(
+        job_dir,
+        project_id=project_id or None,
+        project_name=project_name,
+        source_type=source_type,
+        create_project=bool(project_id and project_name),
+    )
+
+
+def _project_dashboard_comparison(
+    *,
+    compare: bool,
+    date_from: str,
+    date_to: str,
+    skill_id: str,
+    status: str,
+    source_type: str,
+    keyword: str,
+    risk: str,
+    quality: str,
+) -> dict[str, object]:
+    if not compare:
+        return {"enabled": False, "available": False}
+    try:
+        start = datetime.strptime(date_from, "%Y-%m-%d").date()
+        end = datetime.strptime(date_to, "%Y-%m-%d").date()
+    except ValueError:
+        return {
+            "enabled": True,
+            "available": False,
+            "message": "选择明确起止日期后可比较上一周期。",
+        }
+    if end < start:
+        return {
+            "enabled": True,
+            "available": False,
+            "message": "时间范围无效。",
+        }
+    period_days = (end - start).days + 1
+    previous_end = start - timedelta(days=1)
+    previous_start = previous_end - timedelta(days=period_days - 1)
+    common = {
+        "skill_id": skill_id,
+        "status": status,
+        "source_type": source_type,
+        "keyword": keyword,
+        "risk": risk,
+        "quality": quality,
+    }
+    ledger = _project_ledger()
+    current = ledger.dashboard(
+        date_from=start.isoformat(),
+        date_to=end.isoformat(),
+        **common,
+    )["kpis"]
+    previous = ledger.dashboard(
+        date_from=previous_start.isoformat(),
+        date_to=previous_end.isoformat(),
+        **common,
+    )["kpis"]
+    if int(previous["total_projects"]) == 0:
+        return {
+            "enabled": True,
+            "available": False,
+            "message": "上一周期没有可比项目，不计算下降。",
+            "period": {
+                "current": [start.isoformat(), end.isoformat()],
+                "previous": [previous_start.isoformat(), previous_end.isoformat()],
+            },
+        }
+    return {
+        "enabled": True,
+        "available": True,
+        "period": {
+            "current": [start.isoformat(), end.isoformat()],
+            "previous": [previous_start.isoformat(), previous_end.isoformat()],
+        },
+        "current": {
+            "new_projects": int(current["total_projects"]),
+            "completed_projects": int(current["completed"]),
+        },
+        "previous": {
+            "new_projects": int(previous["total_projects"]),
+            "completed_projects": int(previous["completed"]),
+        },
+        "delta": {
+            "new_projects": int(current["total_projects"]) - int(previous["total_projects"]),
+            "completed_projects": int(current["completed"]) - int(previous["completed"]),
+        },
+    }
 
 
 def _resolve_professional_skill_snapshot(skill_id: str | None, skill_version: str | None) -> dict[str, object]:
