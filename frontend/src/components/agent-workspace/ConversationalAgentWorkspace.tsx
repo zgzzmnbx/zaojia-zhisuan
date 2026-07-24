@@ -1,4 +1,4 @@
-import { Folder, Plus, X } from "lucide-react";
+import { Plus, Sparkles, X } from "lucide-react";
 import type { ReactNode, RefObject } from "react";
 import type { ProfessionalSkillSnapshot, ProfessionalSkillSummary } from "../skills/ProfessionalSkillSelector";
 import AgentComposer from "./AgentComposer";
@@ -68,7 +68,7 @@ export default function ConversationalAgentWorkspace<T extends AgentWorkspaceMes
     <section className="agent-workspace" aria-label="智算助手对话式工作台">
       <header className="agent-workspace__header">
         <div className="agent-workspace__identity">
-          <Folder aria-hidden="true" size={18} strokeWidth={1.8} />
+          <Sparkles aria-hidden="true" size={18} strokeWidth={1.8} />
           <h1>智算助手</h1>
           <span>对话式专业工作台 · {avatarLabel}</span>
         </div>

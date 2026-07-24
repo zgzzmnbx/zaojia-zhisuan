@@ -177,13 +177,88 @@
 
 .project-dashboard__toolbar {
   display: grid;
-  gap: 10px;
   min-width: 0;
-  padding: 12px;
+  padding: 0;
   border: 0;
   border-radius: 13px;
   background: #fff;
   box-shadow: var(--pd-card-shadow);
+  overflow: hidden;
+}
+
+.project-dashboard__toolbar-toggle {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: var(--pd-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.project-dashboard__toolbar-toggle:hover {
+  background: #fafaf9;
+}
+
+.project-dashboard__toolbar-toggle-title,
+.project-dashboard__toolbar-toggle-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.project-dashboard__toolbar-toggle-title {
+  color: var(--pd-strong);
+  font-size: var(--pd-font-navigation);
+  font-weight: 700;
+}
+
+.project-dashboard__toolbar-toggle-title svg {
+  color: var(--pd-primary);
+}
+
+.project-dashboard__toolbar-summary {
+  min-width: 0;
+  overflow: hidden;
+  color: #808080;
+  font-size: var(--pd-font-meta);
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-dashboard__toolbar-toggle-action {
+  color: var(--pd-muted);
+  font-size: var(--pd-font-meta);
+  font-weight: 600;
+}
+
+.project-dashboard__toolbar-toggle-action svg {
+  transition: transform 160ms ease;
+}
+
+.project-dashboard__toolbar:not(.is-collapsed) .project-dashboard__toolbar-toggle {
+  border-bottom: 1px solid var(--pd-border-soft);
+}
+
+.project-dashboard__toolbar:not(.is-collapsed) .project-dashboard__toolbar-toggle-action svg {
+  transform: rotate(180deg);
+}
+
+.project-dashboard__toolbar-content {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.project-dashboard__toolbar-content[hidden] {
+  display: none;
 }
 
 .project-dashboard__toolbar-row {
@@ -1249,6 +1324,8 @@
   .project-dashboard__header .project-dashboard__backfill { width: max-content; }
   .project-dashboard__current-task { grid-template-columns: auto 1fr auto; }
   .project-dashboard__current-task small { display: none; }
+  .project-dashboard__toolbar-toggle { grid-template-columns: minmax(0, 1fr) auto; }
+  .project-dashboard__toolbar-summary { display: none; }
   .project-dashboard__toolbar-row.is-period { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .project-dashboard__field.is-range,
   .project-dashboard__compare { grid-column: 1 / -1; }

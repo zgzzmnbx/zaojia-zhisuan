@@ -20,6 +20,7 @@ from .professional_skills import ProfessionalSkillError, ProfessionalSkillRegist
 
 
 AUTHORIZED_TEST_GROUP_NAME = "智算测试"
+ANY_GROUP_PROFILE_IDS = {"default"}
 MAX_OUTBOUND_RECIPIENTS = 10
 REVIEW_COMMENT_MAX_LENGTH = 500
 SOURCE_SYSTEM = "模拟造价系统"
@@ -138,6 +139,7 @@ class TaskEnvelope:
     deadline: str
     instructions: str
     input_artifact: TaskArtifact
+    target_group_ref: str = ""
     reviewer_refs: tuple[str, ...] = ()
     delivery_policy: dict[str, list[str]] | None = None
 
@@ -822,6 +824,10 @@ class ExternalTaskDispatchService:
     def directory_cache_path(self) -> Path:
         return self.runtime_root / "external-dispatch" / "directory-cache.json"
 
+    @property
+    def allows_any_group_name(self) -> bool:
+        return self.profile_id in ANY_GROUP_PROFILE_IDS
+
     def _read_directory_cache(self) -> dict[str, Any] | None:
         try:
             payload = json.loads(self.directory_cache_path.read_text(encoding="utf-8"))
@@ -888,7 +894,7 @@ class ExternalTaskDispatchService:
                 people = [item for item in cached_group.get("people") or [] if isinstance(item, dict)]
                 member_count = int(cached_group.get("member_count") or len(people))
             groups.append({
-                "group_ref": "GR-" + hashlib.sha256(f"{self.profile_id}\n{chat_id}".encode("utf-8")).hexdigest()[:16].upper(),
+                "group_ref": self._group_ref(chat_id),
                 "chat_id": chat_id,
                 "name": str(name),
                 "member_count": member_count,
@@ -896,7 +902,10 @@ class ExternalTaskDispatchService:
                 "member_error": member_error,
                 "people": people,
             })
-        groups.sort(key=lambda item: (item["name"] != self.authorized_group_name, item["name"]))
+        groups.sort(key=lambda item: (
+            False if self.allows_any_group_name else item["name"] != self.authorized_group_name,
+            item["name"],
+        ))
         directory = {"updated_at": feishu_app_bot.utc_now(), "groups": groups}
         self._write_directory_cache(directory)
         return directory
@@ -921,7 +930,7 @@ class ExternalTaskDispatchService:
                 "name": str(group.get("name") or "未命名群聊"),
                 "member_count": int(group.get("member_count") or 0),
                 "members_available": bool(group.get("members_available", True)),
-                "authorized": str(group.get("name") or "") == self.authorized_group_name,
+                "authorized": self.allows_any_group_name or str(group.get("name") or "") == self.authorized_group_name,
                 "people": [
                     {
                         "person_ref": str(person.get("person_ref") or ""),
@@ -950,20 +959,30 @@ class ExternalTaskDispatchService:
     def options(self, *, refresh_directory: bool = False) -> dict[str, Any]:
         directory = self.directory(refresh=refresh_directory)
         authorized_groups = [item for item in directory["groups"] if item["authorized"]]
-        if len(authorized_groups) != 1:
-            reason = "未找到" if not authorized_groups else "找到多个同名"
-            raise DispatchValidationError(
-                f"{reason}唯一授权群“{self.authorized_group_name}”，已拒绝真实投递",
-                status_code=409,
-            )
-        target_group = authorized_groups[0]
-        people = list(target_group["people"])
+        if self.allows_any_group_name:
+            target_group = None
+            target_available = bool(directory["groups"])
+            target_name = "当前明确选择的普通飞书群"
+            target_reason = "" if target_available else "普通飞书暂未读取到可选择的工作群"
+            selection_mode = "selected_group"
+        else:
+            target_group = authorized_groups[0] if len(authorized_groups) == 1 else None
+            target_available = target_group is not None
+            target_name = self.authorized_group_name
+            target_reason = ""
+            if target_group is None:
+                reason = "未找到" if not authorized_groups else "找到多个同名"
+                target_reason = f"{reason}唯一授权群“{self.authorized_group_name}”，工作群投递保持关闭"
+            selection_mode = "fixed_name"
+        people = list(target_group["people"]) if target_group else []
         return {
             "source_system": SOURCE_SYSTEM,
             "event_type": EVENT_TYPE,
             "target_group": {
-                "name": self.authorized_group_name,
-                "available": target_group is not None,
+                "name": target_name,
+                "available": target_available,
+                "reason": target_reason,
+                "selection_mode": selection_mode,
             },
             "people": people,
             "directory": directory,
@@ -1005,6 +1024,31 @@ class ExternalTaskDispatchService:
             )
         return matches[0]
 
+    def resolve_selected_group(self, group_ref: str) -> tuple[str, str]:
+        normalized_ref = str(group_ref or "").strip()
+        if not normalized_ref:
+            raise DispatchValidationError("请选择普通飞书工作群", status_code=409)
+        cached = self._read_directory_cache() or {}
+        matches = [
+            group for group in cached.get("groups") or []
+            if isinstance(group, dict) and str(group.get("group_ref") or "") == normalized_ref
+        ]
+        if len(matches) != 1:
+            raise DispatchValidationError("所选普通飞书工作群不在当前受控目录中，请重新读取群与成员", status_code=409)
+        group = matches[0]
+        chat_id = str(group.get("chat_id") or "").strip()
+        chat_name = str(group.get("name") or "").strip()
+        if not chat_id or not chat_name:
+            raise DispatchValidationError("所选普通飞书工作群目录信息不完整", status_code=409)
+        if not bool(group.get("members_available")):
+            raise DispatchValidationError("所选普通飞书工作群成员尚未成功读取，已拒绝投递", status_code=409)
+        return chat_id, chat_name
+
+    def resolve_group_target(self, group_ref: str = "") -> tuple[str, str]:
+        if self.allows_any_group_name:
+            return self.resolve_selected_group(group_ref)
+        return self.resolve_authorized_group()
+
     def create_and_deliver(self, envelope: TaskEnvelope, *, file_name: str, file_bytes: bytes) -> tuple[dict[str, Any], bool]:
         envelope.validate()
         delivery_policy = envelope.normalized_delivery_policy()
@@ -1032,6 +1076,15 @@ class ExternalTaskDispatchService:
             reviewers.append(reviewer)
         if any("direct" in channels for channels in delivery_policy.values()) and not self.direct_delivery_verified:
             raise DispatchValidationError("当前机器人的主动单聊触达能力尚未完成验证", status_code=409)
+        target_chat_id = ""
+        target_chat_name = ""
+        if any("group" in channels for channels in delivery_policy.values()):
+            target_chat_id, target_chat_name = self.resolve_group_target(envelope.target_group_ref)
+            enforce_outbound_audience_safety(
+                self.feishu,
+                [(target_chat_id, "chat_id")],
+                named_recipients={},
+            )
         self._validate_xlsx(file_name, file_bytes)
 
         task_id = f"FS-{datetime.now():%Y%m%d-%H%M%S}-{uuid4().hex[:6].upper()}"
@@ -1072,6 +1125,8 @@ class ExternalTaskDispatchService:
             "delivery_policy_json": json.dumps(delivery_policy, ensure_ascii=False, separators=(",", ":")),
             "delivery_state_json": "{}",
             "platform_profile_id": envelope.platform_profile_id,
+            "target_chat_id": target_chat_id,
+            "target_chat_name": target_chat_name,
             "assignee_mapping_id": str(person["mapping_id"]),
             "assignee_user_id": str(person["platform_user_id"]),
             "assignee_name": str(person["display_name"]),
@@ -1192,9 +1247,16 @@ class ExternalTaskDispatchService:
         )
 
     def _ensure_group_target(self, task: dict[str, Any]) -> tuple[str, str]:
-        if task.get("target_chat_id") and task.get("target_chat_name") == self.authorized_group_name:
-            return str(task["target_chat_id"]), str(task["target_chat_name"])
-        return self.resolve_authorized_group()
+        chat_id = str(task.get("target_chat_id") or "").strip()
+        chat_name = str(task.get("target_chat_name") or "").strip()
+        if chat_id and chat_name and (self.allows_any_group_name or chat_name == self.authorized_group_name):
+            return chat_id, chat_name
+        return self.resolve_group_target()
+
+    def _group_ref(self, chat_id: str) -> str:
+        return "GR-" + hashlib.sha256(
+            f"{self.profile_id}\n{chat_id}".encode("utf-8")
+        ).hexdigest()[:16].upper()
 
     def _delivery_targets(self, task: dict[str, Any], stage: str) -> list[tuple[str, str]]:
         channels = self._policy_for_task(task)[stage]
@@ -1455,7 +1517,8 @@ def review_delivery_targets(
     if "group" in channels:
         chat_id = str(task.get("target_chat_id") or "").strip()
         chat_name = str(task.get("target_chat_name") or "").strip()
-        if not chat_id or chat_name != authorized_group_name:
+        unrestricted = str(task.get("platform_profile_id") or "") in ANY_GROUP_PROFILE_IDS
+        if not chat_id or not chat_name or (not unrestricted and chat_name != authorized_group_name):
             raise DispatchValidationError("复核卡片仅允许投递到唯一授权群", status_code=409)
         targets.append((chat_id, "chat_id"))
     return list(dict.fromkeys(targets))
@@ -1485,7 +1548,8 @@ def completion_delivery_targets(
     if "group" in channels:
         chat_id = str(task.get("target_chat_id") or "").strip()
         chat_name = str(task.get("target_chat_name") or "").strip()
-        if not chat_id or chat_name != authorized_group_name:
+        unrestricted = str(task.get("platform_profile_id") or "") in ANY_GROUP_PROFILE_IDS
+        if not chat_id or not chat_name or (not unrestricted and chat_name != authorized_group_name):
             raise DispatchValidationError("完结通知仅允许投递到唯一授权群", status_code=409)
         targets.append((chat_id, "chat_id"))
     return list(dict.fromkeys(targets))

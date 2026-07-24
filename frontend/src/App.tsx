@@ -140,7 +140,7 @@ const EMPTY_ELEMENT_COLUMN = "空元素列";
 const OUTPUT_ROW_FILTER_STORAGE_KEY = "guankanzhisuan-output-row-filter-settings";
 const WELCOME_SCREEN_HIDDEN_STORAGE_KEY = "guankanzhisuan-welcome-screen-hidden";
 const WELCOME_SCREEN_VERSION_STORAGE_KEY = "guankanzhisuan-welcome-screen-version";
-const WELCOME_SCREEN_VERSION = "brand-v5.12.0";
+const WELCOME_SCREEN_VERSION = "brand-v5.15.1-skill-entry";
 const ZHISUAN_QUICK_SETTINGS_VERSION = 2;
 const LEFT_COLUMN_COLLAPSED_STORAGE_KEY = "guankanzhisuan-left-column-collapsed";
 type MappingField = (typeof MAPPING_FIELDS)[number];
@@ -373,7 +373,12 @@ type ExternalDispatchOptions = {
   source_system: string;
   event_type: string;
   active_profile: string;
-  target_group: { name: string; available: boolean };
+  target_group: {
+    name: string;
+    available: boolean;
+    reason?: string;
+    selection_mode?: "fixed_name" | "selected_group";
+  };
   people: ExternalDispatchPerson[];
   directory: {
     updated_at: string;
@@ -457,6 +462,28 @@ function formatFeishuConsoleTime(value: string) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
   return parsed.toLocaleTimeString("zh-CN", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function FeishuBotConsoleLog({
+  events,
+  logRef,
+  ariaLabel,
+}: {
+  events: FeishuBotConsoleEvent[];
+  logRef: import("react").RefObject<HTMLDivElement | null>;
+  ariaLabel: string;
+}) {
+  return (
+    <div className="daweiba-bot-console" role="log" aria-label={ariaLabel} ref={logRef}>
+      {events.length ? events.map((item, index) => (
+        <div className={`daweiba-bot-console-line is-${item.level}`} key={`${item.timestamp}-${item.source ?? "log"}-${item.task_id ?? ""}-${index}`}>
+          <time title={item.timestamp}>{formatFeishuConsoleTime(item.timestamp)}</time>
+          <span className="daweiba-bot-console-category">{FEISHU_BOT_CONSOLE_CATEGORY_LABELS[item.category] ?? item.category}</span>
+          <span className="daweiba-bot-console-message">{item.message}{item.task_id ? <code>{item.task_id}</code> : null}</span>
+        </div>
+      )) : <p className="daweiba-bot-console-empty">暂无运行日志。启用机器人或收到消息后，这里会自动显示连接和处理过程。</p>}
+    </div>
+  );
 }
 
 const EMPTY_FEISHU_WEBHOOK_STATUS: FeishuWebhookStatus = {
@@ -1849,9 +1876,11 @@ function DaweibaApp() {
   const [retryingExternalDispatchTaskId, setRetryingExternalDispatchTaskId] = useState("");
   const [feishuBotConsoleEvents, setFeishuBotConsoleEvents] = useState<FeishuBotConsoleEvent[]>([]);
   const [isFeishuBotConsoleOpen, setIsFeishuBotConsoleOpen] = useState(false);
+  const [isFeishuBotConsoleInlineOpen, setIsFeishuBotConsoleInlineOpen] = useState(false);
   const [isFeishuBotConsoleLive, setIsFeishuBotConsoleLive] = useState(true);
   const [isLoadingFeishuBotConsole, setIsLoadingFeishuBotConsole] = useState(false);
   const feishuBotConsoleRef = useRef<HTMLDivElement | null>(null);
+  const feishuBotConsoleInlineRef = useRef<HTMLDivElement | null>(null);
   const [isLeftColumnCollapsed, setIsLeftColumnCollapsed] = useState(readInitialLeftColumnCollapsed);
   const [isWelcomeScreenVisible, setIsWelcomeScreenVisible] = useState(readInitialWelcomeScreenVisible);
   const [hideWelcomeNextTime, setHideWelcomeNextTime] = useState(false);
@@ -2191,15 +2220,20 @@ function DaweibaApp() {
   }, [activeDaweibaModule]);
 
   useEffect(() => {
-    if (activeDaweibaModule !== "collaboration" || !isFeishuBotConsoleOpen || !isFeishuBotConsoleLive) return undefined;
+    if (activeDaweibaModule !== "collaboration" || (!isFeishuBotConsoleOpen && !isFeishuBotConsoleInlineOpen) || !isFeishuBotConsoleLive) return undefined;
     const timer = window.setInterval(() => void loadFeishuBotConsole(true), 3000);
     return () => window.clearInterval(timer);
-  }, [activeDaweibaModule, isFeishuBotConsoleOpen, isFeishuBotConsoleLive]);
+  }, [activeDaweibaModule, isFeishuBotConsoleInlineOpen, isFeishuBotConsoleOpen, isFeishuBotConsoleLive]);
 
   useEffect(() => {
-    if (activeDaweibaModule !== "collaboration" || !isFeishuBotConsoleOpen || !feishuBotConsoleRef.current) return;
-    feishuBotConsoleRef.current.scrollTop = feishuBotConsoleRef.current.scrollHeight;
-  }, [activeDaweibaModule, isFeishuBotConsoleOpen, feishuBotConsoleEvents]);
+    if (activeDaweibaModule !== "collaboration") return;
+    if (isFeishuBotConsoleOpen && feishuBotConsoleRef.current) {
+      feishuBotConsoleRef.current.scrollTop = feishuBotConsoleRef.current.scrollHeight;
+    }
+    if (isFeishuBotConsoleInlineOpen && feishuBotConsoleInlineRef.current) {
+      feishuBotConsoleInlineRef.current.scrollTop = feishuBotConsoleInlineRef.current.scrollHeight;
+    }
+  }, [activeDaweibaModule, isFeishuBotConsoleInlineOpen, isFeishuBotConsoleOpen, feishuBotConsoleEvents]);
 
   useEffect(() => {
     if (!isFeishuBotConsoleOpen) return undefined;
@@ -3810,6 +3844,17 @@ function DaweibaApp() {
     return options.directory.groups.find((item) => item.group_ref === groupRef)?.people ?? [];
   }
 
+  function externalDispatchSelectedGroup(
+    options = externalDispatchOptions,
+    groupRef = externalDispatchGroup,
+  ) {
+    return options?.directory.groups.find((item) => item.group_ref === groupRef);
+  }
+
+  function externalGroupDeliveryRequested(policy = externalDeliveryPolicy) {
+    return EXTERNAL_DELIVERY_STAGES.some((stage) => policy[stage.id].group);
+  }
+
   function applyExternalDispatchGroup(groupRef: string, options = externalDispatchOptions, source = externalDispatchPeopleSource) {
     const group = options?.directory.groups.find((item) => item.group_ref === groupRef);
     const people = externalDispatchPeople(options, group?.group_ref ?? "", source);
@@ -3875,11 +3920,21 @@ function DaweibaApp() {
         setExternalDeliveryPreset("group");
         setExternalDeliveryPolicy(externalDeliveryPolicyForPreset("group"));
       }
-      setExternalDispatchFeedback(refreshDirectory
-        ? options.directory.refresh_error
+      if (refreshDirectory) {
+        const unavailableMemberGroups = options.directory.groups.filter((item) => !item.members_available);
+        const directoryFeedback = options.directory.refresh_error
           ? `平台目录刷新失败，已继续使用上次缓存：${options.directory.refresh_error}`
-          : `已读取并临时保存 ${options.directory.groups.length} 个群及其成员，下次打开可继续使用。`
-        : "");
+          : unavailableMemberGroups.length
+            ? `已读取并临时保存 ${options.directory.groups.length} 个群；其中 ${unavailableMemberGroups.length} 个群暂未读到成员，请检查应用身份的“查看群成员”权限。`
+            : `已读取并临时保存 ${options.directory.groups.length} 个群及其成员，下次打开可继续使用。`;
+        setExternalDispatchFeedback(options.target_group.available
+          ? directoryFeedback
+          : `${directoryFeedback} ${options.target_group.reason || `未找到授权群“${options.target_group.name}”，工作群投递保持关闭。`}`);
+      } else {
+        setExternalDispatchFeedback(options.target_group.available
+          ? ""
+          : options.target_group.reason || `未找到授权群“${options.target_group.name}”，工作群投递保持关闭。`);
+      }
     } catch (err) {
       setExternalDispatchOptions(null);
       if (profileId) setExternalDispatchProfile(profileId);
@@ -3902,6 +3957,15 @@ function DaweibaApp() {
     }
     if (EXTERNAL_DELIVERY_STAGES.some((stage) => !externalDeliveryPolicy[stage.id].group && !externalDeliveryPolicy[stage.id].direct)) {
       setExternalDispatchFeedback("每个投递阶段至少选择“工作群”或“个人”中的一个通道。");
+      return;
+    }
+    if (!externalDispatchOptions.target_group.available && EXTERNAL_DELIVERY_STAGES.some((stage) => externalDeliveryPolicy[stage.id].group)) {
+      setExternalDispatchFeedback(externalDispatchOptions.target_group.reason || `未找到唯一授权群“${externalDispatchOptions.target_group.name}”，不能使用工作群投递。`);
+      return;
+    }
+    const selectedGroup = externalDispatchSelectedGroup();
+    if (externalGroupDeliveryRequested() && (!selectedGroup || !selectedGroup.members_available)) {
+      setExternalDispatchFeedback("所选工作群成员尚未成功读取，请先开通应用身份的群成员权限并重新读取。");
       return;
     }
     if (externalDispatchOptions.direct_delivery.status !== "available" && EXTERNAL_DELIVERY_STAGES.some((stage) => externalDeliveryPolicy[stage.id].direct)) {
@@ -3938,6 +4002,7 @@ function DaweibaApp() {
         ]]),
       )));
       data.append("platform_profile_id", externalDispatchProfile);
+      data.append("target_group_ref", externalDispatchGroup);
       data.append("assignee_ref", externalDispatchPerson);
       data.append("reviewer_refs_json", JSON.stringify(externalDispatchReviewers));
       data.append("deadline", new Date(externalDispatchDeadline).toISOString());
@@ -3998,6 +4063,12 @@ function DaweibaApp() {
   function openFeishuBotConsole() {
     setIsFeishuBotConsoleOpen(true);
     void loadFeishuBotConsole();
+  }
+
+  function toggleFeishuBotConsoleInline() {
+    const nextOpen = !isFeishuBotConsoleInlineOpen;
+    setIsFeishuBotConsoleInlineOpen(nextOpen);
+    if (nextOpen) void loadFeishuBotConsole();
   }
 
   async function saveFeishuWebhookSettings() {
@@ -7778,12 +7849,26 @@ function DaweibaApp() {
                 </div>
               </div>
             ) : (
-              <div className="welcome-product-frame" aria-hidden="true">
+              <div className="welcome-product-frame">
                 <div className="welcome-frame-toolbar">
                   <span className="welcome-frame-brand">造价智算工作台</span>
-                  <span>本地服务 {API_BASE_LABEL}</span>
+                  <div className="welcome-frame-skill">
+                    <span className="welcome-frame-skill-label">选择专业能力</span>
+                    <ProfessionalSkillSelector
+                      apiBase={API_BASE}
+                      items={professionalSkills}
+                      selectedSkillId={selectedProfessionalSkillId}
+                      centerMenu
+                      loading={isProfessionalSkillsLoading}
+                      error={professionalSkillsError}
+                      currentFile={file}
+                      onSelect={(skill) => setSelectedProfessionalSkillId(skill.id)}
+                      onReload={() => void loadProfessionalSkills()}
+                    />
+                  </div>
+                  <span className="welcome-frame-service">本地服务 {API_BASE_LABEL}</span>
                 </div>
-                <div className="welcome-frame-body">
+                <div className="welcome-frame-body" aria-hidden="true">
                   <div className="welcome-frame-rail">
                     <span className="welcome-frame-logo">智</span>
                     <FileSpreadsheet size={18} />
@@ -7805,7 +7890,7 @@ function DaweibaApp() {
                         <b>价格与系数匹配</b>
                         <small>基价 / 实物系数 / 技术系数</small>
                       </span>
-                      <button type="button">批量匹配</button>
+                      <span className="welcome-frame-action">批量匹配</span>
                     </div>
                     <div className="welcome-upload-preview">
                       <BookOpen size={20} />
@@ -9573,7 +9658,13 @@ function DaweibaApp() {
                   <p>模拟造价系统指派真实任务：编制人领取后点击“提交成果并进入复核”，在 1 分钟内发送完成的 .xlsx；机器人把成果文件和复核卡发给全部复核人。</p>
                 </div>
                 <span className={`daweiba-collaboration-badge ${externalDispatchOptions?.target_group.available ? "is-success" : "is-warning"}`}>
-                  {isLoadingExternalDispatch ? "正在校验投递目标" : externalDispatchOptions ? `授权目标 · ${externalDispatchOptions.target_group.name}` : "目标待校验"}
+                  {isLoadingExternalDispatch
+                    ? "正在校验投递目标"
+                    : externalDispatchOptions?.target_group.available
+                      ? externalDispatchOptions.target_group.selection_mode === "selected_group"
+                        ? "普通飞书 · 按所选群投递"
+                        : `授权目标 · ${externalDispatchOptions.target_group.name}`
+                      : "工作群投递未授权"}
                 </span>
               </div>
 
@@ -9585,7 +9676,7 @@ function DaweibaApp() {
                 <label><span>专业能力</span><select value={externalDispatchSkill} onChange={(event) => setExternalDispatchSkill(event.target.value)}>{externalDispatchOptions?.skills.map((skill) => <option key={skill.id} value={skill.id}>{skill.display_name} · {skill.version}</option>)}</select></label>
                 <label><span>截止时间</span><input type="datetime-local" value={externalDispatchDeadline} onChange={(event) => setExternalDispatchDeadline(event.target.value)} /></label>
                 <label><span>投递平台</span><select value={externalDispatchProfile} disabled={isLoadingExternalDispatch} onChange={(event) => { setExternalDispatchProfile(event.target.value); void loadExternalDispatchData(event.target.value); }}>{externalDispatchPlatforms.map((platform) => <option key={platform.profile_id} value={platform.profile_id} disabled={!platform.configuration_ok}>{platform.label}{platform.configuration_ok ? "" : "（配置异常）"}</option>)}</select></label>
-                <label><span>目标群／成员来源群</span><select value={externalDispatchGroup} disabled={isLoadingExternalDispatch} onChange={(event) => applyExternalDispatchGroup(event.target.value)}>{externalDispatchOptions?.directory.groups.map((group) => <option key={group.group_ref} value={group.group_ref}>{group.name} · {group.member_count} 人{group.members_available ? "" : "（使用缓存）"}</option>)}</select><small>群通道仍只允许“智算测试”；其他群可作为人员查找来源。</small></label>
+                <label><span>目标群／成员来源群</span><select value={externalDispatchGroup} disabled={isLoadingExternalDispatch} onChange={(event) => applyExternalDispatchGroup(event.target.value)}>{externalDispatchOptions?.directory.groups.map((group) => <option key={group.group_ref} value={group.group_ref}>{group.name} · {group.member_count} 人{group.authorized ? "" : "（仅人员来源）"}{group.members_available ? "" : "（成员待读取）"}</option>)}</select><small>{externalDispatchOptions?.target_group.selection_mode === "selected_group" ? "普通飞书不限制群名；任务只投递到本次明确选择且成员校验通过的工作群。" : "WeAct 群通道只允许“智算测试”；其他群仅可作为人员查找来源。"}</small></label>
                 <label><span>人员选择范围</span><select value={externalDispatchPeopleSource} onChange={(event) => applyExternalDispatchPeopleSource(event.target.value as "group" | "all")}><option value="group">从当前群成员选择</option><option value="all">从全部已读取人员选择</option></select><small>全部人员会按平台身份去重，最终投递位置由下方策略决定。</small></label>
                 <label><span>目标编制人</span><select value={externalDispatchPerson} onChange={(event) => setExternalDispatchPerson(event.target.value)}>{externalDispatchPeople().map((person) => <option key={person.person_ref} value={person.person_ref}>{person.display_name}</option>)}</select></label>
                 <fieldset className="is-wide daweiba-external-dispatch-reviewers"><legend>多人复核</legend><small>测试阶段允许编制人兼任复核人；至少选择 1 人，编制人和复核人合计最多 10 名。机器人只向这里明确勾选并完成姓名映射的人员发送个人消息。</small><div>{externalDispatchPeople().map((person) => <label key={person.person_ref}><input type="checkbox" checked={externalDispatchReviewers.includes(person.person_ref)} onChange={(event) => setExternalDispatchReviewers((current) => event.target.checked ? [...new Set([...current, person.person_ref])] : current.filter((ref) => ref !== person.person_ref))} /><span>{person.display_name}{person.person_ref === externalDispatchPerson ? "（编制人兼任）" : ""}</span></label>)}</div></fieldset>
@@ -9599,14 +9690,14 @@ function DaweibaApp() {
                     <div className="is-header" role="row"><span>内容</span><span>默认接收人</span><span>投递通道</span></div>
                     {EXTERNAL_DELIVERY_STAGES.map((stage) => <div role="row" key={stage.id}><span><strong>{stage.label}</strong></span><span>{stage.audience}</span><span className="daweiba-external-delivery-channels"><label><input type="checkbox" checked={externalDeliveryPolicy[stage.id].group} onChange={() => toggleExternalDeliveryChannel(stage.id, "group")} />工作群</label><label className={externalDispatchOptions?.direct_delivery.status === "available" ? "" : "is-disabled"}><input type="checkbox" checked={externalDispatchOptions?.direct_delivery.status === "available" && externalDeliveryPolicy[stage.id].direct} disabled={externalDispatchOptions?.direct_delivery.status !== "available"} onChange={() => toggleExternalDeliveryChannel(stage.id, "direct")} />个人</label></span></div>)}
                   </div>
-                  <p className="daweiba-external-delivery-summary">群目标：{externalDispatchOptions?.target_group.name ?? "待校验"}；个人目标按阶段自动使用编制人或全部复核人。相同人员在同一阶段只发送一次。</p>
+                  <p className="daweiba-external-delivery-summary">群目标：{externalDispatchOptions?.target_group.available ? externalDispatchSelectedGroup()?.name ?? "请选择工作群" : "未授权，仅可读取目录"}；个人目标按阶段自动使用编制人或全部复核人。相同人员在同一阶段只发送一次。</p>
                 </fieldset>
                 <label><span>模板版本</span><input value={externalDispatchTemplateVersion} onChange={(event) => setExternalDispatchTemplateVersion(event.target.value)} /></label>
                 <label className="is-wide"><span>任务说明</span><textarea rows={2} value={externalDispatchInstructions} onChange={(event) => setExternalDispatchInstructions(event.target.value)} /></label>
                 <div className="is-wide daweiba-external-dispatch-file"><span>待填 Excel 模板</span><div className="daweiba-external-dispatch-file-control"><label htmlFor="external-dispatch-file"><Upload size={15} />{externalDispatchFile || file?.name.toLowerCase().endsWith(".xlsx") ? "更换文件" : "选择文件"}</label><strong>{externalDispatchFile?.name ?? (file?.name.toLowerCase().endsWith(".xlsx") ? `${file.name}（沿用刚刚上传）` : "尚未选择")}</strong></div><input id="external-dispatch-file" className="visually-hidden" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => setExternalDispatchFile(event.target.files?.[0] ?? null)} /><small>默认沿用本次会话刚上传的 .xlsx；另选后仅覆盖当前派发模板。原文件只读留存，任务使用独立副本。</small></div>
               </div>
               <div className="daweiba-collaboration-actions">
-                <button className="primary-button" type="button" disabled={isCreatingExternalDispatch || !externalDispatchOptions} onClick={() => void createExternalDispatchTask()}>{isCreatingExternalDispatch ? <Loader2 size={16} className="spin" /> : <Send size={16} />}创建并投递任务</button>
+                <button className="primary-button" type="button" disabled={isCreatingExternalDispatch || !externalDispatchOptions || (externalGroupDeliveryRequested() && (!externalDispatchOptions.target_group.available || !externalDispatchSelectedGroup()?.members_available))} onClick={() => void createExternalDispatchTask()}>{isCreatingExternalDispatch ? <Loader2 size={16} className="spin" /> : <Send size={16} />}创建并投递任务</button>
                 <button className="ghost-button" type="button" disabled={isLoadingExternalDispatch} onClick={() => void loadExternalDispatchData(undefined, true)}><RefreshCw size={16} className={isLoadingExternalDispatch ? "spin" : ""} />读取群与成员</button>
               </div>
               {externalDispatchFeedback && <p className={`daweiba-collaboration-feedback ${/(失败|拒绝|异常|未找到)/.test(externalDispatchFeedback) ? "is-error" : ""}`}>{externalDispatchFeedback}</p>}
@@ -9724,7 +9815,7 @@ function DaweibaApp() {
                   {isTestingFeishuWebhook ? <Loader2 size={16} className="spin" /> : <Send size={16} />}
                   发送测试消息
                 </button>
-                <button className="ghost-button is-danger" type="button" disabled={isSavingFeishuWebhook || !feishuWebhookStatus.configured} onClick={() => void clearFeishuWebhookSettings()}>
+                <button className="ghost-button" type="button" disabled={isSavingFeishuWebhook || !feishuWebhookStatus.configured} onClick={() => void clearFeishuWebhookSettings()}>
                   清空当前配置
                 </button>
               </div>
@@ -9764,6 +9855,53 @@ function DaweibaApp() {
                   </label>
                 ))}
               </div>
+            </section>
+
+            <section className={`daweiba-collaboration-inline-console ${isFeishuBotConsoleInlineOpen ? "is-open" : ""}`} aria-label="机器人运行控制台">
+              <div className="daweiba-inline-console-head">
+                <div>
+                  <h3>机器人运行控制台</h3>
+                  <p>查看长连接、消息接收和任务处理情况；默认折叠，不影响机器人运行。</p>
+                </div>
+                <div className="daweiba-inline-console-head-actions">
+                  <span className={feishuAppBotStatus?.enabled && feishuAppBotStatus.running ? "is-online" : "is-offline"}>
+                    <i />{feishuAppBotStatus?.enabled && feishuAppBotStatus.running ? "运行中" : "未运行"}
+                  </span>
+                  <button className="ghost-button daweiba-inline-console-toggle" type="button" aria-expanded={isFeishuBotConsoleInlineOpen} onClick={toggleFeishuBotConsoleInline}>
+                    {isFeishuBotConsoleInlineOpen ? "收起" : "展开"}
+                    <ChevronDown size={15} aria-hidden="true" />
+                  </button>
+                </div>
+              </div>
+              {isFeishuBotConsoleInlineOpen && (
+                <div className="daweiba-inline-console-content">
+                  <div className="daweiba-inline-console-toolbar">
+                    <div className="daweiba-bot-console-summary">
+                      <span>当前机器人：{feishuAppBotStatus?.profiles?.find((profile) => profile.profile_id === feishuAppBotStatus.active_profile)?.label ?? "未配置"}</span>
+                      <span>日志：{feishuBotConsoleEvents.length} 条</span>
+                    </div>
+                    <div className="daweiba-inline-console-actions">
+                      <label className="daweiba-collaboration-switch">
+                        <input type="checkbox" checked={isFeishuBotConsoleLive} onChange={(event) => setIsFeishuBotConsoleLive(event.target.checked)} />
+                        <span>实时刷新</span>
+                      </label>
+                      <button className="ghost-button" type="button" disabled={isLoadingFeishuBotConsole} onClick={() => void loadFeishuBotConsole()}>
+                        <RefreshCw size={15} className={isLoadingFeishuBotConsole ? "spin" : ""} />
+                        刷新日志
+                      </button>
+                      <button className="ghost-button" type="button" onClick={openFeishuBotConsole}>
+                        <MonitorUp size={15} />
+                        弹窗查看
+                      </button>
+                    </div>
+                  </div>
+                  <FeishuBotConsoleLog events={feishuBotConsoleEvents} logRef={feishuBotConsoleInlineRef} ariaLabel="页面内机器人业务运行日志" />
+                  <p className="daweiba-collaboration-security-note">
+                    <ShieldCheck size={16} />
+                    日志显示发送人、会话、消息正文和附件名；不会显示 App Secret、访问令牌、连接票据、文件 Key 或完整 WebSocket 地址。
+                  </p>
+                </div>
+              )}
             </section>
 
             <section className="daweiba-collaboration-history" aria-label="最近发送记录">
@@ -10190,15 +10328,7 @@ function DaweibaApp() {
               <span>当前机器人：{feishuAppBotStatus?.profiles?.find((profile) => profile.profile_id === feishuAppBotStatus.active_profile)?.label ?? "未配置"}</span>
               <span>日志：{feishuBotConsoleEvents.length} 条</span>
             </div>
-            <div className="daweiba-bot-console" role="log" aria-label="机器人业务运行日志" ref={feishuBotConsoleRef}>
-              {feishuBotConsoleEvents.length ? feishuBotConsoleEvents.map((item, index) => (
-                <div className={`daweiba-bot-console-line is-${item.level}`} key={`${item.timestamp}-${item.source ?? "log"}-${item.task_id ?? ""}-${index}`}>
-                  <time title={item.timestamp}>{formatFeishuConsoleTime(item.timestamp)}</time>
-                  <span className="daweiba-bot-console-category">{FEISHU_BOT_CONSOLE_CATEGORY_LABELS[item.category] ?? item.category}</span>
-                  <span className="daweiba-bot-console-message">{item.message}{item.task_id ? <code>{item.task_id}</code> : null}</span>
-                </div>
-              )) : <p className="daweiba-bot-console-empty">暂无运行日志。启用机器人或收到消息后，这里会自动显示连接和处理过程。</p>}
-            </div>
+            <FeishuBotConsoleLog events={feishuBotConsoleEvents} logRef={feishuBotConsoleRef} ariaLabel="机器人业务运行日志" />
             <p className="daweiba-collaboration-security-note">
               <ShieldCheck size={16} />
               控制台会显示发送人名称与 ID、群名与会话 ID、消息正文和附件名；飞书长连接不提供发送者来源 IP。App Secret、访问令牌、连接票据、文件 Key 和完整 WebSocket 地址仍不显示。

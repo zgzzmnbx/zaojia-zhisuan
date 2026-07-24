@@ -5,9 +5,12 @@ import { fileURLToPath } from "node:url";
 import {
   DOCX_MAX_DYNAMIC_PAGINATION_PASSES,
   DOCX_MIME,
+  DOCX_NUMBERING_COMPAT_CSS,
+  DOCX_NUMBERING_COMPAT_STYLE_ID,
   DOCX_PAGINATION_TOLERANCE_PX,
   WordReportPreviewError,
   filenameFromContentDisposition,
+  installDocxNumberingCompatibilityStyle,
   normalizeDocxFilename,
   responseToDocxFile,
 } from "../src/components/report/wordReportPreviewUtils.ts";
@@ -83,4 +86,28 @@ test("ignores the template footer overhang but paginates real body overflow", ()
   assert.ok(longReportScrollHeight > pageHeight + DOCX_PAGINATION_TOLERANCE_PX);
   assert.ok(DOCX_MAX_DYNAMIC_PAGINATION_PASSES >= 7);
   assert.ok(DOCX_MAX_DYNAMIC_PAGINATION_PASSES < 1000);
+});
+
+test("suppresses empty numbered fragments without disabling Word page markers", () => {
+  let appendedStyle: { id: string; textContent: string | null } | null = null;
+  const root = {
+    ownerDocument: {
+      createElement: () => ({ id: "", textContent: null }),
+    },
+    querySelector: (selector: string) => (
+      selector === `#${DOCX_NUMBERING_COMPAT_STYLE_ID}` ? appendedStyle : null
+    ),
+    appendChild: (style: { id: string; textContent: string | null }) => {
+      appendedStyle = style;
+      return style;
+    },
+  } as unknown as ShadowRoot;
+
+  assert.equal(installDocxNumberingCompatibilityStyle(root), true);
+  assert.equal(installDocxNumberingCompatibilityStyle(root), false);
+  assert.equal(appendedStyle?.id, DOCX_NUMBERING_COMPAT_STYLE_ID);
+  assert.equal(appendedStyle?.textContent, DOCX_NUMBERING_COMPAT_CSS);
+  assert.match(DOCX_NUMBERING_COMPAT_CSS, /docx-num-.*:empty/);
+  assert.match(DOCX_NUMBERING_COMPAT_CSS, /counter-increment:\s*none\s*!important/);
+  assert.doesNotMatch(DOCX_NUMBERING_COMPAT_CSS, /lastRenderedPageBreak/);
 });

@@ -350,11 +350,12 @@ button {
 }
 
 .welcome-frame-toolbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(400px, 540px) minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
-  min-height: 42px;
-  padding: 0 18px;
+  gap: 16px;
+  min-height: 52px;
+  padding: 6px 16px;
   border-bottom: 1px solid #e5e7eb;
   background: linear-gradient(180deg, #fbfdff, #ffffff);
   color: #64748b;
@@ -365,6 +366,39 @@ button {
 .welcome-frame-brand {
   color: #111827;
   font-size: 14px;
+  white-space: nowrap;
+}
+
+.welcome-frame-skill {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.welcome-frame-skill-label {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.welcome-frame-skill .professional-skill-selector__trigger {
+  min-height: 34px;
+  border-color: #e2e8f0;
+  background: #ffffff;
+}
+
+.welcome-frame-skill .professional-skill-selector__trigger:hover,
+.welcome-frame-skill .professional-skill-selector.is-open .professional-skill-selector__trigger {
+  border-color: #93c5fd;
+  background: #ffffff;
+}
+
+.welcome-frame-service {
+  justify-self: end;
+  white-space: nowrap;
 }
 
 .welcome-frame-body {
@@ -456,7 +490,10 @@ button {
   font-size: 12px;
 }
 
-.welcome-frame-main-head button {
+.welcome-frame-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-height: 34px;
   padding: 0 13px;
   border-radius: 7px;
@@ -466,7 +503,7 @@ button {
   font-weight: 750;
 }
 
-.shell.layout-daweiba .welcome-screen.is-light .welcome-frame-main-head button {
+.shell.layout-daweiba .welcome-screen.is-light .welcome-frame-action {
   color: #ffffff;
 }
 
@@ -6482,6 +6519,17 @@ tbody tr:hover .row-ai-cell {
     width: 100%;
   }
 
+  .welcome-frame-toolbar {
+    grid-template-columns: 1fr auto;
+    gap: 8px 12px;
+    padding: 8px 12px;
+  }
+
+  .welcome-frame-skill {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
   .welcome-frame-body {
     grid-template-columns: 1fr;
   }
@@ -10792,6 +10840,7 @@ tbody tr:hover .row-ai-cell {
 .shell.layout-daweiba .daweiba-collaboration-body {
   display: grid;
   grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.75fr);
+  grid-auto-rows: max-content;
   gap: 14px;
   align-content: start;
   min-width: 0;
@@ -10886,7 +10935,8 @@ tbody tr:hover .row-ai-cell {
   border: 0;
 }
 .shell.layout-daweiba .daweiba-external-dispatch-file-control {
-  display: flex;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
   align-items: center;
   gap: 10px;
   min-height: 38px;
@@ -10908,16 +10958,21 @@ tbody tr:hover .row-ai-cell {
   background: #f8fafc;
   color: #1e293b;
   font-weight: 600;
+  white-space: nowrap;
+  word-break: keep-all;
   cursor: pointer;
 }
 .shell.layout-daweiba .daweiba-external-dispatch-file-control label:hover { background: #eef4fb; border-color: #94a3b8; }
 .shell.layout-daweiba .daweiba-external-dispatch-file-control strong {
+  display: block;
   min-width: 0;
-  overflow: hidden;
+  padding: 3px 2px;
   color: #475569;
   font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
 }
 
 .shell.layout-daweiba .daweiba-external-dispatch-reviewers {
@@ -11164,6 +11219,103 @@ tbody tr:hover .row-ai-cell {
   order: 2;
 }
 
+.shell.layout-daweiba .daweiba-collaboration-inline-console {
+  grid-column: 1 / -1;
+  order: 4;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--db-border);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.shell.layout-daweiba .daweiba-inline-console-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+}
+
+.shell.layout-daweiba .daweiba-inline-console-head h3,
+.shell.layout-daweiba .daweiba-inline-console-head p {
+  margin: 0;
+}
+
+.shell.layout-daweiba .daweiba-inline-console-head h3 {
+  color: var(--db-text-strong);
+  font-size: 15px;
+}
+
+.shell.layout-daweiba .daweiba-inline-console-head p {
+  margin-top: 4px;
+  color: var(--db-text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.shell.layout-daweiba .daweiba-inline-console-head-actions,
+.shell.layout-daweiba .daweiba-inline-console-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.shell.layout-daweiba .daweiba-inline-console-head-actions > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--db-text-muted);
+  font-size: 12px;
+}
+
+.shell.layout-daweiba .daweiba-inline-console-head-actions > span i {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #94a3b8;
+}
+
+.shell.layout-daweiba .daweiba-inline-console-head-actions > span.is-online i {
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgb(34 197 94 / 14%);
+}
+
+.shell.layout-daweiba .daweiba-inline-console-head-actions > span.is-offline i {
+  background: #f59e0b;
+}
+
+.shell.layout-daweiba .daweiba-inline-console-toggle svg {
+  transition: transform 160ms ease;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-inline-console.is-open .daweiba-inline-console-toggle svg {
+  transform: rotate(180deg);
+}
+
+.shell.layout-daweiba .daweiba-inline-console-content {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px 16px;
+  border-top: 1px solid var(--db-border-soft);
+}
+
+.shell.layout-daweiba .daweiba-inline-console-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.shell.layout-daweiba .daweiba-inline-console-content > .daweiba-bot-console {
+  height: 280px;
+  min-height: 220px;
+  max-height: 36vh;
+}
+
 .shell.layout-daweiba .daweiba-collaboration-settings,
 .shell.layout-daweiba .daweiba-collaboration-rules,
 .shell.layout-daweiba .daweiba-collaboration-history {
@@ -11179,7 +11331,7 @@ tbody tr:hover .row-ai-cell {
 
 .shell.layout-daweiba .daweiba-collaboration-history {
   grid-column: 1 / -1;
-  order: 4;
+  order: 5;
 }
 
 .shell.layout-daweiba .daweiba-collaboration-section-title {
@@ -11531,6 +11683,7 @@ tbody tr:hover .row-ai-cell {
   .shell.layout-daweiba .daweiba-collaboration-settings.is-external-dispatch,
   .shell.layout-daweiba .daweiba-collaboration-settings.is-webhook-layer,
   .shell.layout-daweiba .daweiba-collaboration-rules.is-notification-rules,
+  .shell.layout-daweiba .daweiba-collaboration-inline-console,
   .shell.layout-daweiba .daweiba-collaboration-history {
     grid-column: 1;
   }
@@ -11547,8 +11700,23 @@ tbody tr:hover .row-ai-cell {
     order: 4;
   }
 
-  .shell.layout-daweiba .daweiba-collaboration-history {
+  .shell.layout-daweiba .daweiba-collaboration-inline-console {
     order: 5;
+  }
+
+  .shell.layout-daweiba .daweiba-collaboration-history {
+    order: 6;
+  }
+
+  .shell.layout-daweiba .daweiba-inline-console-head,
+  .shell.layout-daweiba .daweiba-inline-console-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .shell.layout-daweiba .daweiba-inline-console-head-actions,
+  .shell.layout-daweiba .daweiba-inline-console-actions {
+    justify-content: flex-start;
   }
 
   .shell.layout-daweiba .daweiba-external-dispatch-form {
@@ -11574,6 +11742,17 @@ tbody tr:hover .row-ai-cell {
   }
 }
 
+@container collaboration-workspace (max-width: 520px) {
+  .shell.layout-daweiba .daweiba-external-dispatch-file-control {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .shell.layout-daweiba .daweiba-external-dispatch-file-control label {
+    justify-self: start;
+  }
+}
+
 @media (max-width: 900px) {
   .shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-collaboration > .daweiba-collaboration-module {
     padding: 14px;
@@ -11595,6 +11774,7 @@ tbody tr:hover .row-ai-cell {
   .shell.layout-daweiba .daweiba-collaboration-settings.is-external-dispatch,
   .shell.layout-daweiba .daweiba-collaboration-settings.is-webhook-layer,
   .shell.layout-daweiba .daweiba-collaboration-rules.is-notification-rules,
+  .shell.layout-daweiba .daweiba-collaboration-inline-console,
   .shell.layout-daweiba .daweiba-collaboration-history {
     grid-column: 1;
   }
@@ -11607,8 +11787,23 @@ tbody tr:hover .row-ai-cell {
     order: 4;
   }
 
-  .shell.layout-daweiba .daweiba-collaboration-history {
+  .shell.layout-daweiba .daweiba-collaboration-inline-console {
     order: 5;
+  }
+
+  .shell.layout-daweiba .daweiba-collaboration-history {
+    order: 6;
+  }
+
+  .shell.layout-daweiba .daweiba-inline-console-head,
+  .shell.layout-daweiba .daweiba-inline-console-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .shell.layout-daweiba .daweiba-inline-console-head-actions,
+  .shell.layout-daweiba .daweiba-inline-console-actions {
+    justify-content: flex-start;
   }
 
   .shell.layout-daweiba .daweiba-external-dispatch-form {

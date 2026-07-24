@@ -91,8 +91,9 @@ def service(tmp_path: Path):
 
 
 def envelope(person_ref: str, **overrides: object) -> external_task_dispatch.TaskEnvelope:
+    platform_profile_id = str(overrides.get("platform_profile_id") or "weact")
     known_refs = [
-        "PM-" + __import__("hashlib").sha256(f"weact\n{user_id}".encode()).hexdigest()[:16].upper()
+        "PM-" + __import__("hashlib").sha256(f"{platform_profile_id}\n{user_id}".encode()).hexdigest()[:16].upper()
         for user_id in ("ou-user-1", "ou-user-2")
     ]
     values = {
@@ -105,7 +106,7 @@ def envelope(person_ref: str, **overrides: object) -> external_task_dispatch.Tas
         "skill_id": "survey-measurement-limit-price",
         "skill_version": "1.0.0",
         "delivery_mode": "group",
-        "platform_profile_id": "weact",
+        "platform_profile_id": platform_profile_id,
         "assignee_ref": person_ref,
         "deadline": "2026-07-31T18:00:00+08:00",
         "instructions": "请按模板完成测试任务。",
@@ -522,8 +523,111 @@ def test_group_target_must_be_unique(tmp_path: Path):
         profile_id="weact",
         runtime_root=tmp_path / "runtime",
     )
+    options = dispatch.options()
+    assert options["target_group"] == {
+        "name": "智算测试",
+        "available": False,
+        "reason": "找到多个同名唯一授权群“智算测试”，工作群投递保持关闭",
+        "selection_mode": "fixed_name",
+    }
+    assert [item["name"] for item in options["directory"]["groups"]] == ["智算测试", "智算测试"]
     with pytest.raises(external_task_dispatch.DispatchValidationError, match="找到多个同名"):
-        dispatch.options()
+        dispatch.resolve_authorized_group()
+
+
+def test_options_keeps_directory_visible_when_authorized_group_is_missing(tmp_path: Path):
+    feishu = FakeFeishu(
+        chats=[{"chat_id": "chat-source", "name": "造价智算测试群"}],
+        members_by_chat={
+            "chat-source": [
+                {"member_id": "ou-user-1", "name": "石萌"},
+                {"member_id": "ou-user-2", "name": "复核人"},
+            ],
+        },
+    )
+    dispatch = external_task_dispatch.ExternalTaskDispatchService(
+        store=external_task_dispatch.ExternalDispatchStore(tmp_path / "tasks.sqlite3"),
+        registry=ProfessionalSkillRegistry(PROJECT_ROOT, BUSINESS_SKILLS_DIR, PROJECT_DEFAULT_SETTINGS_PATH),
+        feishu=feishu,
+        profile_id="default",
+        runtime_root=tmp_path / "runtime",
+    )
+
+    options = dispatch.options(refresh_directory=True)
+
+    assert options["target_group"] == {
+        "name": "当前明确选择的普通飞书群",
+        "available": True,
+        "reason": "",
+        "selection_mode": "selected_group",
+    }
+    assert options["directory"]["groups"] == [{
+        "group_ref": options["directory"]["groups"][0]["group_ref"],
+        "name": "造价智算测试群",
+        "member_count": 2,
+        "members_available": True,
+        "authorized": True,
+        "people": options["directory"]["groups"][0]["people"],
+    }]
+    assert [item["display_name"] for item in options["directory"]["people"]] == ["复核人", "石萌"]
+    with pytest.raises(external_task_dispatch.DispatchValidationError, match="未找到"):
+        dispatch.resolve_authorized_group()
+
+    group = options["directory"]["groups"][0]
+    assignee = next(item for item in group["people"] if item["display_name"] == "石萌")
+    task, created = dispatch.create_and_deliver(
+        envelope(
+            assignee["person_ref"],
+            platform_profile_id="default",
+            target_group_ref=group["group_ref"],
+            reviewer_refs=tuple(
+                item["person_ref"] for item in group["people"] if item["person_ref"] != assignee["person_ref"]
+            ),
+        ),
+        file_name="普通飞书任务.xlsx",
+        file_bytes=xlsx_bytes(),
+    )
+    assert created is True
+    assert task["target_group_name"] == "造价智算测试群"
+    assert [(target, target_type) for target, target_type, _ in feishu.files] == [
+        ("chat-source", "chat_id"),
+    ]
+    stored = dispatch.store.get_task(task["task_id"])
+    assert external_task_dispatch.review_delivery_targets(stored) == [("chat-source", "chat_id")]
+    assert external_task_dispatch.completion_delivery_targets(stored) == [("chat-source", "chat_id")]
+
+
+def test_default_profile_rejects_group_delivery_without_explicit_group_selection(tmp_path: Path):
+    feishu = FakeFeishu(
+        chats=[{"chat_id": "chat-source", "name": "任意普通飞书群"}],
+        members_by_chat={
+            "chat-source": [
+                {"member_id": "ou-user-1", "name": "石萌"},
+                {"member_id": "ou-user-2", "name": "复核人"},
+            ],
+        },
+    )
+    dispatch = external_task_dispatch.ExternalTaskDispatchService(
+        store=external_task_dispatch.ExternalDispatchStore(tmp_path / "tasks.sqlite3"),
+        registry=ProfessionalSkillRegistry(PROJECT_ROOT, BUSINESS_SKILLS_DIR, PROJECT_DEFAULT_SETTINGS_PATH),
+        feishu=feishu,
+        profile_id="default",
+        runtime_root=tmp_path / "runtime",
+    )
+    options = dispatch.options(refresh_directory=True)
+    assignee = next(item for item in options["directory"]["people"] if item["display_name"] == "石萌")
+    reviewer = next(item for item in options["directory"]["people"] if item["display_name"] == "复核人")
+
+    with pytest.raises(external_task_dispatch.DispatchValidationError, match="请选择普通飞书工作群"):
+        dispatch.create_and_deliver(
+            envelope(
+                assignee["person_ref"],
+                platform_profile_id="default",
+                reviewer_refs=(reviewer["person_ref"],),
+            ),
+            file_name="普通飞书任务.xlsx",
+            file_bytes=xlsx_bytes(),
+        )
 
 
 def test_public_task_never_exposes_platform_identifiers(service):

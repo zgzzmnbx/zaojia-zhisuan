@@ -1,6 +1,28 @@
 export const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 export const DOCX_PAGINATION_TOLERANCE_PX = 120;
 export const DOCX_MAX_DYNAMIC_PAGINATION_PASSES = 100;
+export const DOCX_NUMBERING_COMPAT_STYLE_ID = "zaojia-docx-numbering-compat";
+export const DOCX_NUMBERING_COMPAT_CSS = `
+.docx p[class*="docx-num-"]:empty {
+  display: none !important;
+  counter-increment: none !important;
+}
+
+.docx p[class*="docx-num-"]:empty::before {
+  content: none !important;
+  counter-increment: none !important;
+}
+`;
+
+export function installDocxNumberingCompatibilityStyle(root: ShadowRoot) {
+  if (root.querySelector(`#${DOCX_NUMBERING_COMPAT_STYLE_ID}`)) return false;
+
+  const style = root.ownerDocument.createElement("style");
+  style.id = DOCX_NUMBERING_COMPAT_STYLE_ID;
+  style.textContent = DOCX_NUMBERING_COMPAT_CSS;
+  root.appendChild(style);
+  return true;
+}
 
 export type WordReportPreviewErrorCode =
   | "http"

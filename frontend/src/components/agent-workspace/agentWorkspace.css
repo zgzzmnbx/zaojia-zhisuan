@@ -89,6 +89,15 @@
 .agent-workspace__message-column { width: min(880px, 100%); margin: 0 auto; }
 .agent-turn { display: grid; gap: 18px; }
 .agent-turn + .agent-turn { margin-top: 30px; padding-top: 30px; border-top: 1px solid #eeeeee; }
+.agent-turn.has-user > .agent-message.assistant + .agent-message.assistant { position: relative; }
+.agent-turn.has-user > .agent-message.assistant + .agent-message.assistant::before {
+  content: "";
+  position: absolute;
+  top: -9px;
+  right: 0;
+  left: 0;
+  border-top: 1px solid #f0f0f0;
+}
 .agent-workspace__empty { display: grid; justify-items: center; gap: 12px; width: min(680px, 100%); margin: min(18vh, 130px) auto 0; color: var(--agent-muted); text-align: center; }
 .agent-workspace__empty p { margin: 0; white-space: pre-wrap; line-height: 1.7; }
 .agent-message { display: block; width: min(820px, 100%); color: var(--agent-body); }
@@ -113,6 +122,7 @@
 .agent-message__body .zhisuan-message-list { margin: 10px 0; padding-left: 24px; }
 .agent-message__body strong { color: var(--agent-ink); font-weight: 650; }
 .agent-message.user .agent-message__body { padding: 10px 14px; border-radius: 14px; background: #f1f4fa; color: var(--agent-ink); }
+.agent-message.user:has(.zhisuan-file-attachment) .agent-message__body { padding: 0; background: transparent; }
 .agent-message.source-thinking .agent-message__body { padding-left: 15px; border-left: 1px solid var(--agent-line); color: var(--agent-muted); }
 
 .agent-composer {

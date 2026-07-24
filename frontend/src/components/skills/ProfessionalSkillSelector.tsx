@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { CheckCircle2, ChevronDown, Info, Loader2, RefreshCw, Settings2, ShieldCheck, X } from "lucide-react";
 import ProfessionalSkillCenter from "./ProfessionalSkillCenter";
 import "./ProfessionalSkillSelector.css";
@@ -57,6 +58,7 @@ type Props = {
   items: ProfessionalSkillSummary[];
   selectedSkillId: string;
   taskSkill?: ProfessionalSkillSnapshot;
+  centerMenu?: boolean;
   loading: boolean;
   error: string;
   currentFile?: File | null;
@@ -75,17 +77,23 @@ function apiErrorMessage(payload: unknown, fallback: string) {
   return fallback;
 }
 
+function SkillMenuLayer({ portaled, children }: { portaled: boolean; children: ReactNode }) {
+  return portaled ? createPortal(children, document.body) : <>{children}</>;
+}
+
 export default function ProfessionalSkillSelector({
   apiBase,
   items,
   selectedSkillId,
   taskSkill,
+  centerMenu = false,
   loading,
   error,
   currentFile,
   onSelect,
   onReload,
 }: Props) {
+  const menuId = useId();
   const [detailId, setDetailId] = useState("");
   const [detail, setDetail] = useState<ProfessionalSkillDetail | null>(null);
   const [detailError, setDetailError] = useState("");
@@ -93,13 +101,20 @@ export default function ProfessionalSkillSelector({
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isCenterOpen, setIsCenterOpen] = useState(false);
   const rootRef = useRef<HTMLElement>(null);
+  const menuLayerRef = useRef<HTMLDivElement>(null);
   const selected = items.find((item) => item.id === selectedSkillId);
   const displayedSkill = taskSkill ?? selected;
 
   useEffect(() => {
     if (!isMenuOpen) return;
     const closeOnOutsideClick = (event: MouseEvent) => {
-      if (event.target instanceof Node && !rootRef.current?.contains(event.target)) setIsMenuOpen(false);
+      if (
+        event.target instanceof Node
+        && !rootRef.current?.contains(event.target)
+        && !menuLayerRef.current?.contains(event.target)
+      ) {
+        setIsMenuOpen(false);
+      }
     };
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") setIsMenuOpen(false);
@@ -149,7 +164,7 @@ export default function ProfessionalSkillSelector({
         className="professional-skill-selector__trigger"
         aria-label={`${taskSkill ? "当前任务" : "当前"}专业能力 ${displayedSkill ? `${displayedSkill.display_name} · v${displayedSkill.version}` : loading ? "正在校验" : "未选择"}${taskSkill ? " 已锁定" : ""}`}
         aria-expanded={isMenuOpen}
-        aria-controls="professional-skill-menu"
+        aria-controls={menuId}
         onClick={() => setIsMenuOpen((current) => !current)}
       >
         <ShieldCheck size={16} />
@@ -166,7 +181,25 @@ export default function ProfessionalSkillSelector({
       </button>
 
       {isMenuOpen && (
-        <div id="professional-skill-menu" className="professional-skill-selector__menu">
+        <SkillMenuLayer portaled={centerMenu}>
+        <div
+          ref={menuLayerRef}
+          className={`professional-skill-selector__menu-layer ${centerMenu ? "is-centered" : ""}`}
+          role={centerMenu ? "presentation" : undefined}
+        >
+        {centerMenu && (
+          <button
+            type="button"
+            className="professional-skill-selector__menu-backdrop"
+            aria-label="关闭专业能力选择"
+            tabIndex={-1}
+            onClick={() => setIsMenuOpen(false)}
+          />
+        )}
+        <div
+          id={menuId}
+          className="professional-skill-selector__menu"
+        >
           <div className="professional-skill-selector__heading">
             <div>
               <p>专业能力 Skill</p>
@@ -259,6 +292,8 @@ export default function ProfessionalSkillSelector({
             </div>
           )}
         </div>
+        </div>
+        </SkillMenuLayer>
       )}
 
       {detailId && (

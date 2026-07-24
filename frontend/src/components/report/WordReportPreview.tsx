@@ -19,6 +19,7 @@ import {
   DOCX_MAX_DYNAMIC_PAGINATION_PASSES,
   DOCX_PAGINATION_TOLERANCE_PX,
   WordReportPreviewError,
+  installDocxNumberingCompatibilityStyle,
   responseToDocxFile,
   wordReportPreviewErrorMessage,
 } from "./wordReportPreviewUtils";
@@ -94,6 +95,7 @@ type ViewerHostProps = {
 
 function ViewerHost({ resource, onError, onStateChange }: ViewerHostProps) {
   const viewerRef = useRef<FileViewerHandle | null>(null);
+  const viewerContainerRef = useRef<HTMLDivElement | null>(null);
   const Viewer = resource.Viewer;
   const viewerOptions = useMemo<NonNullable<FileViewerProps["options"]>>(
     () => {
@@ -145,6 +147,11 @@ function ViewerHost({ resource, onError, onStateChange }: ViewerHostProps) {
     let active = true;
     let retryTimer: number | null = null;
 
+    const installNumberingCompatibility = () => {
+      const renderHost = viewerContainerRef.current?.querySelector<HTMLElement>(".file-render-host");
+      if (renderHost?.shadowRoot) installDocxNumberingCompatibilityStyle(renderHost.shadowRoot);
+    };
+
     const load = () => {
       const handle = viewerRef.current;
       if (!handle?.getController()) {
@@ -160,13 +167,18 @@ function ViewerHost({ resource, onError, onStateChange }: ViewerHostProps) {
         size: resource.file.size,
         options: viewerOptions,
         onStateChange: (state) => {
+          if (state.ready) installNumberingCompatibility();
           if (active) onStateChange(state, resource.requestId);
         },
       };
 
-      void handle.load(mountOptions).catch((error) => {
-        if (active) onError(error, resource.requestId);
-      });
+      void handle.load(mountOptions)
+        .then(() => {
+          if (active) installNumberingCompatibility();
+        })
+        .catch((error) => {
+          if (active) onError(error, resource.requestId);
+        });
     };
 
     load();
@@ -177,11 +189,13 @@ function ViewerHost({ resource, onError, onStateChange }: ViewerHostProps) {
   }, [onError, onStateChange, resource, viewerOptions]);
 
   return (
-    <Viewer
-      ref={viewerRef}
-      className="word-report-file-viewer"
-      aria-label={`当前 Word 报告预览：${resource.file.name}`}
-    />
+    <div ref={viewerContainerRef} style={{ width: "100%", height: "100%", minWidth: 0, minHeight: 0 }}>
+      <Viewer
+        ref={viewerRef}
+        className="word-report-file-viewer"
+        aria-label={`当前 Word 报告预览：${resource.file.name}`}
+      />
+    </div>
   );
 }
 

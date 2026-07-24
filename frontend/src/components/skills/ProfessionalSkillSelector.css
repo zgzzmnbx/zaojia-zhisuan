@@ -74,6 +74,29 @@
   transform: rotate(180deg);
 }
 
+.professional-skill-selector__menu-layer {
+  display: contents;
+}
+
+.professional-skill-selector__menu-layer.is-centered {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.professional-skill-selector__menu-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  padding: 0;
+  background: rgba(15, 23, 42, .28);
+  backdrop-filter: blur(2px);
+  cursor: default;
+}
+
 .professional-skill-selector__menu {
   position: absolute;
   top: calc(100% + 7px);
@@ -89,6 +112,16 @@
   border-radius: 14px;
   background: #ffffff;
   box-shadow: 0 18px 48px rgba(15, 23, 42, .18);
+}
+
+.professional-skill-selector__menu-layer.is-centered .professional-skill-selector__menu {
+  position: relative;
+  top: auto;
+  right: auto;
+  left: auto;
+  z-index: 1;
+  width: min(620px, 100%);
+  max-height: min(600px, calc(100vh - 48px));
 }
 
 .professional-skill-selector__heading,
