@@ -47,7 +47,7 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.15.0";
+const APP_VERSION = "v5.15.1";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const KNOWLEDGE_QA_ENTRY_COUNT = 3922;
 const KNOWLEDGE_QA_SOURCE_COUNT = 17;
@@ -7445,10 +7445,10 @@ function DaweibaApp() {
   const daweibaChartRestRows = result ? Math.max(0, daweibaChartTotal - daweibaChartUsedRows) : 1;
   let daweibaChartOffset = 0;
   const daweibaStatusSegments = [
-    { id: "matched", label: "匹配", value: daweibaChartMatchedRows, color: "rgb(117, 188, 146)" },
-    { id: "review", label: "复核", value: daweibaChartReviewRows, color: "#d9972f" },
-    { id: "warning", label: "预警", value: daweibaChartWarningRows, color: "#d84b4b" },
-    { id: "rest", label: "未展示", value: daweibaChartRestRows, color: "#e6e6e3" },
+    { id: "matched", label: "匹配", value: daweibaChartMatchedRows, color: "#2563eb" },
+    { id: "review", label: "复核", value: daweibaChartReviewRows, color: "#60a5fa" },
+    { id: "warning", label: "预警", value: daweibaChartWarningRows, color: "#93c5fd" },
+    { id: "rest", label: "未展示", value: daweibaChartRestRows, color: "#dbeafe" },
   ]
     .filter((segment) => segment.value > 0)
     .map((segment) => {
@@ -7463,21 +7463,21 @@ function DaweibaApp() {
       className: "is-left-top",
       label: "匹配",
       value: daweibaChartMatchedRows,
-      color: "rgb(117, 188, 146)",
+      color: "#2563eb",
     },
     {
       id: "review",
       className: "is-right",
       label: "复核",
       value: daweibaChartReviewRows,
-      color: "#d9972f",
+      color: "#60a5fa",
     },
     {
       id: "warning",
       className: "is-left-bottom",
       label: "预警",
       value: daweibaChartWarningRows,
-      color: "#d84b4b",
+      color: "#93c5fd",
     },
   ].map((item) => ({
     ...item,
@@ -7958,6 +7958,14 @@ function DaweibaApp() {
                 <div className="daweiba-status-panel" aria-label="匹配状态仪表盘">
                   <div className="daweiba-status-chart">
                     <svg className="daweiba-status-svg" viewBox="0 0 210 150" role="img" aria-label="匹配状态环形图">
+                      <defs>
+                        <linearGradient id="daweiba-status-blue-gradient" x1="0" y1="0" x2="1" y2="1">
+                          <stop offset="0%" stopColor="#2563eb" />
+                          <stop offset="38%" stopColor="#60a5fa" />
+                          <stop offset="72%" stopColor="#93c5fd" />
+                          <stop offset="100%" stopColor="#dbeafe" />
+                        </linearGradient>
+                      </defs>
                       <g className="daweiba-status-donut" transform="translate(105 75) rotate(-90)">
                         <circle className="daweiba-status-track" cx="0" cy="0" r="44" pathLength="100" />
                         {daweibaStatusSegments.map((segment) => (
@@ -8128,7 +8136,7 @@ function DaweibaApp() {
                   setCurrentProjectId("");
                 }}
               />
-              <small>{currentProjectId ? "已绑定当前项目；再次处理会形成新的业务版本。" : "用于生成真实项目台账，不按文件名相似度合并历史任务。"}</small>
+              <small>{currentProjectId ? "已绑定当前项目；再次处理会形成新的业务版本。" : "用于建立项目历史记录，不按文件名相似度合并历史任务。"}</small>
             </label>
 
             <div className="action-row">

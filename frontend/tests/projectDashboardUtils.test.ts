@@ -122,4 +122,17 @@ test("dashboard stylesheet keeps the component theme under local scope", async (
   assert.doesNotMatch(css, /(^|})\s*:root\s*\{/m);
   assert.doesNotMatch(css, /(^|})\s*(html|body)\s*\{/m);
   assert.doesNotMatch(css, /@tailwind|shadcn\/init|--background:/);
+  assert.match(css, /\.project-dashboard__analysis\.is-llm-trend/);
+  assert.match(css, /\.project-dashboard__analysis\.is-llm-models/);
+});
+
+test("dashboard model telemetry uses a smooth area wave and a donut chart", async () => {
+  const component = await readFile(
+    new URL("../src/components/project-dashboard/ProjectCharts.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(component, /<AreaChart/);
+  assert.match(component, /type="monotone"/);
+  assert.match(component, /id="projectDashboardLlmWave"/);
+  assert.match(component, /请求模型种类环形图/);
 });

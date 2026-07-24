@@ -95,6 +95,7 @@ from .llm import (
     build_risk_prompt,
     call_chat_completion,
 )
+from .llm_usage import LlmUsageError, LlmUsageLedger
 from .schemas import FIELD_COLUMNS, FillSummary, ReviewRow
 from .excel_recalc import recalculate_workbook
 from .formula_resolver import WorkbookFormulaResolver
@@ -107,6 +108,7 @@ from .paths import (
     DEFAULT_INPUT_FIELD_PREFERENCES_PATH,
     DEFAULT_KB_PATH,
     DEFAULT_KNOWLEDGE_MEMORY_DB_PATH,
+    DEFAULT_LLM_USAGE_DB_PATH,
     DEFAULT_PREVIEW_COLUMN_PREFERENCES_PATH,
     DEFAULT_PROJECT_LEDGER_DB_PATH,
     DEFAULT_REPORT_TEMPLATE_PATH,
@@ -134,7 +136,7 @@ from .professional_skills import (
 from .report import append_risk_report, write_report
 
 
-APP_VERSION = "v5.15.0"
+APP_VERSION = "v5.15.1"
 OUTPUT_FILE_PREFIX = "【输出】"
 TEMP_FILE_PREFIX = "【临时】"
 PROCESS_STATE_FILENAME = "process-state.json"
@@ -199,6 +201,8 @@ WARNING_PROGRESS_DEFAULT = {
 }
 WARNING_PROGRESS: dict[str, dict[str, object]] = {}
 WARNING_PROGRESS_LOCK = Lock()
+LLM_USAGE_BACKFILL_LOCK = Lock()
+LLM_USAGE_BACKFILLED_DATABASES: set[str] = set()
 PROFESSIONAL_SKILL_REGISTRY = ProfessionalSkillRegistry(
     PROJECT_ROOT,
     BUSINESS_SKILLS_DIR,
@@ -279,6 +283,10 @@ def get_projects_dashboard(
                 risk=risk,
                 quality=quality,
             )
+        )
+        payload["llm_usage"] = _llm_usage_dashboard(
+            date_from=date_from,
+            date_to=date_to,
         )
         payload["comparison"] = _project_dashboard_comparison(
             compare=compare,
@@ -1848,7 +1856,12 @@ async def generate_risk_report(
     messages = build_risk_prompt(markdown_text, excel_matches[0], knowledge_evidence)
     prompt_path = _write_llm_prompt_markdown("风险报告", config, messages, job_dir)
     try:
-        risk_text = call_chat_completion(config, messages)
+        risk_text = _call_chat_completion_tracked(
+            config,
+            messages,
+            source="风险报告",
+            prompt_path=prompt_path,
+        )
     except (ValueError, RuntimeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -1894,7 +1907,12 @@ async def llm_chat(
         messages = build_knowledge_answer_prompt(knowledge_message, results)
         prompt_path = _write_llm_prompt_markdown("强制知识库问答", config, messages)
         try:
-            answer = call_chat_completion(config, messages)
+            answer = _call_chat_completion_tracked(
+                config,
+                messages,
+                source="强制知识库问答",
+                prompt_path=prompt_path,
+            )
         except (ValueError, RuntimeError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {
@@ -1916,7 +1934,12 @@ async def llm_chat(
     ]
     prompt_path = _write_llm_prompt_markdown("问答测试", config, messages)
     try:
-        answer = call_chat_completion(config, messages)
+        answer = _call_chat_completion_tracked(
+            config,
+            messages,
+            source="问答测试",
+            prompt_path=prompt_path,
+        )
     except (ValueError, RuntimeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -2012,7 +2035,12 @@ async def knowledge_ask(payload: dict[str, Any] = Body(...)) -> dict[str, object
     )
     prompt_path = _write_llm_prompt_markdown("知识库问答", config, messages)
     try:
-        answer = call_chat_completion(config, messages)
+        answer = _call_chat_completion_tracked(
+            config,
+            messages,
+            source="知识库问答",
+            prompt_path=prompt_path,
+        )
     except (ValueError, RuntimeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -2339,6 +2367,58 @@ def _build_llm_debug(config: LlmConfig, messages: list[dict[str, str]], prompt_p
     }
 
 
+def _call_chat_completion_tracked(
+    config: LlmConfig,
+    messages: list[dict[str, str]],
+    *,
+    source: str,
+    prompt_path: Path,
+) -> str:
+    requested_at = datetime.now().astimezone().isoformat(timespec="seconds")
+    try:
+        answer = call_chat_completion(config, messages)
+    except Exception:
+        _record_llm_request(
+            config,
+            source=source,
+            prompt_path=prompt_path,
+            status="failed",
+            requested_at=requested_at,
+        )
+        raise
+    _record_llm_request(
+        config,
+        source=source,
+        prompt_path=prompt_path,
+        status="success",
+        requested_at=requested_at,
+    )
+    return answer
+
+
+def _record_llm_request(
+    config: LlmConfig,
+    *,
+    source: str,
+    prompt_path: Path,
+    status: str,
+    requested_at: str,
+) -> None:
+    try:
+        ledger = _llm_usage_ledger()
+        ledger.record_request(
+            provider=config.provider,
+            model=config.model,
+            source=source,
+            status=status,
+            requested_at=requested_at,
+            event_key=ledger.prompt_event_key(prompt_path),
+        )
+    except (OSError, sqlite3.Error, LlmUsageError):
+        # Usage telemetry is an auditable sidecar and must never block model answers.
+        return
+
+
 def _write_llm_prompt_markdown(
     source: str,
     config: LlmConfig,
@@ -2348,7 +2428,7 @@ def _write_llm_prompt_markdown(
     output_dir = directory or (RUNTIME_DIR / "llm-prompts")
     output_dir.mkdir(parents=True, exist_ok=True)
     safe_source = "".join(char for char in source if char.isalnum() or char in "-_一二三四五六七八九十风险报告问答测试行级AI复核")
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")[:-3]
     path = output_dir / f"{timestamp}-{safe_source or '大模型'}-提示词-【codex】.md"
     lines = [
         "# 大模型提示词调试文件",
@@ -2748,6 +2828,37 @@ def _save_process_state(
 
 def _project_ledger() -> ProjectLedger:
     return ProjectLedger(RUNTIME_DIR / DEFAULT_PROJECT_LEDGER_DB_PATH.name, RUNTIME_DIR)
+
+
+def _llm_usage_ledger() -> LlmUsageLedger:
+    return LlmUsageLedger(RUNTIME_DIR / DEFAULT_LLM_USAGE_DB_PATH.name, RUNTIME_DIR)
+
+
+def _llm_usage_dashboard(*, date_from: str, date_to: str) -> dict[str, object]:
+    try:
+        ledger = _llm_usage_ledger()
+        database_key = str(ledger.db_path.resolve()).casefold()
+        if database_key not in LLM_USAGE_BACKFILLED_DATABASES:
+            with LLM_USAGE_BACKFILL_LOCK:
+                if database_key not in LLM_USAGE_BACKFILLED_DATABASES:
+                    ledger.backfill_prompt_logs()
+                    LLM_USAGE_BACKFILLED_DATABASES.add(database_key)
+        return ledger.dashboard(date_from=date_from.strip(), date_to=date_to.strip())
+    except (OSError, sqlite3.Error, LlmUsageError) as exc:
+        return {
+            "available": False,
+            "scope": "local_instance",
+            "total_requests": 0,
+            "successful_requests": 0,
+            "failed_requests": 0,
+            "historical_requests": 0,
+            "model_count": 0,
+            "trend_granularity": "day",
+            "trend": [],
+            "models": [],
+            "tracked_from": "",
+            "message": f"大模型调用统计暂不可用：{exc}",
+        }
 
 
 def _sync_project_ledger(

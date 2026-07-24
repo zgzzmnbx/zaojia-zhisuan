@@ -221,6 +221,19 @@ def test_dashboard_list_detail_and_run_result_api_contract(tmp_path, monkeypatch
     list_response = client.get("/api/projects?source_type=web&page=1&page_size=20")
     assert dashboard_response.status_code == 200
     assert dashboard_response.json()["kpis"]["total_projects"] == 1
+    assert dashboard_response.json()["llm_usage"] == {
+        "available": True,
+        "scope": "local_instance",
+        "total_requests": 0,
+        "successful_requests": 0,
+        "failed_requests": 0,
+        "historical_requests": 0,
+        "model_count": 0,
+        "trend_granularity": "month",
+        "trend": [],
+        "models": [],
+        "tracked_from": "",
+    }
     assert list_response.status_code == 200
     item = list_response.json()["items"][0]
     assert item["project_id"] == relation["project_id"]

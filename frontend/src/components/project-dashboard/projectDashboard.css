@@ -25,7 +25,7 @@
   container-type: inline-size;
   min-width: 0;
   width: 100%;
-  padding: 18px;
+  padding: 6px 18px 18px;
   color: var(--pd-text);
   background: var(--pd-canvas);
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei UI', sans-serif;
@@ -71,11 +71,11 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 
 .project-dashboard__header h1 {
-  margin: 4px 0 5px;
+  margin: 0;
   color: var(--pd-strong);
   font-size: var(--pd-font-page-title);
   line-height: 1.18;
@@ -84,19 +84,10 @@
 
 .project-dashboard__header p {
   max-width: 760px;
-  margin: 0;
-  color: var(--pd-muted);
+  margin: 6px 0 0;
+  color: #808080;
   font-size: var(--pd-font-body);
-  line-height: 1.55;
-}
-
-.project-dashboard__eyebrow {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--pd-primary);
-  font-size: var(--pd-font-meta);
-  font-weight: 650;
+  line-height: 1.5;
 }
 
 .project-dashboard__backfill,
@@ -185,9 +176,8 @@
 }
 
 .project-dashboard__toolbar {
-  display: flex;
-  align-items: flex-end;
-  gap: 7px;
+  display: grid;
+  gap: 10px;
   min-width: 0;
   padding: 12px;
   border: 0;
@@ -196,14 +186,42 @@
   box-shadow: var(--pd-card-shadow);
 }
 
+.project-dashboard__toolbar-row {
+  display: grid;
+  align-items: end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.project-dashboard__toolbar-row.is-period {
+  grid-template-columns:
+    minmax(124px, 1fr)
+    minmax(132px, 1fr)
+    14px
+    minmax(132px, 1fr)
+    minmax(142px, auto);
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--pd-border-soft);
+}
+
+.project-dashboard__toolbar-row.is-filters {
+  grid-template-columns:
+    minmax(160px, 1.2fr)
+    minmax(108px, 0.7fr)
+    minmax(108px, 0.7fr)
+    minmax(210px, 1.8fr)
+    auto
+    auto;
+}
+
 .project-dashboard__field {
   display: grid;
   gap: 4px;
-  min-width: 112px;
+  min-width: 0;
 }
 
 .project-dashboard__field.is-range {
-  min-width: 132px;
+  min-width: 0;
 }
 
 .project-dashboard__field > span,
@@ -228,24 +246,28 @@
 }
 
 .project-dashboard__field select {
+  width: 100%;
   min-width: 0;
   padding: 0 26px 0 9px;
 }
 
 .project-dashboard__date input {
-  width: 128px;
+  width: 100%;
   padding: 0 7px;
 }
 
 .project-dashboard__range-separator {
-  align-self: center;
+  align-self: end;
+  height: 32px;
   color: var(--pd-muted);
+  line-height: 32px;
+  text-align: center;
 }
 
 .project-dashboard__compare {
   display: inline-flex;
   align-items: center;
-  align-self: center;
+  align-self: end;
   gap: 6px;
   min-height: 32px;
   padding: 0 8px;
@@ -260,10 +282,11 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  min-width: 168px;
-  margin-left: auto;
+  min-width: 0;
   padding: 0 9px;
-  color: var(--pd-muted);
+  border: 1px solid #dbeafe;
+  background: #f8fbff;
+  color: #60a5fa;
 }
 
 .project-dashboard__search input {
@@ -274,6 +297,56 @@
   background: transparent;
   color: var(--pd-text);
   font-size: var(--pd-font-navigation);
+}
+
+.project-dashboard__search input::placeholder {
+  color: #94a3b8;
+  opacity: 1;
+}
+
+.project-dashboard__search:focus-within {
+  border-color: #60a5fa;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgb(96 165 250 / 15%);
+}
+
+/* 全局工作台规则位于组件样式之后；这里显式闭合局部控件的颜色与交互状态。 */
+.shell.layout-daweiba .project-dashboard .project-dashboard__header > div > p {
+  color: #808080;
+}
+
+.shell.layout-daweiba .project-dashboard .project-dashboard__search {
+  border-color: #dbeafe;
+  background: #f8fbff;
+  color: #60a5fa;
+}
+
+.shell.layout-daweiba .project-dashboard .project-dashboard__search:focus-within {
+  border-color: #60a5fa;
+  background: #ffffff;
+}
+
+.shell.layout-daweiba .project-dashboard .project-dashboard__search input {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--pd-text);
+}
+
+.shell.layout-daweiba .project-dashboard .project-dashboard__primary {
+  border: 0;
+  background: var(--pd-primary);
+  color: #ffffff;
+}
+
+.shell.layout-daweiba .project-dashboard .project-dashboard__primary:hover {
+  background: var(--pd-primary-hover);
+  color: #ffffff;
+}
+
+.shell.layout-daweiba .project-dashboard .project-dashboard__primary svg {
+  color: inherit;
+  stroke: currentColor;
 }
 
 .project-dashboard__chips {
@@ -393,7 +466,9 @@
 .project-dashboard__analysis.is-trend { grid-column: span 8; }
 .project-dashboard__analysis.is-status { grid-column: span 4; }
 .project-dashboard__analysis.is-risk,
-.project-dashboard__analysis.is-quality { grid-column: span 6; }
+.project-dashboard__analysis.is-quality,
+.project-dashboard__analysis.is-llm-trend,
+.project-dashboard__analysis.is-llm-models { grid-column: span 6; }
 
 .project-dashboard__analysis > header {
   display: flex;
@@ -439,6 +514,10 @@
 
 .project-dashboard__chart.is-risk-chart {
   height: 232px;
+}
+
+.project-dashboard__chart.is-llm-wave {
+  height: 220px;
 }
 
 .project-dashboard__chart.is-quality-chart {
@@ -507,7 +586,8 @@
   list-style: none;
 }
 
-.project-dashboard__legend-list button {
+.project-dashboard__legend-list button,
+.project-dashboard__legend-row {
   display: grid;
   grid-template-columns: 8px 1fr auto;
   align-items: center;
@@ -523,11 +603,22 @@
   cursor: pointer;
 }
 
+.project-dashboard__legend-row {
+  cursor: default;
+}
+
+.project-dashboard__legend-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .project-dashboard__legend-list button:hover {
   background: var(--pd-alt);
 }
 
-.project-dashboard__legend-list i {
+.project-dashboard__legend-list i,
+.project-dashboard__legend-row i {
   width: 7px;
   height: 7px;
   border-radius: 50%;
@@ -1128,22 +1219,29 @@
 .project-dashboard__drawer-error { display: flex; gap: 6px; color: #b42318; background: #fff7f5; }
 
 @container (max-width: 1180px) {
-  .project-dashboard__toolbar { flex-wrap: wrap; }
-  .project-dashboard__search { margin-left: 0; flex: 1 1 180px; }
   .project-dashboard__analysis.is-trend,
   .project-dashboard__analysis.is-status,
   .project-dashboard__analysis.is-risk,
-  .project-dashboard__analysis.is-quality { grid-column: span 6; }
+  .project-dashboard__analysis.is-quality,
+  .project-dashboard__analysis.is-llm-trend,
+  .project-dashboard__analysis.is-llm-models { grid-column: span 6; }
 }
 
 @container (max-width: 840px) {
-  .project-dashboard { padding: 14px; }
+  .project-dashboard { padding: 6px 14px 14px; }
+  .project-dashboard__toolbar-row.is-filters {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .project-dashboard__search { grid-column: 1 / -1; }
+  .project-dashboard__reset { grid-column: 2; }
   .project-dashboard__metrics { grid-template-columns: repeat(2, 1fr); }
   .project-dashboard__metric:last-child { grid-column: 1 / -1; }
   .project-dashboard__analysis.is-trend,
   .project-dashboard__analysis.is-status,
   .project-dashboard__analysis.is-risk,
-  .project-dashboard__analysis.is-quality { grid-column: 1 / -1; }
+  .project-dashboard__analysis.is-quality,
+  .project-dashboard__analysis.is-llm-trend,
+  .project-dashboard__analysis.is-llm-models { grid-column: 1 / -1; }
 }
 
 @container (max-width: 620px) {
@@ -1151,10 +1249,14 @@
   .project-dashboard__header .project-dashboard__backfill { width: max-content; }
   .project-dashboard__current-task { grid-template-columns: auto 1fr auto; }
   .project-dashboard__current-task small { display: none; }
-  .project-dashboard__date { flex: 1 1 126px; }
-  .project-dashboard__date input { width: 100%; }
+  .project-dashboard__toolbar-row.is-period { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .project-dashboard__field.is-range,
+  .project-dashboard__compare { grid-column: 1 / -1; }
   .project-dashboard__range-separator { display: none; }
-  .project-dashboard__field { flex: 1 1 130px; }
+  .project-dashboard__toolbar-row.is-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .project-dashboard__toolbar-row.is-filters > .project-dashboard__field:first-child,
+  .project-dashboard__search { grid-column: 1 / -1; }
+  .project-dashboard__reset { grid-column: 1; }
   .project-dashboard__metrics { grid-template-columns: 1fr; }
   .project-dashboard__metric,
   .project-dashboard__metric:nth-child(2n) { grid-column: auto; }

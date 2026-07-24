@@ -6760,7 +6760,7 @@ tbody tr:hover .row-ai-cell {
 }
 
 .shell.layout-daweiba .daweiba-status-track {
-  stroke: #e6e6e3;
+  stroke: url("#daweiba-status-blue-gradient");
 }
 
 .shell.layout-daweiba .daweiba-status-segment {
@@ -6769,7 +6769,7 @@ tbody tr:hover .row-ai-cell {
 
 .shell.layout-daweiba .daweiba-status-lines path {
   fill: none;
-  stroke: #ddddda;
+  stroke: #dbeafe;
   stroke-width: 1.2;
 }
 
@@ -6852,15 +6852,15 @@ tbody tr:hover .row-ai-cell {
 }
 
 .shell.layout-daweiba .daweiba-status-legend .is-ok {
-  background: var(--db-chart-green);
+  background: #2563eb;
 }
 
 .shell.layout-daweiba .daweiba-status-legend .is-review {
-  background: #d97706;
+  background: #60a5fa;
 }
 
 .shell.layout-daweiba .daweiba-status-legend .is-warning {
-  background: #b42318;
+  background: #93c5fd;
 }
 
 .shell.layout-daweiba .daweiba-status-rows {
@@ -7659,55 +7659,56 @@ tbody tr:hover .row-ai-cell {
 /* 项目看板入口只协调现有填价工作区；Rhea 视觉变量均封装在 .project-dashboard 内。 */
 .shell.layout-daweiba .daweiba-main-content .daweiba-workspace-frame.is-daweiba-module-fill {
   grid-template-rows: auto minmax(0, 1fr);
+  row-gap: 6px;
 }
 
 .shell.layout-daweiba .daweiba-fill-view-tabs {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   align-self: flex-start;
   justify-self: flex-start;
   grid-column: 1 / -1;
-  flex: 0 0 40px;
+  flex: 0 0 36px;
   width: fit-content;
-  height: 40px;
-  min-height: 40px;
-  max-height: 40px;
-  margin: 0 0 12px;
-  padding: 4px;
+  height: 36px;
+  min-height: 36px;
+  max-height: 36px;
+  margin: 0;
+  padding: 3px;
   border: 0;
-  border-radius: 12px;
-  background: #f0f0ef;
-  box-shadow: inset 0 0 0 1px rgb(23 23 23 / 4%);
+  border-radius: 10px;
+  background: #f8fafc;
+  box-shadow: inset 0 0 0 1px #eef2f7;
   overflow: hidden;
 }
 
 .shell.layout-daweiba .daweiba-fill-view-tabs button {
   flex: 0 0 auto;
-  height: 32px;
-  min-height: 32px;
-  max-height: 32px;
-  padding: 0 14px;
+  height: 30px;
+  min-height: 30px;
+  max-height: 30px;
+  padding: 0 12px;
   border: 0;
-  border-radius: 10px;
+  border-radius: 8px;
   background: transparent;
-  color: #737373;
+  color: #64748b;
   font: inherit;
   font-size: 13px;
   font-weight: 500;
-  line-height: 32px;
+  line-height: 30px;
   cursor: pointer;
 }
 
 .shell.layout-daweiba .daweiba-fill-view-tabs button:hover {
-  color: #171717;
-  background: rgb(255 255 255 / 62%);
+  color: #334155;
+  background: rgb(255 255 255 / 72%);
 }
 
 .shell.layout-daweiba .daweiba-fill-view-tabs button.is-active {
-  color: #171717;
+  color: #334155;
   background: #ffffff;
-  box-shadow: 0 0 0 1px rgb(23 23 23 / 5%), 0 1px 2px rgb(23 23 23 / 8%);
+  box-shadow: 0 0 0 1px #e2e8f0, 0 1px 2px rgb(15 23 42 / 6%);
 }
 
 .shell.layout-daweiba .daweiba-fill-view-tabs button:focus-visible {

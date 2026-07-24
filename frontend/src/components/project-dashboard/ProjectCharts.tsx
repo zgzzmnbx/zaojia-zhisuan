@@ -1,4 +1,6 @@
 import {
+  Area,
+  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
@@ -32,10 +34,34 @@ const STATUS_COLORS: Record<string, string> = {
   failed: "#1e40af",
 };
 
+const MODEL_COLORS = ["#2563eb", "#3b82f6", "#60a5fa", "#93c5fd", "#bfdbfe", "#dbeafe"];
+const EMPTY_LLM_USAGE: DashboardPayload["llm_usage"] = {
+  available: false,
+  scope: "local_instance",
+  total_requests: 0,
+  successful_requests: 0,
+  failed_requests: 0,
+  historical_requests: 0,
+  model_count: 0,
+  trend_granularity: "day",
+  trend: [],
+  models: [],
+  tracked_from: "",
+  message: "后端尚未返回大模型调用统计，请稍后刷新。",
+};
+
 function compactProjectName(value: string) {
   const withoutTags = value.replace(/【[^】]+】/g, "").replace(/\s+/g, " ").trim();
   const normalized = withoutTags || value;
   return normalized.length > 12 ? `${normalized.slice(0, 12)}…` : normalized;
+}
+
+function compactPeriod(value: string) {
+  return value.length === 10 ? value.slice(5) : value;
+}
+
+function compactModelName(value: string) {
+  return value.length > 24 ? `${value.slice(0, 23)}…` : value;
 }
 
 function AnalysisEmpty({ children }: { children: ReactNode }) {
@@ -65,6 +91,7 @@ export default function ProjectCharts({
     0,
   );
   const statusTotal = dashboard.status_distribution.reduce((sum, item) => sum + item.count, 0);
+  const llmUsage = dashboard.llm_usage ?? EMPTY_LLM_USAGE;
   const quality = qualityPercentages(dashboard.matching_quality);
   const qualityData = [{
     name: "整体匹配质量",
@@ -169,6 +196,129 @@ export default function ProjectCharts({
         )}
         <p className="project-dashboard__chart-summary">
           {dashboard.status_distribution.map((item) => `${item.label} ${item.count}`).join("；")}
+        </p>
+      </section>
+
+      <section className="project-dashboard__analysis is-llm-trend" aria-labelledby="dashboard-llm-trend-title">
+        <header>
+          <div>
+            <p>大模型调用</p>
+            <h3 id="dashboard-llm-trend-title">请求次数波形</h3>
+          </div>
+          <strong>{llmUsage.total_requests}</strong>
+        </header>
+        {!llmUsage.available ? (
+          <AnalysisEmpty>{llmUsage.message || "大模型调用统计暂不可用。"}</AnalysisEmpty>
+        ) : llmUsage.trend.length >= 2 ? (
+          <div
+            className="project-dashboard__chart is-llm-wave"
+            role="img"
+            tabIndex={0}
+            aria-label={`大模型请求次数波形，共 ${llmUsage.total_requests} 次调用、${llmUsage.trend.length} 个周期`}
+          >
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={llmUsage.trend} margin={{ top: 18, right: 12, left: -18, bottom: 2 }}>
+                <defs>
+                  <linearGradient id="projectDashboardLlmWave" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#60a5fa" stopOpacity={0.42} />
+                    <stop offset="72%" stopColor="#bfdbfe" stopOpacity={0.18} />
+                    <stop offset="100%" stopColor="#eff6ff" stopOpacity={0.04} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid stroke="#dbeafe" vertical={false} />
+                <XAxis
+                  dataKey="period"
+                  tickFormatter={compactPeriod}
+                  tick={{ fill: "#737373", fontSize: 12 }}
+                  axisLine={false}
+                  tickLine={false}
+                  minTickGap={22}
+                />
+                <YAxis
+                  allowDecimals={false}
+                  tick={{ fill: "#a3a3a3", fontSize: 12 }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <Tooltip />
+                <Area
+                  type="monotone"
+                  dataKey="requests"
+                  name="请求次数"
+                  stroke="#3b82f6"
+                  strokeWidth={2.5}
+                  fill="url(#projectDashboardLlmWave)"
+                  dot={{ r: 2.5, fill: "#fff", stroke: "#60a5fa", strokeWidth: 1.5 }}
+                  activeDot={{ r: 4, fill: "#2563eb", stroke: "#fff", strokeWidth: 2 }}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        ) : (
+          <AnalysisEmpty>当前时间范围内有效调用周期不足 2 个，暂不绘制波形。</AnalysisEmpty>
+        )}
+        <p className="project-dashboard__chart-summary">
+          按本机审计记录统计，并与上方时间范围同步；历史提示词日志回填 {llmUsage.historical_requests} 次，已排除明确测试模型。
+        </p>
+      </section>
+
+      <section className="project-dashboard__analysis is-llm-models" aria-labelledby="dashboard-llm-model-title">
+        <header>
+          <div>
+            <p>请求模型分布</p>
+            <h3 id="dashboard-llm-model-title">模型种类</h3>
+          </div>
+          <strong>{llmUsage.model_count}</strong>
+        </header>
+        {!llmUsage.available ? (
+          <AnalysisEmpty>{llmUsage.message || "模型种类统计暂不可用。"}</AnalysisEmpty>
+        ) : llmUsage.total_requests && llmUsage.models.length ? (
+          <div className="project-dashboard__donut-wrap is-models">
+            <div
+              className="project-dashboard__chart is-donut"
+              role="img"
+              tabIndex={0}
+              aria-label={`请求模型种类环形图，共 ${llmUsage.model_count} 种模型、${llmUsage.total_requests} 次调用`}
+            >
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={llmUsage.models}
+                    dataKey="count"
+                    nameKey="model"
+                    innerRadius="58%"
+                    outerRadius="80%"
+                    paddingAngle={2}
+                  >
+                    {llmUsage.models.map((item, index) => (
+                      <Cell key={`${item.provider}-${item.model}`} fill={MODEL_COLORS[index % MODEL_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+              <span className="project-dashboard__donut-center">
+                <b>{llmUsage.model_count}</b>
+                <small>种模型</small>
+              </span>
+            </div>
+            <ul className="project-dashboard__legend-list is-models">
+              {llmUsage.models.map((item, index) => (
+                <li key={`${item.provider}-${item.model}`}>
+                  <div className="project-dashboard__legend-row" title={`${item.provider} · ${item.model}`}>
+                    <i style={{ background: MODEL_COLORS[index % MODEL_COLORS.length] }} />
+                    <span>{compactModelName(item.model)}</span>
+                    <b>{item.count}</b>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : (
+          <AnalysisEmpty>当前时间范围内暂无可审计的大模型请求。</AnalysisEmpty>
+        )}
+        <p className="project-dashboard__chart-summary">
+          {llmUsage.models.map((item) => `${item.model} ${item.count} 次`).join("；") || "暂无模型分布数据。"}
         </p>
       </section>
 

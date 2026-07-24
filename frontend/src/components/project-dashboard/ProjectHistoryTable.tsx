@@ -48,7 +48,6 @@ export default function ProjectHistoryTable({
     <section className="project-dashboard__history" aria-labelledby="project-history-title">
       <header className="project-dashboard__history-header">
         <div>
-          <p>真实项目台账</p>
           <h3 id="project-history-title">历史项目</h3>
         </div>
         <span>{payload.total} 条记录 · 第 {payload.page}/{payload.pages} 页</span>

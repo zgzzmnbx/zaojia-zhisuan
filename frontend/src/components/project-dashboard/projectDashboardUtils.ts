@@ -103,6 +103,25 @@ export type DashboardPayload = {
     review_rows: number;
     total_rows: number;
   };
+  llm_usage: {
+    available: boolean;
+    scope: "local_instance" | string;
+    total_requests: number;
+    successful_requests: number;
+    failed_requests: number;
+    historical_requests: number;
+    model_count: number;
+    trend_granularity: "day" | "month";
+    trend: Array<{ period: string; requests: number }>;
+    models: Array<{
+      model: string;
+      provider: string;
+      count: number;
+      percentage: number;
+    }>;
+    tracked_from: string;
+    message?: string;
+  };
   filter_options: {
     skills: Array<[string, string]>;
     sources: Array<{ value: string; label: string }>;

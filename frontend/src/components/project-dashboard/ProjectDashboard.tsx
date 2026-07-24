@@ -1,4 +1,4 @@
-import { AlertTriangle, ChevronRight, CircleX, Database, History, Loader2 } from "lucide-react";
+import { AlertTriangle, ChevronRight, CircleX, History, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import ProjectCharts from "./ProjectCharts";
 import ProjectDashboardToolbar from "./ProjectDashboardToolbar";
@@ -198,9 +198,8 @@ export default function ProjectDashboard({
     <div className="project-dashboard">
       <header className="project-dashboard__header">
         <div>
-          <span className="project-dashboard__eyebrow"><Database size={14} />真实项目台账</span>
           <h1>项目看板</h1>
-          <p>按项目、处理任务、业务版本和复核轮次分层汇总；图表与历史列表使用同一筛选口径。</p>
+          <p>汇总项目、任务、版本与复核进度，筛选结果同步到图表和历史项目。</p>
         </div>
         <button className="project-dashboard__backfill" type="button" disabled={isBackfilling} onClick={() => void handleBackfill()}>
           {isBackfilling ? <Loader2 size={15} className="spin" /> : <History size={15} />}回填历史任务
