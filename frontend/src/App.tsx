@@ -2149,6 +2149,12 @@ function DaweibaApp() {
   }, [activeDaweibaModule]);
 
   useEffect(() => {
+    const isProjectDashboardActive =
+      activeDaweibaModule === "fill" && fillWorkspaceView === "dashboard";
+    setIsAiDockCollapsed(isProjectDashboardActive);
+  }, [activeDaweibaModule, fillWorkspaceView]);
+
+  useEffect(() => {
     chatLogRef.current?.scrollTo({
       top: chatLogRef.current.scrollHeight,
       behavior: "smooth",
