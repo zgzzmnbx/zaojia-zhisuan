@@ -90,6 +90,11 @@ export type DashboardPayload = {
   trend: Array<{ period: string; new_projects: number; completed_projects: number }>;
   trend_granularity: "day" | "month";
   status_distribution: Array<{ status: string; label: string; count: number }>;
+  source_distribution?: Array<{
+    source_type: string;
+    label: string;
+    count: number;
+  }>;
   risk_ranking: Array<{
     project_id: string;
     project_name: string;
@@ -207,6 +212,28 @@ export function defaultProjectFilters(today = new Date()): ProjectFilters {
     ...EMPTY_FILTERS,
     ...dateRangeForPreset("30d", today),
   };
+}
+
+export function activeProjectFilterCount(
+  filters: ProjectFilters,
+  today = new Date(),
+) {
+  const defaults = defaultProjectFilters(today);
+  let count = 0;
+  if (
+    filters.dateFrom !== defaults.dateFrom
+    || filters.dateTo !== defaults.dateTo
+  ) {
+    count += 1;
+  }
+  if (filters.compare) count += 1;
+  if (filters.skillId) count += 1;
+  if (filters.status) count += 1;
+  if (filters.sourceType) count += 1;
+  if (filters.keyword) count += 1;
+  if (filters.risk) count += 1;
+  if (filters.quality) count += 1;
+  return count;
 }
 
 export function datePresetForRange(

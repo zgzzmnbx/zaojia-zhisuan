@@ -1,4 +1,12 @@
-import { AlertTriangle, ChevronRight, CircleX, History, Loader2 } from "lucide-react";
+import {
+  AlertTriangle,
+  ChevronRight,
+  CircleX,
+  History,
+  Loader2,
+  Maximize2,
+  Minimize2,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import ProjectCharts from "./ProjectCharts";
 import ProjectDashboardToolbar from "./ProjectDashboardToolbar";
@@ -26,7 +34,6 @@ type Props = {
     status: string;
     jobId: string;
   } | null;
-  onNewProject: () => void;
   onOpenCurrentTask: () => void;
   onOpenRun: (
     projectId: string,
@@ -47,7 +54,6 @@ export default function ProjectDashboard({
   active,
   apiBase,
   currentTask,
-  onNewProject,
   onOpenCurrentTask,
   onOpenRun,
 }: Props) {
@@ -64,6 +70,7 @@ export default function ProjectDashboard({
   const [isBackfilling, setIsBackfilling] = useState(false);
   const [backfillMessage, setBackfillMessage] = useState("");
   const [openError, setOpenError] = useState("");
+  const [isPresentationMode, setIsPresentationMode] = useState(false);
 
   const load = useCallback(async (signal?: AbortSignal) => {
     setIsLoading(true);
@@ -117,6 +124,29 @@ export default function ProjectDashboard({
     const timer = window.setTimeout(() => setShowSkeleton(true), 300);
     return () => window.clearTimeout(timer);
   }, [isLoading]);
+
+  useEffect(() => {
+    if (!active) setIsPresentationMode(false);
+  }, [active]);
+
+  useEffect(() => {
+    if (!isPresentationMode) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    function handleKeyDown(event: KeyboardEvent) {
+      if (
+        event.key === "Escape"
+        && !document.querySelector(".project-dashboard__filter-dialog")
+      ) {
+        setIsPresentationMode(false);
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isPresentationMode]);
 
   const chips = useMemo(() => filterChips(filters, dashboard), [filters, dashboard]);
 
@@ -195,15 +225,31 @@ export default function ProjectDashboard({
   if (!active) return null;
 
   return (
-    <div className="project-dashboard">
+    <div className={`project-dashboard ${isPresentationMode ? "is-presentation" : ""}`}>
       <header className="project-dashboard__header">
         <div>
           <h1>项目看板</h1>
           <p>汇总项目、任务、版本与复核进度，筛选结果同步到图表和历史项目。</p>
         </div>
-        <button className="project-dashboard__backfill" type="button" disabled={isBackfilling} onClick={() => void handleBackfill()}>
-          {isBackfilling ? <Loader2 size={15} className="spin" /> : <History size={15} />}回填历史任务
-        </button>
+        <div className="project-dashboard__header-actions">
+          <ProjectDashboardToolbar
+            filters={filters}
+            dashboard={dashboard}
+            onChange={updateFilters}
+          />
+          <button
+            className="project-dashboard__presentation"
+            type="button"
+            aria-pressed={isPresentationMode}
+            onClick={() => setIsPresentationMode((current) => !current)}
+          >
+            {isPresentationMode ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+            {isPresentationMode ? "退出汇报" : "汇报模式"}
+          </button>
+          <button className="project-dashboard__backfill" type="button" disabled={isBackfilling} onClick={() => void handleBackfill()}>
+            {isBackfilling ? <Loader2 size={15} className="spin" /> : <History size={15} />}回填历史任务
+          </button>
+        </div>
       </header>
 
       {currentTask ? (
@@ -214,17 +260,6 @@ export default function ProjectDashboard({
           <ChevronRight size={16} />
         </button>
       ) : null}
-
-      <ProjectDashboardToolbar
-        filters={filters}
-        dashboard={dashboard}
-        onChange={updateFilters}
-        onReset={() => {
-          setPage(1);
-          setFilters(defaultProjectFilters());
-        }}
-        onNewProject={onNewProject}
-      />
 
       {chips.length ? (
         <div className="project-dashboard__chips" aria-label="当前筛选">
@@ -260,6 +295,7 @@ export default function ProjectDashboard({
             onProject={(keyword) => updateFilters({ ...filters, keyword })}
             onPeriod={onPeriod}
             onQuality={(quality) => updateFilters({ ...filters, quality })}
+            onSource={(sourceType) => updateFilters({ ...filters, sourceType })}
           />
           <ProjectHistoryTable
             apiBase={apiBase}

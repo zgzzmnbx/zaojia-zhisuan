@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
+  activeProjectFilterCount,
   artifactSummary,
   chartLayoutForWidth,
   clearFilterChip,
@@ -34,6 +35,22 @@ test("date presets use inclusive local calendar ranges", () => {
     dateFrom: "2026-06-25",
     dateTo: "2026-07-24",
   });
+});
+
+test("filter button counts only non-default conditions", () => {
+  const today = new Date(2026, 6, 24, 18, 30);
+  const defaults = defaultProjectFilters(today);
+  assert.equal(activeProjectFilterCount(defaults, today), 0);
+  assert.equal(activeProjectFilterCount({
+    ...defaults,
+    compare: true,
+    status: "completed",
+  }, today), 2);
+  assert.equal(activeProjectFilterCount({
+    ...defaults,
+    dateFrom: "2026-07-01",
+    dateTo: "2026-07-24",
+  }, today), 1);
 });
 
 test("dashboard and history share one encoded query contract", () => {
@@ -124,6 +141,8 @@ test("dashboard stylesheet keeps the component theme under local scope", async (
   assert.doesNotMatch(css, /@tailwind|shadcn\/init|--background:/);
   assert.match(css, /\.project-dashboard__analysis\.is-llm-trend/);
   assert.match(css, /\.project-dashboard__analysis\.is-llm-models/);
+  assert.match(css, /\.project-dashboard__filter-dialog/);
+  assert.match(css, /\.project-dashboard\.is-presentation/);
 });
 
 test("dashboard model telemetry uses a smooth area wave and a donut chart", async () => {
@@ -135,4 +154,5 @@ test("dashboard model telemetry uses a smooth area wave and a donut chart", asyn
   assert.match(component, /type="monotone"/);
   assert.match(component, /id="projectDashboardLlmWave"/);
   assert.match(component, /请求模型种类环形图/);
+  assert.match(component, /项目来源分布/);
 });

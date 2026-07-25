@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -149,9 +150,10 @@ def test_tracked_model_call_records_success_and_failure_without_changing_answer_
             prompt_path=failed_prompt,
         )
 
+    request_date = datetime.now().astimezone().date().isoformat()
     dashboard = main_module._llm_usage_ledger().dashboard(
-        date_from="2026-07-24",
-        date_to="2026-07-24",
+        date_from=request_date,
+        date_to=request_date,
     )
     assert dashboard["total_requests"] == 2
     assert dashboard["successful_requests"] == 1

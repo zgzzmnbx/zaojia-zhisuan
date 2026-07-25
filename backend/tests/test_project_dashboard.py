@@ -127,6 +127,17 @@ def test_web_and_agent_sources_share_filtered_list_and_dashboard(tmp_path):
     assert agent_list["total"] == 1
     assert agent_list["items"][0]["source_label"] == "智算助手"
     assert agent_dashboard["kpis"]["total_projects"] == 1
+    all_dashboard = ledger.dashboard()
+    assert next(
+        item
+        for item in all_dashboard["source_distribution"]
+        if item["source_type"] == "web"
+    )["count"] == 1
+    assert next(
+        item
+        for item in all_dashboard["source_distribution"]
+        if item["source_type"] == "agent"
+    )["count"] == 1
 
 
 def test_filters_are_shared_by_dashboard_and_history(tmp_path):

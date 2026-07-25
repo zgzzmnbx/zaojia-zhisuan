@@ -24,6 +24,7 @@ type Props = {
   onProject: (projectName: string) => void;
   onPeriod: (period: string) => void;
   onQuality: (quality: string) => void;
+  onSource: (sourceType: string) => void;
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -35,6 +36,7 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 const MODEL_COLORS = ["#2563eb", "#3b82f6", "#60a5fa", "#93c5fd", "#bfdbfe", "#dbeafe"];
+const SOURCE_COLORS = ["#2563eb", "#3b82f6", "#60a5fa", "#93c5fd", "#bfdbfe"];
 const EMPTY_LLM_USAGE: DashboardPayload["llm_usage"] = {
   available: false,
   scope: "local_instance",
@@ -85,6 +87,7 @@ export default function ProjectCharts({
   onProject,
   onPeriod,
   onQuality,
+  onSource,
 }: Props) {
   const trendTotal = dashboard.trend.reduce(
     (sum, item) => sum + item.new_projects + item.completed_projects,
@@ -92,6 +95,11 @@ export default function ProjectCharts({
   );
   const statusTotal = dashboard.status_distribution.reduce((sum, item) => sum + item.count, 0);
   const llmUsage = dashboard.llm_usage ?? EMPTY_LLM_USAGE;
+  const sourceData = (dashboard.source_distribution ?? []).filter(
+    (item) => item.count > 0,
+  );
+  const sourceTotal = sourceData.reduce((sum, item) => sum + item.count, 0);
+  const showSourceChart = sourceData.length >= 2 && sourceTotal >= 3;
   const quality = qualityPercentages(dashboard.matching_quality);
   const qualityData = [{
     name: "整体匹配质量",
@@ -397,6 +405,69 @@ export default function ProjectCharts({
           标准命中 {dashboard.matching_quality.standard_hit_rows} 行，经验提示 {dashboard.matching_quality.experience_hint_rows} 行，待复核 {dashboard.matching_quality.review_rows} 行。
         </p>
       </section>
+
+      {showSourceChart ? (
+        <section className="project-dashboard__analysis is-sources" aria-labelledby="dashboard-sources-title">
+          <header>
+            <div>
+              <p>平台接入</p>
+              <h3 id="dashboard-sources-title">项目来源分布</h3>
+            </div>
+            <strong>{sourceData.length}</strong>
+          </header>
+          <div className="project-dashboard__donut-wrap is-sources">
+            <div
+              className="project-dashboard__chart is-donut"
+              role="img"
+              tabIndex={0}
+              aria-label={`项目来源分布，共 ${sourceData.length} 种来源、${sourceTotal} 个项目`}
+            >
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={sourceData}
+                    dataKey="count"
+                    nameKey="label"
+                    innerRadius="58%"
+                    outerRadius="80%"
+                    paddingAngle={2}
+                    onClick={(data) => {
+                      const sourceType = chartItemValue(data, "source_type");
+                      if (sourceType) onSource(sourceType);
+                    }}
+                  >
+                    {sourceData.map((item, index) => (
+                      <Cell
+                        key={item.source_type}
+                        fill={SOURCE_COLORS[index % SOURCE_COLORS.length]}
+                      />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+              <span className="project-dashboard__donut-center">
+                <b>{sourceTotal}</b>
+                <small>项目</small>
+              </span>
+            </div>
+            <ul className="project-dashboard__legend-list is-sources">
+              {sourceData.map((item, index) => (
+                <li key={item.source_type}>
+                  <button type="button" onClick={() => onSource(item.source_type)}>
+                    <i style={{ background: SOURCE_COLORS[index % SOURCE_COLORS.length] }} />
+                    <span>{item.label}</span>
+                    <b>{item.count}</b>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <p className="project-dashboard__chart-summary">
+            {sourceData.map((item) => `${item.label} ${item.count}`).join("；")}
+          </p>
+        </section>
+      ) : null}
     </div>
   );
 }

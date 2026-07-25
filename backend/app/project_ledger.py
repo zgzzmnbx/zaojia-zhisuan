@@ -1097,6 +1097,16 @@ class ProjectLedger:
             }
             for status in ("processing", "pending_review", "completed", "returned", "failed")
         ]
+        source_rows = [
+            {
+                "source_type": source_type,
+                "label": label,
+                "count": sum(
+                    1 for item in projects if item["source_type"] == source_type
+                ),
+            }
+            for source_type, label in SOURCE_LABELS.items()
+        ]
         risk_ranking = sorted(
             (
                 {
@@ -1140,6 +1150,7 @@ class ProjectLedger:
             "trend": trend_rows,
             "trend_granularity": trend_granularity,
             "status_distribution": status_rows,
+            "source_distribution": source_rows,
             "risk_ranking": risk_ranking,
             "matching_quality": quality,
             "filter_options": {
