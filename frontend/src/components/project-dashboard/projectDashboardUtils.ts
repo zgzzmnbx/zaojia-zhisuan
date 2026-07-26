@@ -8,6 +8,7 @@ export type ProjectFilters = {
   keyword: string;
   risk: string;
   quality: string;
+  lifecycleStage: string;
 };
 
 export type ProjectArtifact = {
@@ -95,6 +96,14 @@ export type DashboardPayload = {
     label: string;
     count: number;
   }>;
+  lifecycle_funnel: Array<{
+    stage: string;
+    label: string;
+    count: number;
+    previous_count: number;
+    conversion_rate: number;
+    drop_off: number;
+  }>;
   risk_ranking: Array<{
     project_id: string;
     project_name: string;
@@ -131,6 +140,7 @@ export type DashboardPayload = {
     skills: Array<[string, string]>;
     sources: Array<{ value: string; label: string }>;
     statuses: Array<{ value: string; label: string }>;
+    lifecycle_stages: Array<{ value: string; label: string }>;
   };
   comparison: {
     enabled: boolean;
@@ -183,6 +193,7 @@ export const EMPTY_FILTERS: ProjectFilters = {
   keyword: "",
   risk: "",
   quality: "",
+  lifecycleStage: "",
 };
 
 function localDate(date: Date) {
@@ -233,6 +244,7 @@ export function activeProjectFilterCount(
   if (filters.keyword) count += 1;
   if (filters.risk) count += 1;
   if (filters.quality) count += 1;
+  if (filters.lifecycleStage) count += 1;
   return count;
 }
 
@@ -264,6 +276,7 @@ export function projectQuery(
     keyword: filters.keyword,
     risk: filters.risk,
     quality: filters.quality,
+    lifecycle_stage: filters.lifecycleStage,
     ...extra,
   };
   Object.entries(values).forEach(([key, value]) => {
@@ -321,6 +334,15 @@ export function filterChips(
       review: "存在待复核",
     };
     chips.push({ key: "quality", label: labels[filters.quality] || filters.quality });
+  }
+  if (filters.lifecycleStage) {
+    const lifecycleLabel = dashboard?.filter_options.lifecycle_stages.find(
+      (item) => item.value === filters.lifecycleStage,
+    )?.label;
+    chips.push({
+      key: "lifecycleStage",
+      label: `阶段 ${lifecycleLabel || filters.lifecycleStage}`,
+    });
   }
   return chips;
 }

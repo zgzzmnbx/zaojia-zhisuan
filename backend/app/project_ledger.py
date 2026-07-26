@@ -27,6 +27,13 @@ STATUS_LABELS = {
     "returned": "已退回",
     "failed": "失败",
 }
+LIFECYCLE_STAGES = (
+    ("entered", "项目进入"),
+    ("matched", "完成匹配"),
+    ("warned", "完成预警"),
+    ("reported", "生成报告"),
+    ("reviewed", "完成复核"),
+)
 
 
 class ProjectLedgerError(RuntimeError):
@@ -109,6 +116,37 @@ def _run_status(summary: dict[str, Any], fallback: str = "processing") -> str:
     if matching_status == "completed" or _int(summary.get("filled_rows")) > 0:
         return "completed"
     return fallback if fallback in PROJECT_STATUSES else "processing"
+
+
+def _has_existing_artifact(item: dict[str, Any], artifact_type: str) -> bool:
+    return any(
+        artifact.get("type") == artifact_type and bool(artifact.get("exists"))
+        for artifact in item.get("artifacts", [])
+    )
+
+
+def _lifecycle_stage_completed(item: dict[str, Any], stage: str) -> bool:
+    if item.get("record_type") != "project":
+        return False
+    matched = (
+        _int(item.get("input_rows")) > 0
+        and _int(item.get("matched_rows")) + _int(item.get("review_rows")) > 0
+        and str(item.get("status")) in {"pending_review", "completed", "returned"}
+    )
+    warned = matched and str(item.get("warning_status")) == "completed"
+    reported = warned and _has_existing_artifact(item, "word")
+    reviewed = (
+        reported
+        and str(item.get("status")) == "completed"
+        and _int(item.get("review_rows")) == 0
+    )
+    return {
+        "entered": True,
+        "matched": matched,
+        "warned": warned,
+        "reported": reported,
+        "reviewed": reviewed,
+    }.get(stage, False)
 
 
 class ProjectLedger:
@@ -980,6 +1018,7 @@ class ProjectLedger:
         keyword: str = "",
         risk: str = "",
         quality: str = "",
+        lifecycle_stage: str = "",
     ) -> list[dict[str, Any]]:
         start = self._date_value(f"{date_from}T00:00:00") if date_from else None
         end = self._date_value(f"{date_to}T23:59:59.999999") if date_to else None
@@ -1012,6 +1051,8 @@ class ProjectLedger:
             if quality == "experience" and int(item["experience_hint_rows"]) <= 0:
                 continue
             if quality == "review" and int(item["review_rows"]) <= 0:
+                continue
+            if lifecycle_stage and not _lifecycle_stage_completed(item, lifecycle_stage):
                 continue
             entries.append(item)
         return entries
@@ -1128,6 +1169,29 @@ class ProjectLedger:
             "review_rows": sum(int(item["review_rows"]) for item in projects),
         }
         quality["total_rows"] = sum(quality.values())
+        lifecycle_funnel: list[dict[str, Any]] = []
+        previous_count = len(projects)
+        for index, (stage, label) in enumerate(LIFECYCLE_STAGES):
+            count = sum(
+                1 for item in projects if _lifecycle_stage_completed(item, stage)
+            )
+            lifecycle_funnel.append(
+                {
+                    "stage": stage,
+                    "label": label,
+                    "count": count,
+                    "previous_count": previous_count if index else count,
+                    "conversion_rate": (
+                        100.0
+                        if index == 0
+                        else round(count / previous_count * 100, 1)
+                        if previous_count
+                        else 0.0
+                    ),
+                    "drop_off": 0 if index == 0 else max(0, previous_count - count),
+                }
+            )
+            previous_count = count
         return {
             "kpis": {
                 "total_projects": len(projects),
@@ -1151,6 +1215,7 @@ class ProjectLedger:
             "trend_granularity": trend_granularity,
             "status_distribution": status_rows,
             "source_distribution": source_rows,
+            "lifecycle_funnel": lifecycle_funnel,
             "risk_ranking": risk_ranking,
             "matching_quality": quality,
             "filter_options": {
@@ -1168,6 +1233,10 @@ class ProjectLedger:
                 "statuses": [
                     {"value": status, "label": label}
                     for status, label in STATUS_LABELS.items()
+                ],
+                "lifecycle_stages": [
+                    {"value": stage, "label": label}
+                    for stage, label in LIFECYCLE_STAGES
                 ],
             },
             "generated_at": now_iso(),

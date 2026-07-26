@@ -12,6 +12,7 @@ import ProjectCharts from "./ProjectCharts";
 import ProjectDashboardToolbar from "./ProjectDashboardToolbar";
 import ProjectDetailDrawer from "./ProjectDetailDrawer";
 import ProjectHistoryTable from "./ProjectHistoryTable";
+import ProjectLifecycleFunnel from "./ProjectLifecycleFunnel";
 import ProjectMetricGrid from "./ProjectMetricGrid";
 import {
   clearFilterChip,
@@ -171,6 +172,13 @@ export default function ProjectDashboard({
     }
   }
 
+  function onLifecycleStage(stage: string) {
+    const lifecycleStage = stage === "entered" || filters.lifecycleStage === stage
+      ? ""
+      : stage;
+    updateFilters({ ...filters, lifecycleStage });
+  }
+
   function onPeriod(period: string) {
     if (/^\d{4}-\d{2}-\d{2}$/.test(period)) {
       updateFilters({ ...filters, dateFrom: period, dateTo: period });
@@ -289,6 +297,11 @@ export default function ProjectDashboard({
       {dashboard ? (
         <>
           <ProjectMetricGrid dashboard={dashboard} onSelect={onMetric} />
+          <ProjectLifecycleFunnel
+            stages={dashboard.lifecycle_funnel}
+            selectedStage={filters.lifecycleStage}
+            onSelect={onLifecycleStage}
+          />
           <ProjectCharts
             dashboard={dashboard}
             onStatus={(status) => updateFilters({ ...filters, status })}

@@ -216,6 +216,64 @@ def test_warning_not_run_is_not_counted_as_zero_risk(tmp_path):
     assert len(dashboard["risk_ranking"]) == 1
 
 
+def test_lifecycle_funnel_is_cumulative_and_filters_history_with_same_contract(tmp_path):
+    ledger = make_ledger(tmp_path)
+    ledger.ensure_project(
+        project_name="仅进入项目",
+        source_type="web",
+        skill_id="survey-measurement-limit-price",
+        skill_version="1.0.0",
+    )
+    record_project(ledger, job_id="matched", project_name="完成匹配项目")
+    record_project(
+        ledger,
+        job_id="warned",
+        project_name="完成预警项目",
+        state=make_state(warning_executed=True),
+    )
+    (ledger.runtime_root / "warned" / "report.docx").unlink()
+    record_project(
+        ledger,
+        job_id="reported",
+        project_name="生成报告项目",
+        state=make_state(review_rows=2, warning_executed=True),
+    )
+    record_project(
+        ledger,
+        job_id="reviewed",
+        project_name="完成复核项目",
+        state=make_state(warning_executed=True),
+    )
+
+    dashboard = ledger.dashboard()
+    funnel = dashboard["lifecycle_funnel"]
+    assert [item["stage"] for item in funnel] == [
+        "entered",
+        "matched",
+        "warned",
+        "reported",
+        "reviewed",
+    ]
+    assert [item["count"] for item in funnel] == [5, 4, 3, 2, 1]
+    assert [item["conversion_rate"] for item in funnel] == [
+        100.0,
+        80.0,
+        75.0,
+        66.7,
+        50.0,
+    ]
+    assert [item["drop_off"] for item in funnel] == [0, 1, 1, 1, 1]
+
+    history = ledger.list_projects(lifecycle_stage="reported")
+    filtered_dashboard = ledger.dashboard(lifecycle_stage="reported")
+    assert history["total"] == 2
+    assert {item["project_name"] for item in history["items"]} == {
+        "生成报告项目",
+        "完成复核项目",
+    }
+    assert filtered_dashboard["kpis"]["total_projects"] == 2
+
+
 def test_dashboard_list_detail_and_run_result_api_contract(tmp_path, monkeypatch):
     ledger = make_ledger(tmp_path)
     relation = record_project(ledger, job_id="api-job")
@@ -232,6 +290,13 @@ def test_dashboard_list_detail_and_run_result_api_contract(tmp_path, monkeypatch
     list_response = client.get("/api/projects?source_type=web&page=1&page_size=20")
     assert dashboard_response.status_code == 200
     assert dashboard_response.json()["kpis"]["total_projects"] == 1
+    assert [item["label"] for item in dashboard_response.json()["lifecycle_funnel"]] == [
+        "项目进入",
+        "完成匹配",
+        "完成预警",
+        "生成报告",
+        "完成复核",
+    ]
     assert dashboard_response.json()["llm_usage"] == {
         "available": True,
         "scope": "local_instance",

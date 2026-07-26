@@ -45,7 +45,8 @@ test("filter button counts only non-default conditions", () => {
     ...defaults,
     compare: true,
     status: "completed",
-  }, today), 2);
+    lifecycleStage: "reported",
+  }, today), 3);
   assert.equal(activeProjectFilterCount({
     ...defaults,
     dateFrom: "2026-07-01",
@@ -59,12 +60,14 @@ test("dashboard and history share one encoded query contract", () => {
     keyword: "西气东输 二线",
     status: "pending_review",
     quality: "review",
+    lifecycleStage: "reported",
     compare: true,
   }, { page: 2, page_size: 20 });
   const params = new URLSearchParams(query);
   assert.equal(params.get("keyword"), "西气东输 二线");
   assert.equal(params.get("status"), "pending_review");
   assert.equal(params.get("quality"), "review");
+  assert.equal(params.get("lifecycle_stage"), "reported");
   assert.equal(params.get("compare"), "true");
   assert.equal(params.get("page"), "2");
   assert.equal(params.has("risk"), false);
@@ -91,6 +94,7 @@ test("filter chips translate labels and clear only the selected dimension", () =
       skills: [],
       sources: [{ value: "web", label: "网页填价" }],
       statuses: [{ value: "completed", label: "已完成" }],
+      lifecycle_stages: [{ value: "reported", label: "生成报告" }],
     },
   } as DashboardPayload;
   const filters = {
@@ -99,11 +103,13 @@ test("filter chips translate labels and clear only the selected dimension", () =
     sourceType: "web",
     dateFrom: "2026-07-01",
     dateTo: "2026-07-24",
+    lifecycleStage: "reported",
   };
   assert.deepEqual(filterChips(filters, dashboard).map((item) => item.label), [
     "时间 2026-07-01 — 2026-07-24",
     "状态 已完成",
     "来源 网页填价",
+    "阶段 生成报告",
   ]);
   assert.deepEqual(clearFilterChip(filters, "date"), {
     ...filters,
@@ -143,6 +149,18 @@ test("dashboard stylesheet keeps the component theme under local scope", async (
   assert.match(css, /\.project-dashboard__analysis\.is-llm-models/);
   assert.match(css, /\.project-dashboard__filter-dialog/);
   assert.match(css, /\.project-dashboard\.is-presentation/);
+  assert.match(css, /\.project-dashboard__lifecycle/);
+});
+
+test("project lifecycle funnel exposes cumulative stages as keyboard buttons", async () => {
+  const component = await readFile(
+    new URL("../src/components/project-dashboard/ProjectLifecycleFunnel.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(component, /项目处理漏斗/);
+  assert.match(component, /aria-pressed/);
+  assert.match(component, /conversion_rate/);
+  assert.match(component, /drop_off/);
 });
 
 test("dashboard model telemetry uses a smooth area wave and a donut chart", async () => {

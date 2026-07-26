@@ -58,12 +58,16 @@ export default function ProjectDashboardToolbar({
   const sourceLabel = dashboard?.filter_options.sources.find(
     (item) => item.value === filters.sourceType,
   )?.label || filters.sourceType || "全部来源";
+  const lifecycleLabel = dashboard?.filter_options.lifecycle_stages.find(
+    (item) => item.value === filters.lifecycleStage,
+  )?.label;
   const filterSummary = [
     DATE_LABELS[appliedDatePreset] || "自定义日期",
     skillLabel,
     statusLabel,
     sourceLabel,
-  ].join(" · ");
+    lifecycleLabel ? `阶段：${lifecycleLabel}` : "",
+  ].filter(Boolean).join(" · ");
 
   const closeDialog = useCallback(() => {
     setIsOpen(false);

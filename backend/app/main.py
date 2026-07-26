@@ -136,7 +136,7 @@ from .professional_skills import (
 from .report import append_risk_report, write_report
 
 
-APP_VERSION = "v5.15.2"
+APP_VERSION = "v5.15.3"
 OUTPUT_FILE_PREFIX = "【输出】"
 TEMP_FILE_PREFIX = "【临时】"
 PROCESS_STATE_FILENAME = "process-state.json"
@@ -246,6 +246,7 @@ def _project_filters(
     keyword: str,
     risk: str,
     quality: str,
+    lifecycle_stage: str,
 ) -> dict[str, str]:
     return {
         "date_from": date_from.strip(),
@@ -256,6 +257,7 @@ def _project_filters(
         "keyword": keyword.strip(),
         "risk": risk.strip(),
         "quality": quality.strip(),
+        "lifecycle_stage": lifecycle_stage.strip(),
     }
 
 
@@ -269,6 +271,7 @@ def get_projects_dashboard(
     keyword: str = Query(default=""),
     risk: str = Query(default=""),
     quality: str = Query(default=""),
+    lifecycle_stage: str = Query(default=""),
     compare: bool = Query(default=False),
 ) -> dict[str, object]:
     try:
@@ -282,6 +285,7 @@ def get_projects_dashboard(
                 keyword=keyword,
                 risk=risk,
                 quality=quality,
+                lifecycle_stage=lifecycle_stage,
             )
         )
         payload["llm_usage"] = _llm_usage_dashboard(
@@ -298,6 +302,7 @@ def get_projects_dashboard(
             keyword=keyword,
             risk=risk,
             quality=quality,
+            lifecycle_stage=lifecycle_stage,
         )
         return payload
     except ProjectLedgerError as exc:
@@ -314,6 +319,7 @@ def list_projects(
     keyword: str = Query(default=""),
     risk: str = Query(default=""),
     quality: str = Query(default=""),
+    lifecycle_stage: str = Query(default=""),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     sort_by: str = Query(default="updated_at"),
@@ -334,6 +340,7 @@ def list_projects(
                 keyword=keyword,
                 risk=risk,
                 quality=quality,
+                lifecycle_stage=lifecycle_stage,
             ),
         )
     except ProjectLedgerError as exc:
@@ -2931,6 +2938,7 @@ def _project_dashboard_comparison(
     keyword: str,
     risk: str,
     quality: str,
+    lifecycle_stage: str,
 ) -> dict[str, object]:
     if not compare:
         return {"enabled": False, "available": False}
@@ -2959,6 +2967,7 @@ def _project_dashboard_comparison(
         "keyword": keyword,
         "risk": risk,
         "quality": quality,
+        "lifecycle_stage": lifecycle_stage,
     }
     ledger = _project_ledger()
     current = ledger.dashboard(
