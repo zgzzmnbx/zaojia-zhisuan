@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## v5.15.4 - 2026-07-27
+
+- 将当前已验收界面正式沉淀为“大尾巴 Shadcn UI v1.0.0”：以 shadcn/ui preset `b1au7YYAi` 的 Rhea / Neutral / Blue / Lucide 和 Inter 比例语言为设计输入，运行时继续使用项目自托管苹方，不全量执行 shadcn init / create / apply，也不引入 Tailwind 或第二套全局主题。
+- 新增 `frontend/src/design-system/dabawei-shadcn-ui.tokens.json` 与 `dabawei-shadcn-ui.css`，建立 primitive → semantic → component 三层令牌；现有大尾巴主题和 Dashboard 通过 `--dws-*` 变量映射渐进接入，保留成功、警告、危险等业务语义色和组件局部作用域。
+- UI 规范补齐按钮、输入框、卡片、分段切换、表格、弹窗、图表、状态与无障碍规则；新增可独立查看的组件样张和 `tools/check_ui_design_system.py` 自动检查器，并同步 README、产品总览、当前版本计划、Dashboard PRD 与开发提示词。
+- 验证完成：设计令牌 JSON 与自动检查器通过，前端生产构建成功，后端 API 专项 `65 passed, 2 skipped`，PRD 一致性巡检和 `git diff --check` 通过；内置浏览器确认 v5.15.4、苹方字体、`#2563EB` 主色、`#E2E8F0` 边框、148×36 分段切换器均在运行态生效，项目看板、新建填价、结果预览和右侧智算无横向溢出、控制台 0 错误 / 0 警告。
+
 ## v5.15.3 - 2026-07-26
 
 - Dashboard 在五项 KPI 与分析图表之间新增“项目进入 → 完成匹配 → 完成预警 → 生成报告 → 完成复核”横向处理漏斗，以当前筛选项目累计统计每阶段数量、相对上一阶段转化率和流失量，便于汇报对象一眼理解业务闭环。
@@ -14,11 +21,3 @@
 - Dashboard 接口新增与 KPI、图表、历史项目完全同口径的 `source_distribution`；前端增加“项目来源分布”多蓝色环形图，当前真实台账展示网页上传 3、飞书 3、企业 WeAct 12。来源不足 2 种或项目不足 3 个时不绘制误导性图表，图例和环形分区可反向筛选来源。
 - 全部新增样式继续限制在填价工作台 `.project-dashboard` 局部作用域；未引入 Tailwind、第二套全局主题或额外在线资源。同步修正 Dashboard 既有 Mobbin 参考图的真实目录名，并修复大模型真实调用测试中写死历史日期导致的跨日失效。
 - 验证完成：后端全量 `391 passed, 4 skipped`，前端对话工作台 `3 passed`、Dashboard `9 passed`、报告预览 `8 passed`，生产构建通过；1433×1021 内置浏览器确认筛选、来源图联动、汇报模式、跨页智算展开 / 收缩和欢迎页直达行为正常，控制台 0 错误、0 警告、无 Recharts 零尺寸告警。PRD 严格巡检确认模块 17 硬检查通过，全项目仍仅保留模块 08 的 1 项既有外部申报书路径缺失，未擅自修改。
-
-## v5.15.1 - 2026-07-24
-
-- Dashboard 新增本机大模型请求次数浅蓝平滑波形图和请求模型种类多蓝色环形图；两图随看板开始 / 结束日期同步，提供常驻数值、文本摘要、真实空状态和无障碍描述，右侧智算展开时按容器宽度自动收敛为单列。
-- 新增 `llm-usage-ledger.sqlite3` 调用审计台账，只保存请求时间、Provider、模型、调用来源和成功 / 失败状态，不保存提示词、回答、接口地址或密钥；普通问答、知识库有证据问答和风险报告统一记录，纯检索与无证据直接返回不计数，台账异常不阻断模型回答。
-- 既有提示词审计日志支持幂等历史回填，明确排除 `demo-model`、`test-model` 和 `mock-model`；同一提示词记录的后续实时成功 / 失败状态会更新而不重复计数。当前最近 30 天真实审计口径为 198 次、2 种模型、26 个有效日期。
-- 同步收敛 Dashboard 筛选工具条、浅蓝搜索态、白字主按钮、页签间距、标题文案和左侧当前任务环形图蓝色系；全部样式继续限制在填价工作台 / `.project-dashboard` 作用域，不修改其他页面和专业计算链路。
-- 验证完成：后端全量 `391 passed, 4 skipped`，大模型调用台账与项目看板专项 `18 passed`；前端对话工作台 `3 passed`、Dashboard `8 passed`、报告预览 `8 passed`，生产构建、Python 编译、PRD 严格巡检和 `git diff --check` 通过。1433×1021 内置浏览器确认双图对齐、纯白背景、规范字号、无横向溢出，截图保存为 `Codex-Temp/visual-qa/project-dashboard/15-llm-usage-charts-1433.png`。

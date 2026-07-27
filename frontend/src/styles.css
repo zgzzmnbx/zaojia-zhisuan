@@ -1,3 +1,5 @@
+@import "./design-system/dabawei-shadcn-ui.css";
+
 @font-face {
   font-family: "Zaojia PingFang SC";
   src: url("/fonts/pingfang-sc/pingfang-sc-regular.woff2") format("woff2");
@@ -33,11 +35,7 @@
 :root {
   color: #334155;
   background: #f5f5f7;
-  --font-ui:
-    "Zaojia PingFang SC",
-    "PingFang SC",
-    "Microsoft YaHei UI",
-    sans-serif;
+  --font-ui: var(--dws-font-family-ui);
   --font-body:
     var(--font-ui);
   --font-display:
@@ -884,25 +882,25 @@ button {
     var(--font-ui);
   --font-display:
     var(--font-ui);
-  --db-primary: #2563eb;
-  --db-primary-hover: #1d4ed8;
-  --db-primary-soft: #eff6ff;
-  --db-primary-weak: #f5f8fc;
-  --db-secondary: #0f766e;
-  --db-secondary-soft: #e8f7f4;
-  --db-accent: #d97706;
-  --db-bg: #ffffff;
-  --db-app-bg: #ffffff;
-  --db-bg-alt: #f8fafc;
-  --db-surface: #ffffff;
-  --db-surface-tint: #fafbfc;
-  --db-text-strong: #0f172a;
-  --db-text: #334155;
-  --db-text-muted: #64748b;
-  --db-text-weak: #94a3b8;
-  --db-border: #e2e8f0;
-  --db-border-soft: #eef2f7;
-  --db-border-strong: #cbd5e1;
+  --db-primary: var(--dws-color-primary);
+  --db-primary-hover: var(--dws-color-primary-hover);
+  --db-primary-soft: var(--dws-color-primary-soft);
+  --db-primary-weak: var(--dws-color-primary-weak);
+  --db-secondary: var(--dws-color-secondary);
+  --db-secondary-soft: var(--dws-color-secondary-soft);
+  --db-accent: var(--dws-color-accent);
+  --db-bg: var(--dws-color-background);
+  --db-app-bg: var(--dws-color-app-background);
+  --db-bg-alt: var(--dws-color-muted);
+  --db-surface: var(--dws-color-surface);
+  --db-surface-tint: var(--dws-color-surface-subtle);
+  --db-text-strong: var(--dws-color-foreground-strong);
+  --db-text: var(--dws-color-foreground);
+  --db-text-muted: var(--dws-color-foreground-muted);
+  --db-text-weak: var(--dws-color-foreground-weak);
+  --db-border: var(--dws-color-border);
+  --db-border-soft: var(--dws-color-border-soft);
+  --db-border-strong: var(--dws-color-border-strong);
   --ink: var(--db-text-strong);
   --muted: var(--db-text-muted);
   --muted-strong: var(--db-text);
@@ -914,10 +912,10 @@ button {
   --pearl: var(--db-surface-tint);
   --line: var(--db-border);
   --line-soft: var(--db-border-soft);
-  --danger: #b42318;
-  --danger-bg: #fff0ed;
-  --ok: #15803d;
-  --db-chart-green: rgb(117, 188, 146);
+  --danger: var(--dws-color-danger);
+  --danger-bg: var(--dws-color-danger-soft);
+  --ok: var(--dws-color-success);
+  --db-chart-green: var(--dws-chart-positive);
   --db-shadow-static: none;
   --shadow: none;
   min-height: 100vh;
@@ -8087,8 +8085,8 @@ tbody tr:hover .row-ai-cell {
 .shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill > .daweiba-fill-view-tabs {
   align-self: start;
   box-sizing: border-box;
-  width: 148px;
-  min-width: 148px;
+  width: var(--dws-segmented-min-width-2);
+  min-width: var(--dws-segmented-min-width-2);
   height: 32px;
   margin: 0;
   padding: 2px;
@@ -9069,32 +9067,32 @@ tbody tr:hover .row-ai-cell {
 .shell.layout-daweiba .daweiba-fill-view-tabs {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: var(--dws-segmented-gap);
   align-self: flex-start;
   justify-self: flex-start;
   grid-column: 1 / -1;
-  flex: 0 0 36px;
+  flex: 0 0 var(--dws-segmented-height);
   width: fit-content;
-  height: 36px;
-  min-height: 36px;
-  max-height: 36px;
+  height: var(--dws-segmented-height);
+  min-height: var(--dws-segmented-height);
+  max-height: var(--dws-segmented-height);
   margin: 0;
-  padding: 3px;
+  padding: var(--dws-segmented-padding);
   border: 0;
-  border-radius: 10px;
-  background: #f8fafc;
+  border-radius: var(--dws-segmented-radius);
+  background: var(--dws-segmented-bg);
   box-shadow: inset 0 0 0 1px #eef2f7;
   overflow: hidden;
 }
 
 .shell.layout-daweiba .daweiba-fill-view-tabs button {
   flex: 0 0 auto;
-  height: 30px;
-  min-height: 30px;
-  max-height: 30px;
-  padding: 0 12px;
+  height: var(--dws-segmented-item-height);
+  min-height: var(--dws-segmented-item-height);
+  max-height: var(--dws-segmented-item-height);
+  padding: 0 var(--dws-segmented-item-padding-x);
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--dws-segmented-item-radius);
   background: transparent;
   color: #64748b;
   font: inherit;
@@ -11015,24 +11013,24 @@ tbody tr:hover .row-ai-cell {
 
 .shell.layout-daweiba {
   font-family: var(--font-body);
-  --db-bg: #ffffff;
-  --db-app-bg: #ffffff;
-  --db-bg-alt: #f8fafc;
-  --db-surface: #ffffff;
-  --db-surface-tint: #f8fafc;
-  --db-border: #e2e8f0;
-  --db-border-soft: #edf2f7;
-  --db-border-strong: #cbd5e1;
-  --db-primary: #2563eb;
-  --db-primary-hover: #1d4ed8;
-  --db-primary-soft: #eff6ff;
-  --db-text-strong: #0f172a;
-  --db-text: #334155;
-  --db-text-muted: #64748b;
-  --db-nav-active-text: #0f172a;
+  --db-bg: var(--dws-color-background);
+  --db-app-bg: var(--dws-color-app-background);
+  --db-bg-alt: var(--dws-color-muted);
+  --db-surface: var(--dws-color-surface);
+  --db-surface-tint: var(--dws-color-surface-subtle);
+  --db-border: var(--dws-color-border);
+  --db-border-soft: var(--dws-color-border-soft);
+  --db-border-strong: var(--dws-color-border-strong);
+  --db-primary: var(--dws-color-primary);
+  --db-primary-hover: var(--dws-color-primary-hover);
+  --db-primary-soft: var(--dws-color-primary-soft);
+  --db-text-strong: var(--dws-color-foreground-strong);
+  --db-text: var(--dws-color-foreground);
+  --db-text-muted: var(--dws-color-foreground-muted);
+  --db-nav-active-text: var(--dws-color-foreground-strong);
   --db-shadow-static: none;
   --shadow: none;
-  background: #ffffff;
+  background: var(--dws-color-background);
   color: var(--db-text);
 }
 
