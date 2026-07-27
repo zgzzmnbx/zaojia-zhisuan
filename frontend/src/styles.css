@@ -8087,6 +8087,8 @@ tbody tr:hover .row-ai-cell {
 .shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill > .daweiba-fill-view-tabs {
   align-self: start;
   box-sizing: border-box;
+  width: 148px;
+  min-width: 148px;
   height: 32px;
   margin: 0;
   padding: 2px;
@@ -8097,10 +8099,11 @@ tbody tr:hover .row-ai-cell {
 }
 
 .shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill > .daweiba-fill-view-tabs button {
+  flex: 1 1 0;
   height: 26px;
   min-height: 26px;
-  min-width: 0;
-  padding: 0 6px;
+  min-width: 68px;
+  padding: 0 10px;
   border: 1px solid transparent;
   border-radius: 6px;
   background: transparent;
