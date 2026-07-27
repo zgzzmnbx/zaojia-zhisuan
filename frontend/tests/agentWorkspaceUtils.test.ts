@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { agentConversationTurns, agentSelectedSkill, agentTaskPhase, agentTaskPhaseLabel } from "../src/components/agent-workspace/agentWorkspaceUtils.ts";
 
@@ -81,4 +82,12 @@ test("starts a visually separated turn at every user instruction", () => {
     ["u1", "a1", "a2"],
     ["u2", "a3"],
   ]);
+});
+
+test("composer send action uses the project primary blue with accessible states", async () => {
+  const css = await readFile(new URL("../src/components/agent-workspace/agentWorkspace.css", import.meta.url), "utf8");
+  assert.match(css, /\.shell\.layout-daweiba \.agent-workspace \.agent-composer__send\s*\{[^}]*background:\s*#2563eb;[^}]*color:\s*#ffffff;/s);
+  assert.match(css, /\.shell\.layout-daweiba \.agent-workspace \.agent-composer__send:hover:not\(:disabled\)\s*\{[^}]*background:\s*#1d4ed8;/s);
+  assert.match(css, /\.shell\.layout-daweiba \.agent-workspace \.agent-composer__send:disabled\s*\{[^}]*background:\s*#e8eef8;[^}]*color:\s*#94a3b8;/s);
+  assert.match(css, /\.shell\.layout-daweiba \.agent-workspace \.agent-composer__send:focus-visible\s*\{[^}]*outline-color:\s*#2563eb;/s);
 });

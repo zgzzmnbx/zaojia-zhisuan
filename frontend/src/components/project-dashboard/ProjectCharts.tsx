@@ -20,6 +20,7 @@ import { qualityPercentages } from "./projectDashboardUtils";
 
 type Props = {
   dashboard: DashboardPayload;
+  lifecycle: ReactNode;
   onStatus: (status: string) => void;
   onProject: (projectName: string) => void;
   onPeriod: (period: string) => void;
@@ -83,6 +84,7 @@ function chartItemValue(item: unknown, key: string) {
 
 export default function ProjectCharts({
   dashboard,
+  lifecycle,
   onStatus,
   onProject,
   onPeriod,
@@ -111,9 +113,16 @@ export default function ProjectCharts({
     ...item,
     axis_name: compactProjectName(item.project_name),
   }));
+  const riskTotals = dashboard.risk_ranking.reduce(
+    (totals, item) => ({
+      high: totals.high + item.risk_high,
+      low: totals.low + item.risk_low,
+    }),
+    { high: 0, low: 0 },
+  );
 
   return (
-    <div className="project-dashboard__charts">
+    <div className={`project-dashboard__charts ${showSourceChart ? "has-source-chart" : ""}`}>
       <section className="project-dashboard__analysis is-trend" aria-labelledby="dashboard-trend-title">
         <header>
           <div>
@@ -366,7 +375,9 @@ export default function ProjectCharts({
           <AnalysisEmpty>暂无已运行预警的风险项目；未运行预警不会计为零风险。</AnalysisEmpty>
         )}
         <p className="project-dashboard__chart-summary">
-          {dashboard.risk_ranking.map((item) => `${item.project_name}：高 ${item.risk_high}、低 ${item.risk_low}`).join("；") || `预警未运行项目 ${dashboard.kpis.warning_not_run} 个。`}
+          {dashboard.risk_ranking.length
+            ? `高风险 ${riskTotals.high} 条 · 低风险 ${riskTotals.low} 条`
+            : `预警未运行项目 ${dashboard.kpis.warning_not_run} 个。`}
         </p>
       </section>
 
@@ -468,6 +479,7 @@ export default function ProjectCharts({
           </p>
         </section>
       ) : null}
+      {lifecycle}
     </div>
   );
 }

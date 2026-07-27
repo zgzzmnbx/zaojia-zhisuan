@@ -358,12 +358,26 @@
   padding: 0;
   border: 0;
   border-radius: 50%;
-  background: #2f2f2f;
-  color: #fff;
   cursor: pointer;
+  transition: background-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
 }
+
+.shell.layout-daweiba .agent-workspace .agent-composer__send {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.shell.layout-daweiba .agent-workspace .agent-composer__send:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.shell.layout-daweiba .agent-workspace .agent-composer__send:active:not(:disabled) {
+  background: #1e40af;
+}
+
 .agent-composer__stop { background: #fff; color: #2f2f2f; box-shadow: inset 0 0 0 1px var(--agent-line-strong); }
-.agent-composer__send:disabled { background: #e9e9e9; color: #9b9b9b; cursor: not-allowed; }
+.shell.layout-daweiba .agent-workspace .agent-composer__send:disabled { background: #e8eef8; color: #94a3b8; cursor: not-allowed; }
+.shell.layout-daweiba .agent-workspace .agent-composer__send:focus-visible { outline-color: #2563eb; }
 
 .agent-workspace button:focus-visible,
 .agent-workspace summary:focus-visible,

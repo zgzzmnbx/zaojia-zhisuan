@@ -561,8 +561,11 @@
 .project-dashboard__metric.is-blue .project-dashboard__metric-heading svg { color: var(--pd-primary); }
 
 .project-dashboard__lifecycle {
-  margin-top: 12px;
-  padding: 16px 18px 14px;
+  grid-column: 1 / -1;
+  min-width: 0;
+  min-height: 348px;
+  margin-top: 0;
+  padding: 15px;
   border-radius: 13px;
   background: #fff;
   box-shadow: var(--pd-card-shadow);
@@ -616,123 +619,125 @@
   font-weight: 500;
 }
 
-.project-dashboard__lifecycle-scroll {
-  overflow-x: auto;
-  margin-top: 12px;
-  scrollbar-width: thin;
+.project-dashboard__lifecycle-body {
+  width: 100%;
+  margin: 12px auto 0;
 }
 
 .project-dashboard__lifecycle ol {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(140px, 1fr));
-  min-width: 760px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .project-dashboard__lifecycle li {
-  position: relative;
+  --lifecycle-width: calc(100% - (var(--lifecycle-step) * 6%));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: var(--lifecycle-width);
   min-width: 0;
-}
-
-.project-dashboard__lifecycle li > svg {
-  position: absolute;
-  z-index: 2;
-  top: 75px;
-  right: -8px;
-  color: #3b82f6;
-  pointer-events: none;
 }
 
 .project-dashboard__lifecycle button {
   display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
   width: 100%;
-  min-width: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
+  min-height: 43px;
+  padding: 6px 12px;
+  border: 1px solid #dbeafe;
+  border-radius: 9px;
+  background: #eff6ff;
   color: var(--pd-text);
   text-align: left;
   cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease;
 }
 
-.project-dashboard__lifecycle button:hover .project-dashboard__lifecycle-label,
-.project-dashboard__lifecycle button.is-selected .project-dashboard__lifecycle-label {
-  color: var(--pd-primary);
+.project-dashboard__lifecycle li:nth-child(2) button { background: #e6f1ff; }
+.project-dashboard__lifecycle li:nth-child(3) button { background: #dbeafe; }
+.project-dashboard__lifecycle li:nth-child(4) button { background: #cfe4ff; }
+.project-dashboard__lifecycle li:nth-child(5) button { background: #bfdbfe; }
+
+.project-dashboard__lifecycle button:hover {
+  border-color: #93c5fd;
+  background: #dbeafe;
+}
+
+.project-dashboard__lifecycle button.is-selected {
+  border-color: var(--pd-primary);
+  background: var(--pd-primary);
+  color: #fff;
 }
 
 .project-dashboard__lifecycle-index {
-  color: #94a3b8;
+  color: #60a5fa;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 750;
   letter-spacing: 0.08em;
 }
 
+.project-dashboard__lifecycle-copy {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+}
+
 .project-dashboard__lifecycle-label {
-  margin-top: 3px;
   color: var(--pd-strong);
   font-size: var(--pd-font-navigation);
   font-weight: 700;
-  transition: color 160ms ease;
+  white-space: nowrap;
 }
 
-.project-dashboard__lifecycle-shape {
-  --lifecycle-inset: calc(var(--lifecycle-step) * 5px);
+.project-dashboard__lifecycle-meta {
+  overflow: hidden;
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-dashboard__lifecycle-value {
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: baseline;
+  justify-content: flex-end;
   gap: 5px;
-  height: 72px;
-  margin-top: 7px;
-  padding: 0 18px 0 10px;
-  clip-path: polygon(
-    0 var(--lifecycle-inset),
-    calc(100% - 13px) var(--lifecycle-inset),
-    100% 50%,
-    calc(100% - 13px) calc(100% - var(--lifecycle-inset)),
-    0 calc(100% - var(--lifecycle-inset)),
-    8px 50%
-  );
-  background: #eff6ff;
-  color: #1e3a8a;
-  transition: filter 160ms ease;
+  color: #1d4ed8;
+  white-space: nowrap;
 }
 
-.project-dashboard__lifecycle li:nth-child(2) .project-dashboard__lifecycle-shape { background: #dbeafe; }
-.project-dashboard__lifecycle li:nth-child(3) .project-dashboard__lifecycle-shape { background: #bfdbfe; }
-.project-dashboard__lifecycle li:nth-child(4) .project-dashboard__lifecycle-shape { background: #93c5fd; }
-.project-dashboard__lifecycle li:nth-child(5) .project-dashboard__lifecycle-shape {
-  background: #60a5fa;
-  color: #102a56;
-}
-
-.project-dashboard__lifecycle button:hover .project-dashboard__lifecycle-shape {
-  filter: saturate(1.08) brightness(0.98);
-}
-
-.project-dashboard__lifecycle button.is-selected .project-dashboard__lifecycle-shape {
-  background: var(--pd-primary);
-  color: #fff;
-  filter: none;
-}
-
-.project-dashboard__lifecycle-shape b {
-  font-size: 23px;
+.project-dashboard__lifecycle-value b {
+  font-size: 20px;
   line-height: 1;
 }
 
-.project-dashboard__lifecycle-shape small {
+.project-dashboard__lifecycle-value small {
   font-size: var(--pd-font-meta);
   font-weight: 600;
 }
 
-.project-dashboard__lifecycle-meta {
-  margin-top: 6px;
-  color: var(--pd-muted);
-  font-size: 11px;
-  line-height: 1.35;
-  text-align: center;
+.project-dashboard__lifecycle button.is-selected .project-dashboard__lifecycle-index,
+.project-dashboard__lifecycle button.is-selected .project-dashboard__lifecycle-label,
+.project-dashboard__lifecycle button.is-selected .project-dashboard__lifecycle-meta,
+.project-dashboard__lifecycle button.is-selected .project-dashboard__lifecycle-value {
+  color: #fff;
+}
+
+.project-dashboard__lifecycle-connector {
+  display: grid;
+  width: 22px;
+  height: 14px;
+  place-items: center;
+  color: #60a5fa;
 }
 
 .project-dashboard__charts {
@@ -759,8 +764,12 @@
 .project-dashboard__analysis.is-llm-trend,
 .project-dashboard__analysis.is-llm-models { grid-column: span 6; }
 .project-dashboard__analysis.is-sources {
-  grid-column: 1 / -1;
-  min-height: 250px;
+  grid-column: span 6;
+  min-height: 348px;
+}
+
+.project-dashboard__charts.has-source-chart > .project-dashboard__lifecycle {
+  grid-column: span 6;
 }
 
 .project-dashboard__analysis > header {
@@ -853,8 +862,8 @@
 }
 
 .project-dashboard__donut-wrap.is-sources {
-  grid-template-columns: minmax(220px, 360px) minmax(220px, 1fr);
-  gap: 18px;
+  grid-template-columns: minmax(150px, .85fr) minmax(0, 1.15fr);
+  gap: 10px;
 }
 
 .project-dashboard__donut-wrap.is-sources .project-dashboard__chart {
@@ -1550,7 +1559,9 @@
   .project-dashboard__analysis.is-risk,
   .project-dashboard__analysis.is-quality,
   .project-dashboard__analysis.is-llm-trend,
-  .project-dashboard__analysis.is-llm-models { grid-column: 1 / -1; }
+  .project-dashboard__analysis.is-llm-models,
+  .project-dashboard__analysis.is-sources,
+  .project-dashboard__charts.has-source-chart > .project-dashboard__lifecycle { grid-column: 1 / -1; }
   .project-dashboard__donut-wrap.is-sources { grid-template-columns: 1fr; }
   .project-dashboard__legend-list.is-sources { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

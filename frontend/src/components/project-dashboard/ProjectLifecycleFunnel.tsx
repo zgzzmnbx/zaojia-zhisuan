@@ -1,4 +1,4 @@
-import { ArrowRight, CheckCircle2 } from "lucide-react";
+import { CheckCircle2, ChevronDown } from "lucide-react";
 import type { CSSProperties } from "react";
 import type { DashboardPayload } from "./projectDashboardUtils";
 
@@ -36,13 +36,16 @@ export default function ProjectLifecycleFunnel({
         </strong>
       </header>
 
-      <div className="project-dashboard__lifecycle-scroll">
+      <div className="project-dashboard__lifecycle-body">
         <ol aria-label="项目处理漏斗阶段">
           {stages.map((stage, index) => {
             const isSelected = selectedStage === stage.stage;
             const isEntry = index === 0;
             return (
-              <li key={stage.stage}>
+              <li
+                key={stage.stage}
+                style={{ "--lifecycle-step": index } as CSSProperties}
+              >
                 <button
                   type="button"
                   className={isSelected ? "is-selected" : ""}
@@ -57,22 +60,23 @@ export default function ProjectLifecycleFunnel({
                   <span className="project-dashboard__lifecycle-index">
                     {`${index + 1}`.padStart(2, "0")}
                   </span>
-                  <span className="project-dashboard__lifecycle-label">{stage.label}</span>
-                  <span
-                    className="project-dashboard__lifecycle-shape"
-                    style={{ "--lifecycle-step": index } as CSSProperties}
-                  >
+                  <span className="project-dashboard__lifecycle-copy">
+                    <span className="project-dashboard__lifecycle-label">{stage.label}</span>
+                    <span className="project-dashboard__lifecycle-meta">
+                      {isEntry
+                        ? "当前筛选范围"
+                        : `转化 ${stage.conversion_rate}% · 流失 ${stage.drop_off}`}
+                    </span>
+                  </span>
+                  <span className="project-dashboard__lifecycle-value">
                     <b>{stage.count}</b>
                     <small>个项目</small>
                   </span>
-                  <span className="project-dashboard__lifecycle-meta">
-                    {isEntry
-                      ? "当前筛选范围"
-                      : `转化 ${stage.conversion_rate}% · 流失 ${stage.drop_off}`}
-                  </span>
                 </button>
                 {index < stages.length - 1 ? (
-                  <ArrowRight aria-hidden="true" size={16} />
+                  <span className="project-dashboard__lifecycle-connector" aria-hidden="true">
+                    <ChevronDown size={15} />
+                  </span>
                 ) : null}
               </li>
             );

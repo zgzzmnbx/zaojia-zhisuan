@@ -18,11 +18,13 @@ import {
   PanelTop,
   PanelLeftClose,
   PanelLeftOpen,
+  PencilLine,
   RefreshCw,
   Send,
   ShieldCheck,
   Sparkles,
   Upload,
+  X,
 } from "lucide-react";
 import { DaweibaLayoutV2 } from "./DaweibaLayoutV2";
 import ZhisuanAvatar, { type ZhisuanAvatarState } from "./components/ZhisuanAvatar";
@@ -198,7 +200,6 @@ const UI_TEXT_TARGETS = [
   { id: "upload.subtitle.empty", name: "上传区说明：或点击选择 .xlsx 文件", defaultText: "或点击选择 .xlsx 文件" },
   { id: "button.process.ready", name: "按钮：开始转换", defaultText: "开始转换" },
   { id: "button.process.running", name: "按钮：正在转换", defaultText: "正在转换" },
-  { id: "button.pick-file", name: "按钮：选文件", defaultText: "选文件" },
   { id: "mapping.title", name: "列映射标题：列映射设置", defaultText: "列映射设置" },
   { id: "summary.title", name: "概览标题：转换后概览", defaultText: "转换后概览" },
   { id: "preview.title", name: "预览标题：可视化表格窗口", defaultText: "可视化表格窗口" },
@@ -605,6 +606,14 @@ const ZHISUAN_BUILTIN_QUICK_ITEMS: ZhisuanQuickItem[] = [
   { id: "download-excel", label: "输出excel表格", prompt: "输出excel表格", kind: "command", command: "download-excel" },
   { id: "download-word", label: "输出word报告", prompt: "输出word报告", kind: "command", command: "download-word" },
 ];
+
+const FILL_WORKFLOW_STEPS = [
+  "选择文件",
+  "读取预览",
+  "完成匹配",
+  "完成预警",
+  "生成报告",
+] as const;
 const ZHISUAN_QUICK_PROMPT_BLOCKLIST = new Set([
   "哪些行优先复核？",
   "为什么这行待复核？",
@@ -1802,6 +1811,7 @@ function DaweibaApp() {
   const [isExperienceDragging, setIsExperienceDragging] = useState(false);
   const [workloadDraggingRole, setWorkloadDraggingRole] = useState<WorkloadRole | null>(null);
   const [isMappingOpen, setIsMappingOpen] = useState(false);
+  const [isProjectNameEditorOpen, setIsProjectNameEditorOpen] = useState(false);
   const [isInputFieldSettingsOpen, setIsInputFieldSettingsOpen] = useState(false);
   const [isLoadingInputFieldSettings, setIsLoadingInputFieldSettings] = useState(false);
   const [isSavingInputFieldSettings, setIsSavingInputFieldSettings] = useState(false);
@@ -2403,6 +2413,27 @@ function DaweibaApp() {
     && result.summary.output_report
     && !isBatchMatchPending,
   );
+  const fillWorkflowCompletionStates = [
+    Boolean(file),
+    Boolean(result),
+    Boolean(result && !isBatchMatchPending),
+    Boolean(result && !isBatchMatchPending && warningSummary?.executed),
+    Boolean(result && !isBatchMatchPending && warningSummary?.executed && hasCurrentReport),
+  ];
+  const firstIncompleteFillWorkflowStep = fillWorkflowCompletionStates.findIndex((isComplete) => !isComplete);
+  const fillWorkflowCompletedCount = firstIncompleteFillWorkflowStep === -1
+    ? FILL_WORKFLOW_STEPS.length
+    : firstIncompleteFillWorkflowStep;
+  const fillWorkflowCurrentIndex = Math.min(
+    fillWorkflowCompletedCount,
+    FILL_WORKFLOW_STEPS.length - 1,
+  );
+  const fillWorkflowProgress = Math.round(
+    (fillWorkflowCompletedCount / FILL_WORKFLOW_STEPS.length) * 100,
+  );
+  const fillWorkflowStatusText = fillWorkflowCompletedCount === FILL_WORKFLOW_STEPS.length
+    ? "流程已完成"
+    : `下一步：${FILL_WORKFLOW_STEPS[fillWorkflowCurrentIndex]}`;
   const canDownloadOutputs = Boolean(result?.downloads.excel && hasCurrentReport);
   const reportDownloadHref = hasCurrentReport && result ? `${API_BASE}${result.downloads.report}` : "";
   const visibleWarnings = showAllWarnings ? warningDetails : warningDetails.slice(0, 6);
@@ -4332,6 +4363,7 @@ function DaweibaApp() {
       setInputFieldDraft(preferences);
       setInputFieldPreferencesPath(payload.file_path ?? "");
       if (openAfterLoad) {
+        setIsMappingOpen(false);
         setIsInputFieldSettingsOpen(true);
       }
     } catch (err) {
@@ -5518,6 +5550,7 @@ function DaweibaApp() {
     setHeaderRow(1);
     setColumnMapping(EMPTY_MAPPING);
     setIsMappingOpen(false);
+    setIsProjectNameEditorOpen(false);
     setMergeVerticalCells(true);
     setMergeHorizontalCells(true);
     setCurrentProjectId("");
@@ -7110,6 +7143,12 @@ function DaweibaApp() {
         flushParagraph();
         flushBullets();
         nodes.push(renderZhisuanPreviewAction());
+        nodes.push(
+          <p className="zhisuan-message-paragraph zhisuan-next-step-advice" key={`preview-advice-${nodes.length}`}>
+            <strong>下一步建议：</strong>
+            预览确认无误后执行“批量匹配”，系统将正式填写基价和两类调整系数。
+          </p>,
+        );
         continue;
       }
       if (line === ZHISUAN_BATCH_MATCH_ACTION) {
@@ -8214,34 +8253,66 @@ function DaweibaApp() {
               )}
             </label>
 
-            <label className="daweiba-project-name-field">
-              <span>项目名称</span>
-              <input
-                type="text"
-                value={projectName}
-                maxLength={120}
-                placeholder="选择 Excel 后自动带入，可在处理前修改"
-                onChange={(event) => {
-                  setProjectName(event.target.value);
-                  setCurrentProjectId("");
-                }}
-              />
-              <small>{currentProjectId ? "已绑定当前项目；再次处理会形成新的业务版本。" : "用于建立项目历史记录，不按文件名相似度合并历史任务。"}</small>
-            </label>
+            {file && (
+              <div className={`project-name-disclosure ${isProjectNameEditorOpen ? "is-open" : ""}`}>
+                <button
+                  className="project-name-disclosure__trigger"
+                  type="button"
+                  aria-expanded={isProjectNameEditorOpen}
+                  aria-controls="daweiba-project-name-editor"
+                  title={`当前项目名称：${projectName || file.name.replace(/\.xlsx$/i, "")}`}
+                  onClick={() => setIsProjectNameEditorOpen((current) => !current)}
+                >
+                  <PencilLine size={14} />
+                  {isProjectNameEditorOpen ? "收起项目名称" : "修改项目名称"}
+                </button>
+                {isProjectNameEditorOpen && (
+                  <label className="daweiba-project-name-field" id="daweiba-project-name-editor">
+                    <span>
+                      <b>项目台账名称</b>
+                      <em>已由 Excel 文件名自动生成</em>
+                    </span>
+                    <input
+                      type="text"
+                      value={projectName}
+                      maxLength={120}
+                      placeholder="项目名称"
+                      aria-describedby="daweiba-project-name-help"
+                      onChange={(event) => {
+                        setProjectName(event.target.value);
+                        setCurrentProjectId("");
+                      }}
+                    />
+                    <small id="daweiba-project-name-help">
+                      {currentProjectId ? "已绑定当前项目；再次处理会形成新的业务版本。" : "仅用于项目看板和历史台账，不影响填价计算。"}
+                    </small>
+                  </label>
+                )}
+              </div>
+            )}
 
-            <div className="action-row">
+            <div className={`action-row ${file ? "has-mapping-action" : ""}`}>
               <button className="primary-button" data-ui-key="primary-button" data-ui-text-key={isProcessing ? "button.process.running" : "button.process.ready"} style={uiStyle("primary-button")} disabled={isProcessing || isInspecting || !file || !selectedProfessionalSkill} onClick={processFile}>
                 {isProcessing ? <Loader2 className="spin" size={20} /> : <Sparkles size={20} />}
                 {isProcessing ? uiText("button.process.running", "正在转换") : uiText("button.process.ready", "开始转换")}
-              </button>
-              <button className="ghost-button" data-ui-key="secondary-button" data-ui-text-key="button.pick-file" style={uiStyle("secondary-button")} type="button" onClick={() => fileInputRef.current?.click()}>
-                <FileSpreadsheet size={18} />
-                {uiText("button.pick-file", "选文件")}
               </button>
               <button className="ghost-button" data-ui-key="secondary-button" style={uiStyle("secondary-button")} type="button" disabled={isDemoLoading || isProcessing} onClick={loadDemoSample}>
                 {isDemoLoading ? <Loader2 className="spin" size={18} /> : <Sparkles size={18} />}
                 加载演示样例
               </button>
+              {file && (
+                <button
+                  className={`ghost-button mapping-action-button ${isMappingOpen ? "is-active" : ""}`}
+                  type="button"
+                  aria-expanded={isMappingOpen}
+                  aria-controls="daweiba-column-mapping-panel"
+                  aria-label={`列映射设置，已识别 ${sheetConfigs.length} 个候选 sheet`}
+                  onClick={() => setIsMappingOpen((current) => !current)}
+                >
+                  <Columns3 size={18} />
+                  列映射
+                </button>
+              )}
             </div>
             {isDemoMode && (
               <div className="demo-guide-strip" role="status">
@@ -8260,18 +8331,34 @@ function DaweibaApp() {
               </div>
             )}
 
-            {file && (
-              <div className={`mapping-panel ${isMappingOpen ? "is-open" : ""}`} data-ui-key="mapping-panel" style={uiStyle("mapping-panel")}>
+            {file && isMappingOpen && (
+              <>
+                <div
+                  className="mapping-dialog-backdrop"
+                  role="presentation"
+                  aria-hidden="true"
+                  onClick={() => setIsMappingOpen(false)}
+                />
+                <div
+                  id="daweiba-column-mapping-panel"
+                  className="mapping-panel is-open"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="daweiba-column-mapping-title"
+                  data-ui-key="mapping-panel"
+                  style={uiStyle("mapping-panel")}
+                >
                 <button
                   className="mapping-toggle"
                   type="button"
-                  aria-expanded={isMappingOpen}
-                  onClick={() => setIsMappingOpen((current) => !current)}
+                  aria-expanded="true"
+                  aria-label="关闭列映射设置"
+                  onClick={() => setIsMappingOpen(false)}
                 >
                   <span className="mapping-title">
                     <Columns3 size={18} />
                     <span>
-                      <strong data-ui-text-key="mapping.title">{uiText("mapping.title", "列映射设置")}</strong>
+                      <strong id="daweiba-column-mapping-title" data-ui-text-key="mapping.title">{uiText("mapping.title", "列映射设置")}</strong>
                       <small>
                         {isInspecting
                           ? "正在读取第一行表头"
@@ -8281,10 +8368,12 @@ function DaweibaApp() {
                       </small>
                     </span>
                   </span>
-                  <ChevronDown className="mapping-chevron" size={18} />
+                  <span className="mapping-dialog-close" aria-hidden="true">
+                    <X size={16} />
+                    关闭
+                  </span>
                 </button>
-                {isMappingOpen && (
-                  <div className="mapping-body">
+                <div className="mapping-body">
                     <div className="panel-action-row">
                       <button className="experience-settings-button" data-ui-key="settings-button" style={uiStyle("settings-button")} type="button" onClick={openInputFieldSettings}>
                         {(isLoadingInputFieldSettings || isSavingInputFieldSettings) ? <Loader2 className="spin" size={17} /> : <Settings size={17} />}
@@ -8415,8 +8504,8 @@ function DaweibaApp() {
                       })}
                     </div>
                   </div>
-                )}
-              </div>
+                </div>
+              </>
             )}
 
           </section>
@@ -8514,6 +8603,39 @@ function DaweibaApp() {
                   <p>状态</p>
                   <h2>工作状态</h2>
                 </div>
+              </div>
+
+              <div className="daweiba-fill-workflow-progress" aria-label={`填价流程进度，${fillWorkflowStatusText}`}>
+                <div className="daweiba-fill-workflow-progress__heading">
+                  <span>处理进度</span>
+                  <strong>{fillWorkflowStatusText}</strong>
+                </div>
+                <div
+                  className="daweiba-fill-workflow-progress__track"
+                  role="progressbar"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={fillWorkflowProgress}
+                  aria-valuetext={fillWorkflowStatusText}
+                >
+                  <span style={{ width: `${fillWorkflowProgress}%` }} />
+                </div>
+                <ol>
+                  {FILL_WORKFLOW_STEPS.map((step, index) => {
+                    const isComplete = fillWorkflowCompletionStates[index];
+                    const isCurrent = index === fillWorkflowCurrentIndex;
+                    return (
+                      <li
+                        key={step}
+                        className={`${isComplete ? "is-done" : ""} ${isCurrent ? "is-current" : ""}`.trim()}
+                        aria-current={isCurrent ? "step" : undefined}
+                      >
+                        <i>{isComplete ? <CheckCircle2 size={13} /> : index + 1}</i>
+                        <span>{step}</span>
+                      </li>
+                    );
+                  })}
+                </ol>
               </div>
 
               {result ? (
@@ -8820,21 +8942,22 @@ function DaweibaApp() {
         </section>
 
         <section className="experience-section" id="experience-section" data-ui-key="experience-section" style={uiStyle("experience-section")}>
-          <div className="section-heading" data-ui-key="section-heading" style={uiStyle("section-heading")}>
+          <div className="section-heading experience-section-heading" data-ui-key="section-heading" style={uiStyle("section-heading")}>
             <span><AlertTriangle size={18} /></span>
             <div>
-              <p>经验池预警</p>
-              <h2 data-ui-text-key="experience.title">{uiText("experience.title", "经验池预警与导入")}</h2>
+              <p>风险复核</p>
+              <h2 data-ui-text-key="experience.title">{uiText("experience.title", "经验池预警")}</h2>
+              <small>用历史同类项目识别偏离风险，不参与正式价格裁决。</small>
             </div>
           </div>
 
           <div className="experience-panel daweiba-warning-module" data-ui-key="warning-panel" style={uiStyle("warning-panel")}>
               <div className="experience-panel-head">
                 <div className="experience-copy">
-                  <AlertTriangle size={24} />
+                  <AlertTriangle size={18} />
                   <div>
-                    <strong>经验池预警模块</strong>
-                    <span>手动运行同类记录比选，生成预警参数、预警细节和风险定位；不参与正式价格裁决。</span>
+                    <strong>预警分析</strong>
+                    <span>比选同类记录，生成风险摘要与行级复核建议。</span>
                   </div>
                 </div>
                 <div className="settings-action-row compact">
@@ -8933,11 +9056,11 @@ function DaweibaApp() {
               )}
 
               {warningSummary?.executed && warningSummary?.pool_enabled && (
-                <div className="warning-panel" data-ui-key="warning-panel" style={uiStyle("warning-panel")}>
+                <div className="warning-panel warning-results-card" data-ui-key="warning-panel" style={uiStyle("warning-panel")}>
                   <div className="warning-panel-head">
                     <span>
                       <AlertTriangle size={18} />
-                      经验池预警
+                      本次分析
                     </span>
                     <strong>可比选 {warningSummary.checked_rows} 行 · 未找到同类 {warningSummary.no_comparable_rows ?? 0} 行 · 高风险 {warningSummary.high_rows} · 低风险 {warningSummary.low_rows ?? warningSummary.medium_rows ?? 0}</strong>
                   </div>
@@ -8972,11 +9095,14 @@ function DaweibaApp() {
                           className={`warning-item severity-${warning.severity}`}
                           key={`${warning.sheet_name}-${warning.excel_row}-${warning.metric}-${index}`}
                         >
-                          <div>
-                            <strong>{warning.severity_label ?? (warning.severity === "high" ? "高风险" : warning.severity === "low" ? "低风险" : "无预警")} · {warning.sheet_name} 第 {warning.excel_row} 行 · {warning.metric}</strong>
+                          <div className="warning-item-main">
+                            <div className="warning-item-heading">
+                              <span className="warning-severity-badge">{warning.severity_label ?? (warning.severity === "high" ? "高风险" : warning.severity === "low" ? "低风险" : "无预警")}</span>
+                              <strong>{warning.sheet_name} 第 {warning.excel_row} 行 · {warning.metric}</strong>
+                            </div>
                             {warning.row_key && <small>{warning.row_key}</small>}
                             {warning.match_mode_detail && <small>匹配模式：{warning.match_mode_detail}</small>}
-                            <span>{warning.message}</span>
+                            <p className="warning-item-message">{warning.message}</p>
                             {warning.suggested_action && <em>{warning.suggested_action}</em>}
                             {warning.source_rows?.length > 0 && (
                               <small>
@@ -8986,11 +9112,11 @@ function DaweibaApp() {
                           </div>
                           <div className="warning-side">
                             <div className="warning-values">
-                              <span>当前 {warning.current_value}</span>
-                              <span>平均 {String((warning as WarningDetail & { experience_average?: number }).experience_average ?? "")}</span>
-                              <span>范围 {warning.experience_range_text ?? warning.experience_values.join(" / ")}</span>
-                              <span>偏离 {String((warning as WarningDetail & { deviation_percent?: number }).deviation_percent ?? "")}%</span>
-                              <span>样本 {warning.sample_count}</span>
+                              <span><small>当前值</small><strong>{warning.current_value}</strong></span>
+                              <span><small>经验均值</small><strong>{String((warning as WarningDetail & { experience_average?: number }).experience_average ?? "")}</strong></span>
+                              <span><small>经验范围</small><strong>{warning.experience_range_text ?? warning.experience_values.join(" / ")}</strong></span>
+                              <span><small>偏离率</small><strong>{String((warning as WarningDetail & { deviation_percent?: number }).deviation_percent ?? "")}%</strong></span>
+                              <span><small>样本</small><strong>{warning.sample_count}</strong></span>
                             </div>
                             <button
                               className="warning-jump-button"
@@ -10382,23 +10508,28 @@ function DaweibaApp() {
 
       {fillAssistDialog && (
         <div className="modal-backdrop fill-assist-backdrop" role="presentation" onClick={() => setFillAssistDialog(null)}>
-          <div className="settings-modal fill-assist-modal" role="dialog" aria-modal="true" aria-label="辅助填价" onClick={(event) => event.stopPropagation()}>
+          <div
+            className="settings-modal fill-assist-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="fill-assist-title"
+            aria-describedby="fill-assist-description"
+            onClick={(event) => event.stopPropagation()}
+          >
             <div className="settings-modal-head">
-              <div>
-                <p>辅助填价</p>
-                <h2>{fillAssistDialog.context.sheet_name} 第 {fillAssistDialog.context.excel_row} 行</h2>
+              <div className="fill-assist-title-wrap">
+                <span className="fill-assist-title-icon" aria-hidden="true">
+                  <Sparkles size={18} />
+                </span>
+                <div>
+                  <p>辅助填价</p>
+                  <h2 id="fill-assist-title">{fillAssistDialog.context.sheet_name}</h2>
+                  <span id="fill-assist-description">第 {fillAssistDialog.context.excel_row} 行 · 选择候选值并写入输出副本</span>
+                </div>
               </div>
-              <button className="icon-button" type="button" onClick={() => setFillAssistDialog(null)}>×</button>
-            </div>
-            <div className="fill-assist-context">
-              <span>待填字段：<strong>{fillAssistDialog.context.target_header || "基价/单价"}</strong></span>
-              <span>当前值：<strong>{String(fillAssistDialog.context.current_value ?? "") || "空"}</strong></span>
-              {Object.entries(fillAssistDialog.context.row).map(([key, value]) => (
-                <span key={key}>{key}：<strong>{String(value ?? "") || "-"}</strong></span>
-              ))}
-              {Object.entries(fillAssistDialog.context.diagnostics).filter(([, value]) => String(value ?? "").trim()).map(([key, value]) => (
-                <span className="is-wide" key={key}>{key}：<strong>{String(value)}</strong></span>
-              ))}
+              <button className="icon-button" type="button" aria-label="关闭辅助填价" onClick={() => setFillAssistDialog(null)}>
+                <X size={18} />
+              </button>
             </div>
             <div className="fill-assist-body">
               {fillAssistDialog.isLoading ? (
@@ -10414,99 +10545,162 @@ function DaweibaApp() {
                       {fillAssistDialog.error}
                     </div>
                   )}
-                  {fillAssistDialog.candidates.length > 0 ? (
-                    <div className="fill-assist-candidates">
-                      {fillAssistDialog.candidates.map((candidate) => (
-                        <label className={`fill-assist-candidate confidence-${candidate.confidence}`} key={candidate.id}>
-                          <input
-                            type="radio"
-                            name="fill-assist-candidate"
-                            checked={fillAssistDialog.selectedCandidateId === candidate.id}
-                            onChange={() => setFillAssistDialog((current) => current ? { ...current, selectedCandidateId: candidate.id } : current)}
-                          />
-                          <span className="fill-assist-value">{candidate.value}</span>
-                          <span className={`fill-assist-source ${fillAssistSourceClass(candidate)}`}>{fillAssistSourceDisplay(candidate)}</span>
-                          <span className="fill-assist-confidence">{candidate.confidence_label}</span>
-                          {typeof candidate.similarity === "number" && <small>相似度 {candidate.similarity}%</small>}
-                          {typeof candidate.sample_count === "number" && <small>样本 {candidate.sample_count} 条</small>}
-                          <em>{candidate.reason}</em>
-                          <small>{candidate.basis}</small>
-                          {candidate.risk_tips?.map((tip) => <small className="fill-assist-risk" key={tip}>{tip}</small>)}
-                        </label>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="warning-empty">
-                      <AlertTriangle size={18} />
-                      未找到结构化候选，请人工处理当前单元格。
-                    </div>
-                  )}
-                  <section className="fill-assist-trace" aria-label="当前价格依据追溯">
-                    <div className="fill-assist-section-title">
-                      <span>
-                        <FileText size={16} />
-                        当前价格依据追溯
-                      </span>
-                      <small>轻量追溯</small>
-                    </div>
-                    {fillAssistDialog.trace.length > 0 ? (
-                      <div className="fill-assist-trace-list">
-                        {fillAssistDialog.trace.map((trace, index) => (
-                          <article className="fill-assist-trace-card" key={`${trace.kind}-${trace.title}-${index}`}>
-                            <div className="fill-assist-trace-head">
-                              <span className={`fill-assist-trace-kind ${standardTraceKindClass(trace)}`}>{trace.kind}</span>
-                              <strong>{trace.title}</strong>
-                            </div>
-                            <p>{trace.text || "当前追溯项暂无更详细说明。"}</p>
-                            <small>来源：{trace.source || "暂无来源说明"}</small>
-                            {trace.source_rows && trace.source_rows.length > 0 && (
-                              <div className="fill-assist-trace-rows">
-                                {trace.source_rows.slice(0, 3).map((sourceRow, rowIndex) => (
-                                  <span key={rowIndex}>
-                                    {Object.entries(sourceRow)
-                                      .filter(([, value]) => String(value ?? "").trim())
-                                      .map(([key, value]) => `${key}：${String(value)}`)
-                                      .join("；")}
+                  <div className="fill-assist-workspace">
+                    <section className="fill-assist-candidate-panel" aria-labelledby="fill-assist-candidate-title">
+                      <div className="fill-assist-section-heading">
+                        <div>
+                          <p>推荐候选</p>
+                          <h3 id="fill-assist-candidate-title">选择建议值</h3>
+                        </div>
+                        <span>{fillAssistDialog.candidates.length} 个候选</span>
+                      </div>
+                      {fillAssistDialog.candidates.length > 0 ? (
+                        <div className="fill-assist-candidates">
+                          {fillAssistDialog.candidates.map((candidate) => (
+                            <label className={`fill-assist-candidate confidence-${candidate.confidence}`} key={candidate.id}>
+                              <input
+                                type="radio"
+                                name="fill-assist-candidate"
+                                checked={fillAssistDialog.selectedCandidateId === candidate.id}
+                                onChange={() => setFillAssistDialog((current) => current ? { ...current, selectedCandidateId: candidate.id } : current)}
+                              />
+                              <span className="fill-assist-selection-dot" aria-hidden="true" />
+                              <span className="fill-assist-candidate-content">
+                                <span className="fill-assist-candidate-head">
+                                  <strong className="fill-assist-value">{candidate.value}</strong>
+                                  <span className="fill-assist-tag-row">
+                                    <span className={`fill-assist-source ${fillAssistSourceClass(candidate)}`}>{fillAssistSourceDisplay(candidate)}</span>
+                                    <span className="fill-assist-confidence">{candidate.confidence_label}</span>
                                   </span>
-                                ))}
-                              </div>
-                            )}
-                          </article>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="fill-assist-trace-empty">
-                        暂无当前行追溯线索，请结合匹配说明列和项目规则说明人工复核。
-                      </div>
-                    )}
-                    <div className="fill-assist-trace-footnote">
-                      当前为价格轻量追溯：展示匹配过程、经验池来源和项目规则入口；规则资产未维护完整标准出处时，系统必须明示“暂无标准出处映射”，不编造正式条款。
-                    </div>
-                  </section>
-                  <label className="fill-assist-note">
-                    <span>确认备注</span>
-                    <textarea
-                      value={fillAssistDialog.note}
-                      onChange={(event) => setFillAssistDialog((current) => current ? { ...current, note: event.target.value } : current)}
-                      placeholder="说明人工采用理由，可留空；自定义候选时必填。"
-                    />
-                  </label>
+                                </span>
+                                <span className="fill-assist-candidate-metrics">
+                                  {typeof candidate.similarity === "number" && <small>相似度 {candidate.similarity}%</small>}
+                                  {typeof candidate.sample_count === "number" && <small>样本 {candidate.sample_count} 条</small>}
+                                </span>
+                                <em>{candidate.reason}</em>
+                                <small className="fill-assist-basis">{candidate.basis}</small>
+                                {candidate.risk_tips?.map((tip) => <small className="fill-assist-risk" key={tip}>{tip}</small>)}
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="warning-empty">
+                          <AlertTriangle size={18} />
+                          未找到结构化候选，请人工处理当前单元格。
+                        </div>
+                      )}
+                    </section>
+
+                    <aside className="fill-assist-sidebar">
+                      <section className="fill-assist-context-panel" aria-labelledby="fill-assist-context-title">
+                        <div className="fill-assist-section-heading is-compact">
+                          <div>
+                            <p>当前记录</p>
+                            <h3 id="fill-assist-context-title">行信息</h3>
+                          </div>
+                        </div>
+                        <div className="fill-assist-context-highlight">
+                          <span>
+                            <small>待填字段</small>
+                            <strong>{fillAssistDialog.context.target_header || "基价/单价"}</strong>
+                          </span>
+                          <span>
+                            <small>当前值</small>
+                            <strong>{String(fillAssistDialog.context.current_value ?? "") || "空"}</strong>
+                          </span>
+                        </div>
+                        <details className="fill-assist-context-details">
+                          <summary>
+                            <span>查看要素与诊断</span>
+                            <ChevronDown size={16} aria-hidden="true" />
+                          </summary>
+                          <div className="fill-assist-context">
+                            {Object.entries(fillAssistDialog.context.row).map(([key, value]) => (
+                              <span key={key}>{key}<strong>{String(value ?? "") || "-"}</strong></span>
+                            ))}
+                            {Object.entries(fillAssistDialog.context.diagnostics).filter(([, value]) => String(value ?? "").trim()).map(([key, value]) => (
+                              <span className="is-wide" key={key}>{key}<strong>{String(value)}</strong></span>
+                            ))}
+                          </div>
+                        </details>
+                      </section>
+
+                      <section className="fill-assist-trace" aria-label="当前价格依据追溯">
+                        <div className="fill-assist-section-title">
+                          <span>
+                            <FileText size={16} />
+                            当前价格依据追溯
+                          </span>
+                          <small>轻量追溯</small>
+                        </div>
+                        {fillAssistDialog.trace.length > 0 ? (
+                          <div className="fill-assist-trace-list">
+                            {fillAssistDialog.trace.map((trace, index) => (
+                              <article className="fill-assist-trace-card" key={`${trace.kind}-${trace.title}-${index}`}>
+                                <div className="fill-assist-trace-head">
+                                  <span className={`fill-assist-trace-kind ${standardTraceKindClass(trace)}`}>{trace.kind}</span>
+                                  <strong>{trace.title}</strong>
+                                </div>
+                                <p>{trace.text || "当前追溯项暂无更详细说明。"}</p>
+                                <small>来源：{trace.source || "暂无来源说明"}</small>
+                                {trace.source_rows && trace.source_rows.length > 0 && (
+                                  <div className="fill-assist-trace-rows">
+                                    {trace.source_rows.slice(0, 3).map((sourceRow, rowIndex) => (
+                                      <span key={rowIndex}>
+                                        {Object.entries(sourceRow)
+                                          .filter(([, value]) => String(value ?? "").trim())
+                                          .map(([key, value]) => `${key}：${String(value)}`)
+                                          .join("；")}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </article>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="fill-assist-trace-empty">
+                            暂无当前行追溯线索，请结合匹配说明列和项目规则说明人工复核。
+                          </div>
+                        )}
+                        <div className="fill-assist-trace-footnote">
+                          当前为价格轻量追溯；没有完整标准出处时，系统不会编造正式条款。
+                        </div>
+                      </section>
+
+                      <label className="fill-assist-note">
+                        <span>确认备注 <small>可选</small></span>
+                        <textarea
+                          value={fillAssistDialog.note}
+                          onChange={(event) => setFillAssistDialog((current) => current ? { ...current, note: event.target.value } : current)}
+                          placeholder="补充人工采用理由"
+                        />
+                      </label>
+                    </aside>
+                  </div>
                 </>
               )}
             </div>
             <div className="settings-modal-actions">
-              <button className="ghost-button" type="button" onClick={() => setFillAssistDialog(null)}>取消</button>
-              <button className="primary-button" type="button" disabled={fillAssistDialog.isLoading || fillAssistDialog.isConfirming || fillAssistDialog.candidates.length === 0} onClick={confirmFillAssist}>
-                {fillAssistDialog.isConfirming ? <Loader2 className="spin" size={18} /> : <CheckCircle2 size={18} />}
-                确认写入输出副本
-              </button>
+              <p className="fill-assist-footer-note">
+                <ShieldCheck size={16} />
+                仅写入输出副本，不修改原始 Excel
+              </p>
+              <div>
+                <button className="ghost-button" type="button" onClick={() => setFillAssistDialog(null)}>取消</button>
+                <button className="primary-button" type="button" disabled={fillAssistDialog.isLoading || fillAssistDialog.isConfirming || fillAssistDialog.candidates.length === 0} onClick={confirmFillAssist}>
+                  {fillAssistDialog.isConfirming ? <Loader2 className="spin" size={18} /> : <CheckCircle2 size={18} />}
+                  采用并写入
+                </button>
+              </div>
             </div>
           </div>
         </div>
       )}
 
       {isInputFieldSettingsOpen && (
-        <div className="modal-backdrop" role="presentation" onClick={() => setIsInputFieldSettingsOpen(false)}>
+        <div className="modal-backdrop input-field-settings-backdrop" role="presentation" onClick={() => setIsInputFieldSettingsOpen(false)}>
           <div className="settings-modal experience-field-settings-modal" role="dialog" aria-modal="true" aria-label="输入字段设置" onClick={(event) => event.stopPropagation()}>
             <div className="modal-title">
               <strong>输入字段设置</strong>

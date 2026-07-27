@@ -161,6 +161,82 @@ test("project lifecycle funnel exposes cumulative stages as keyboard buttons", a
   assert.match(component, /aria-pressed/);
   assert.match(component, /conversion_rate/);
   assert.match(component, /drop_off/);
+  assert.match(component, /project-dashboard__lifecycle-connector/);
+  assert.doesNotMatch(component, /ArrowRight/);
+});
+
+test("project lifecycle funnel is vertical and rendered after analysis charts", async () => {
+  const css = await readFile(
+    new URL("../src/components/project-dashboard/projectDashboard.css", import.meta.url),
+    "utf8",
+  );
+  const dashboard = await readFile(
+    new URL("../src/components/project-dashboard/ProjectDashboard.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(css, /\.project-dashboard__lifecycle ol\s*\{[^}]*flex-direction:\s*column/s);
+  assert.match(css, /--lifecycle-width:\s*calc\(100% - \(var\(--lifecycle-step\) \* 6%\)\)/);
+  assert.ok(
+    dashboard.indexOf("<ProjectCharts") < dashboard.indexOf("<ProjectLifecycleFunnel"),
+    "lifecycle funnel should appear after the dashboard analysis charts",
+  );
+  assert.match(dashboard, /lifecycle=\{\(/);
+  assert.match(css, /\.project-dashboard__charts\.has-source-chart > \.project-dashboard__lifecycle/);
+});
+
+test("fill workbench status panel exposes a real state-driven progress indicator", async () => {
+  const app = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const css = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+  assert.match(app, /const FILL_WORKFLOW_STEPS/);
+  assert.match(app, /warningSummary\?\.executed/);
+  assert.match(app, /role="progressbar"/);
+  assert.match(app, /aria-current=\{isCurrent \? "step"/);
+  assert.match(css, /\.daweiba-fill-workflow-progress__track/);
+  assert.match(css, /\.daweiba-fill-insight-panel\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s);
+  assert.match(css, /\.daweiba-fill-workflow-progress\s*\{[^}]*grid-column:\s*1\s*\/\s*-1;[^}]*grid-row:\s*3/s);
+  assert.match(css, /\.daweiba-fill-workflow-progress ol\s*\{[^}]*grid-template-columns:\s*repeat\(5,\s*minmax\(0,\s*1fr\)\)/s);
+  assert.match(css, /\.daweiba-fill-workflow-progress__track\s*\{[^}]*height:\s*2px;[^}]*background:\s*#eef2f7;/s);
+  assert.match(css, /\.daweiba-fill-workflow-progress__track > span\s*\{[^}]*background:\s*#bfd4f8;/s);
+  assert.match(css, /\.daweiba-fill-overview-row,[^}]*\.daweiba-fill-status-card\s*\{[^}]*grid-column:\s*1\s*\/\s*-1;[^}]*grid-row:\s*2/s);
+  assert.match(css, /\.daweiba-fill-insight-panel\s*\{[^}]*grid-template-rows:\s*auto\s+auto\s+auto\s+minmax\(0,\s*1fr\)\s*!important;[^}]*align-content:\s*stretch/s);
+  assert.match(css, /\.daweiba-fill-system-grid,[^}]*\.daweiba-fill-mini-grid\s*\{[^}]*height:\s*100%/s);
+  assert.match(app, /style=\{\{\s*width:\s*`\$\{fillWorkflowProgress\}%`\s*\}\}/);
+});
+
+test("fill workbench opens column mapping from a zero-footprint action button", async () => {
+  const app = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const css = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+  assert.match(app, /className=\{`ghost-button mapping-action-button/);
+  assert.match(app, /file && isMappingOpen/);
+  assert.match(app, /role="dialog"/);
+  assert.match(app, /aria-modal="true"/);
+  assert.match(app, /className="mapping-dialog-backdrop"/);
+  assert.match(app, /aria-label="关闭列映射设置"/);
+  assert.match(app, /setIsMappingOpen\(false\);\s*setIsInputFieldSettingsOpen\(true\)/);
+  assert.match(app, /modal-backdrop input-field-settings-backdrop/);
+  assert.match(css, /#daweiba-input > \.mapping-panel\s*\{[^}]*position:\s*fixed/s);
+  assert.match(css, /\.input-field-settings-backdrop\s*\{[^}]*z-index:\s*220/s);
+  assert.match(css, /\.action-row\.has-mapping-action\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/s);
+  assert.doesNotMatch(app, /data-ui-text-key="button\.pick-file"/);
+  assert.doesNotMatch(app, />\s*\{uiText\("button\.pick-file",\s*"选文件"\)\}\s*</s);
+});
+
+test("fill workbench reserves more height for the complete status panel", async () => {
+  const css = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+  assert.match(css, /grid-template-rows:\s*minmax\(0,\s*0\.48fr\)\s*minmax\(0,\s*0\.52fr\)/);
+  assert.match(css, /\.is-daweiba-module-fill \.drop-zone\s*\{[^}]*min-height:\s*clamp\(144px,\s*17vh,\s*174px\)/s);
+  assert.match(css, /\.is-daweiba-module-fill \.drop-zone\.has-file\s*\{[^}]*min-height:\s*144px/s);
+  assert.match(css, /\.daweiba-fill-insight-panel\s*\{[^}]*gap:\s*10px\s*!important/s);
+});
+
+test("project ledger name uses progressive disclosure after file selection", async () => {
+  const app = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const css = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+  assert.match(app, /const \[isProjectNameEditorOpen,\s*setIsProjectNameEditorOpen\]/);
+  assert.match(app, /file && \(\s*<div className=\{`project-name-disclosure/s);
+  assert.match(app, /isProjectNameEditorOpen && \(\s*<label className="daweiba-project-name-field"/s);
+  assert.match(app, /仅用于项目看板和历史台账，不影响填价计算/);
+  assert.match(css, /\.project-name-disclosure__trigger\s*\{[^}]*min-height:\s*28px/s);
 });
 
 test("dashboard model telemetry uses a smooth area wave and a donut chart", async () => {

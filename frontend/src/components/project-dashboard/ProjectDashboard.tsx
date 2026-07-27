@@ -297,13 +297,15 @@ export default function ProjectDashboard({
       {dashboard ? (
         <>
           <ProjectMetricGrid dashboard={dashboard} onSelect={onMetric} />
-          <ProjectLifecycleFunnel
-            stages={dashboard.lifecycle_funnel}
-            selectedStage={filters.lifecycleStage}
-            onSelect={onLifecycleStage}
-          />
           <ProjectCharts
             dashboard={dashboard}
+            lifecycle={(
+              <ProjectLifecycleFunnel
+                stages={dashboard.lifecycle_funnel}
+                selectedStage={filters.lifecycleStage}
+                onSelect={onLifecycleStage}
+              />
+            )}
             onStatus={(status) => updateFilters({ ...filters, status })}
             onProject={(keyword) => updateFilters({ ...filters, keyword })}
             onPeriod={onPeriod}
