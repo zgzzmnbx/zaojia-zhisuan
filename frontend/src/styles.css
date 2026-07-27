@@ -4773,37 +4773,11 @@ tbody tr:hover .row-ai-cell {
   background: var(--blue-soft);
 }
 
-.demo-guide-strip,
 .governance-report-panel,
 .risk-card-list {
   border: 1px solid var(--db-border);
   border-radius: 8px;
   background: #ffffff;
-}
-
-.demo-guide-strip {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-top: 10px;
-  padding: 8px 10px;
-  color: var(--db-muted);
-  font-size: 12px;
-}
-
-.demo-guide-strip > span {
-  color: var(--db-text);
-  font-weight: 700;
-}
-
-.demo-guide-strip button {
-  border: 1px solid var(--db-border);
-  border-radius: 999px;
-  background: #ffffff;
-  color: var(--db-text);
-  padding: 4px 9px;
-  cursor: pointer;
 }
 
 .governance-report-panel {
@@ -8081,6 +8055,559 @@ tbody tr:hover .row-ai-cell {
   min-height: 84px;
 }
 
+/* New fill workspace — local shadcn Rhea / neutral / blue translation (b1au7YYAi). */
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill {
+  --fill-ref-border: #e4e7ec;
+  --fill-ref-border-soft: #eef0f3;
+  --fill-ref-muted: #fafafa;
+  --fill-ref-muted-strong: #f5f5f5;
+  --fill-ref-foreground: #18181b;
+  --fill-ref-secondary: #52525b;
+  --fill-ref-subtle: #71717a;
+  --fill-ref-primary: #2563eb;
+  --fill-ref-primary-hover: #1d4ed8;
+  --fill-ref-primary-soft: #eff6ff;
+  --fill-ref-radius: 9px;
+  container-name: fill-workspace;
+  container-type: inline-size;
+  gap: 10px;
+  background: #ffffff;
+  color: var(--fill-ref-foreground);
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    "PingFang SC",
+    "Microsoft YaHei UI",
+    sans-serif;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill > .daweiba-fill-view-tabs {
+  align-self: start;
+  box-sizing: border-box;
+  height: 32px;
+  margin: 0;
+  padding: 2px;
+  gap: 1px;
+  border: 1px solid var(--fill-ref-border-soft);
+  border-radius: var(--fill-ref-radius);
+  background: var(--fill-ref-muted-strong);
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill > .daweiba-fill-view-tabs button {
+  height: 26px;
+  min-height: 26px;
+  min-width: 0;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fill-ref-subtle);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill > .daweiba-fill-view-tabs button:hover {
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--fill-ref-foreground);
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill > .daweiba-fill-view-tabs button.is-active {
+  border-color: var(--fill-ref-border);
+  background: #ffffff;
+  color: var(--fill-ref-foreground);
+  font-weight: 650;
+  box-shadow: none;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill > .daweiba-fill-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+  grid-template-rows: minmax(318px, 0.47fr) minmax(0, 0.53fr) !important;
+  gap: 12px;
+  padding: 0 2px 2px;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .input-panel,
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .brief-panel,
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-insight-panel {
+  padding: 14px;
+  border: 1px solid var(--fill-ref-border);
+  border-radius: var(--fill-ref-radius);
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .input-panel,
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .brief-panel {
+  gap: 10px;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .section-heading {
+  gap: 9px;
+  margin: 0;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .section-heading > span {
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  background: var(--fill-ref-primary-soft);
+  color: var(--fill-ref-primary);
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .section-heading p {
+  margin: 0 0 2px;
+  color: var(--fill-ref-subtle);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.15;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .section-heading h2 {
+  color: var(--fill-ref-foreground);
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .drop-zone {
+  min-height: clamp(132px, 16vh, 158px);
+  padding: 16px;
+  border: 1px dashed #d4d4d8;
+  border-radius: 8px;
+  background: var(--fill-ref-muted);
+  color: var(--fill-ref-secondary);
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .drop-zone:hover,
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .drop-zone.is-dragging {
+  border-color: #93c5fd;
+  background: #f8fbff;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .drop-zone.has-file {
+  min-height: clamp(132px, 16vh, 158px);
+  border-style: solid;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .drop-icon,
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .uploaded-file-icon {
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--fill-ref-primary);
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .drop-title {
+  color: var(--fill-ref-foreground);
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .drop-subtitle,
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .uploaded-file-content strong,
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .uploaded-file-meta li,
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .uploaded-file-content > small {
+  color: var(--fill-ref-subtle);
+  font-size: 12px;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .uploaded-file-card {
+  width: min(100%, 410px);
+  min-height: 0;
+  padding: 0;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .uploaded-file-content {
+  gap: 5px;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .uploaded-file-content strong {
+  color: var(--fill-ref-secondary);
+  line-height: 1.45;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .project-name-disclosure {
+  min-height: 22px;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .project-name-disclosure__trigger {
+  min-height: 22px;
+  padding: 0 2px;
+  color: var(--fill-ref-subtle);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .project-name-disclosure__trigger:hover {
+  color: var(--fill-ref-primary);
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill #daweiba-input > .action-row {
+  grid-template-columns: minmax(112px, 1.2fr) minmax(116px, 1fr) minmax(92px, 0.9fr);
+  gap: 8px;
+  padding-top: 0;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill #daweiba-input > .action-row > button,
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .brief-panel .download-button {
+  height: 34px;
+  min-height: 34px !important;
+  padding: 0 14px !important;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 650;
+  box-shadow: none;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill #daweiba-input > .action-row > .primary-button,
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .brief-panel .download-button:first-child {
+  border-color: var(--fill-ref-primary);
+  background: var(--fill-ref-primary);
+  color: #ffffff;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill #daweiba-input > .action-row > .primary-button:hover:not(:disabled),
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .brief-panel .download-button:first-child:hover {
+  border-color: var(--fill-ref-primary-hover);
+  background: var(--fill-ref-primary-hover);
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill #daweiba-input > .action-row > .ghost-button,
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .brief-panel .download-button.secondary {
+  border-color: var(--fill-ref-border);
+  background: #ffffff;
+  color: var(--fill-ref-secondary);
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill #daweiba-input > .action-row > .ghost-button:hover:not(:disabled),
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .brief-panel .download-button.secondary:hover {
+  border-color: #d4d4d8;
+  background: var(--fill-ref-muted);
+  color: var(--fill-ref-foreground);
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .brief-panel {
+  grid-template-rows: auto minmax(82px, auto) auto minmax(0, 1fr) auto;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .summary-hero {
+  min-height: 86px;
+  padding: 12px 14px;
+  gap: 4px 18px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--fill-ref-muted);
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .summary-hero span {
+  color: var(--fill-ref-primary);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .summary-hero strong {
+  color: var(--fill-ref-foreground);
+  font-size: 42px !important;
+  font-weight: 500 !important;
+  letter-spacing: -0.03em !important;
+  line-height: 1 !important;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .summary-hero p {
+  color: var(--fill-ref-secondary);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .meter-track {
+  height: 4px;
+  border-radius: 999px;
+  background: #e4e4e7;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .meter-fill {
+  border-radius: inherit;
+  background: #7ca7ef;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .brief-panel .stats {
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--fill-ref-border-soft);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .brief-panel .metric {
+  min-height: 58px;
+  padding: 9px 10px;
+  border: 0;
+  border-right: 1px solid var(--fill-ref-border-soft);
+  border-radius: 0;
+  background: transparent;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .brief-panel .metric:last-child {
+  border-right: 0;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .brief-panel .metric span {
+  color: var(--fill-ref-subtle);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .brief-panel .metric strong,
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .brief-panel .metric.ok strong,
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .brief-panel .metric.warn strong {
+  margin-top: 5px;
+  color: var(--fill-ref-foreground);
+  font-size: 18px;
+  font-weight: 650;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .brief-panel #daweiba-output.download-row {
+  gap: 8px;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .brief-panel .download-button.is-disabled,
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill #daweiba-input > .action-row > button:disabled {
+  border-color: var(--fill-ref-border-soft);
+  background: var(--fill-ref-muted-strong);
+  color: #a1a1aa;
+  opacity: 1;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .empty-summary {
+  min-height: 0;
+  padding: 18px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--fill-ref-muted);
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .empty-summary p {
+  color: var(--fill-ref-subtle);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-insight-panel {
+  grid-template-rows: auto auto auto minmax(0, 1fr) !important;
+  gap: 10px !important;
+  padding: 14px;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-overview-row {
+  gap: 10px;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-status-large,
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-quality-card,
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-status-card {
+  min-height: 104px !important;
+  padding: 14px 16px !important;
+  border: 1px solid var(--fill-ref-border-soft);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-status-large > span,
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-status-card > span {
+  color: var(--fill-ref-subtle);
+  font-size: 11px;
+  font-weight: 550;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-status-large strong,
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-status-card strong {
+  color: #15803d;
+  font-size: 19px;
+  font-weight: 650;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-status-large small,
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-status-card p,
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-quality-card span {
+  color: var(--fill-ref-subtle);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-quality-card > div:last-child > strong {
+  color: var(--fill-ref-foreground);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .widescreen-ring {
+  width: 76px;
+  height: 76px;
+  min-width: 76px;
+  border-width: 9px;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .widescreen-ring span {
+  color: var(--fill-ref-secondary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-workflow-progress {
+  gap: 8px;
+  padding: 10px 12px 11px;
+  border: 1px solid var(--fill-ref-border-soft);
+  border-radius: 8px;
+  background: var(--fill-ref-muted);
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-workflow-progress__heading span,
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-workflow-progress__heading strong {
+  color: var(--fill-ref-subtle);
+  font-size: 11px;
+  font-weight: 550;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-workflow-progress__heading strong {
+  color: var(--fill-ref-secondary);
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-workflow-progress__track {
+  height: 2px;
+  background: #e4e4e7;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-workflow-progress__track > span {
+  background: #a8c7fa;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-workflow-progress li {
+  gap: 4px;
+  color: #a1a1aa;
+  font-size: 10px;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-workflow-progress li i {
+  width: 19px;
+  height: 19px;
+  border-color: #d4d4d8;
+  background: #ffffff;
+  color: #a1a1aa;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-workflow-progress li.is-done {
+  color: var(--fill-ref-subtle);
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-workflow-progress li.is-done i {
+  border-color: #bfdbfe;
+  background: var(--fill-ref-primary-soft);
+  color: var(--fill-ref-primary);
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-workflow-progress li.is-current {
+  color: var(--fill-ref-primary);
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-workflow-progress li.is-current i {
+  border-color: #93c5fd;
+  box-shadow: 0 0 0 2px #eff6ff;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-system-grid,
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-mini-grid {
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--fill-ref-border-soft);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-system-card,
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-mini-grid > div {
+  min-height: 68px;
+  padding: 10px 12px;
+  border: 0;
+  border-right: 1px solid var(--fill-ref-border-soft);
+  border-radius: 0;
+  background: transparent;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-system-card:last-child,
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-mini-grid > div:last-child {
+  border-right: 0;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-system-card span,
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-mini-grid span {
+  color: var(--fill-ref-subtle);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-system-card strong,
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-mini-grid strong {
+  color: var(--fill-ref-foreground);
+  font-size: 17px;
+  font-weight: 650;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-system-card small {
+  color: var(--fill-ref-subtle);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+@media (max-width: 1080px) {
+  .shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill > .daweiba-fill-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-rows: auto auto auto !important;
+    overflow: auto;
+  }
+
+  .shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .input-panel,
+  .shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .brief-panel,
+  .shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-insight-panel {
+    grid-column: 1 !important;
+    grid-row: auto !important;
+    height: auto;
+    min-height: 300px;
+  }
+
+  .shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-insight-panel {
+    min-height: 390px;
+    overflow: visible;
+  }
+}
+
+@container fill-workspace (max-width: 720px) {
+  .daweiba-fill-grid:not([hidden]) {
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-rows: auto auto auto !important;
+    overflow: auto;
+  }
+
+  .daweiba-fill-grid:not([hidden]) > .input-panel,
+  .daweiba-fill-grid:not([hidden]) > .brief-panel,
+  .daweiba-fill-grid:not([hidden]) > .daweiba-fill-insight-panel {
+    grid-column: 1 !important;
+    grid-row: auto !important;
+    height: auto;
+    min-height: 300px;
+  }
+
+  .daweiba-fill-grid:not([hidden]) > .daweiba-fill-insight-panel {
+    min-height: 390px;
+    overflow: visible;
+  }
+}
+
 /* 经验池预警：局部转译 shadcn Rhea / Neutral / Blue 视觉，不影响其他模块。 */
 .shell.layout-daweiba #experience-section {
   --experience-border: #e2e8f0;
@@ -9719,6 +10246,134 @@ tbody tr:hover .row-ai-cell {
 
 .shell.layout-daweiba .daweiba-fill-system-card {
   min-height: 84px;
+}
+
+/* Fill workspace density polish: keep the shadcn card rhythm without crowding the desktop canvas. */
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill > .daweiba-fill-grid {
+  gap: 14px;
+  padding: 0 4px 4px;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .input-panel,
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .brief-panel,
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-insight-panel {
+  padding: 16px;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .input-panel,
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .brief-panel {
+  gap: 12px;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .drop-zone,
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .drop-zone.has-file {
+  min-height: clamp(150px, 18vh, 182px);
+  padding: 20px;
+  border-color: #e2e8f0;
+  background: #f8fafc;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .uploaded-file-card {
+  align-items: center;
+  gap: 16px;
+  min-height: 108px;
+  padding: 18px 20px;
+  border-color: #e7ecf2;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .uploaded-file-icon {
+  align-self: center;
+  margin-top: 0;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .uploaded-file-content {
+  gap: 6px;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .uploaded-file-content strong {
+  line-height: 1.55;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .uploaded-file-meta {
+  gap: 3px;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .uploaded-file-meta li {
+  line-height: 1.5;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .uploaded-file-content > small {
+  margin-top: 2px;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .action-row {
+  gap: 10px;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-insight-panel {
+  gap: 12px !important;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-system-grid {
+  gap: 12px;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-system-card {
+  gap: 7px;
+  min-height: 96px;
+  padding: 13px 14px;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-system-card__heading {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-system-card__icon {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: #eff6ff;
+  color: #5684c7;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-system-card__heading > span:last-child {
+  overflow: hidden;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .section-heading {
+  margin-bottom: 10px !important;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .section-heading p {
+  margin-bottom: 4px;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .section-heading h2 {
+  line-height: 1.3;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-quality-card .widescreen-ring {
+  background:
+    radial-gradient(circle at center, #ffffff 0 52%, transparent 53%),
+    conic-gradient(
+      #2563eb 0 var(--wide-ok),
+      #93c5fd var(--wide-ok) var(--wide-low),
+      #dbeafe var(--wide-low) 100%
+    );
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.12);
 }
 
 /* v5.3.5 fill workspace refinement */

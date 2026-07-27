@@ -7615,6 +7615,7 @@ function DaweibaApp() {
   const workbenchStatusCards = [
     {
       label: "预警概览",
+      icon: <AlertTriangle size={15} />,
       value: warningSummary?.executed ? `${warningSummary.warning_rows} 条` : "未运行",
       detail: warningSummary?.executed
         ? `高风险 ${warningSummary.high_rows} · 低风险 ${warningSummary.low_rows ?? warningSummary.medium_rows ?? 0}`
@@ -7622,11 +7623,13 @@ function DaweibaApp() {
     },
     {
       label: "风险报告",
+      icon: <FileText size={15} />,
       value: riskReport ? "已生成" : warningSummary?.executed ? "可生成" : "待预警",
       detail: riskReport ? "已整合进 Word 报告" : "预警分析完成后生成",
     },
     {
       label: "经验池",
+      icon: <Database size={15} />,
       value: experienceImportSummary
         ? `${experienceImportSummary.imported_rows} 条经验`
         : result
@@ -7638,6 +7641,7 @@ function DaweibaApp() {
     },
     {
       label: "知识库",
+      icon: <BookOpen size={15} />,
       value: `${KNOWLEDGE_QA_ENTRY_COUNT} 条知识`,
       detail: `${KNOWLEDGE_QA_SOURCE_COUNT} 个来源 · 结构化计价库 ${PRICE_KNOWLEDGE_ROW_COUNT} 条`,
     },
@@ -8314,16 +8318,6 @@ function DaweibaApp() {
                 </button>
               )}
             </div>
-            {isDemoMode && (
-              <div className="demo-guide-strip" role="status">
-                <span>演示模式</span>
-                <button type="button" onClick={() => setActiveDaweibaModule("preview")}>① 看结果</button>
-                <button type="button" onClick={() => setActiveDaweibaModule("experience")}>② 跑预警</button>
-                <button type="button" onClick={loadRiskSummary}>③ 风险清单</button>
-                <button type="button" onClick={() => setActiveDaweibaModule("report")}>④ 输出报告</button>
-              </div>
-            )}
-
             {error && (
               <div className="notice error">
                 <AlertTriangle size={18} />
@@ -8668,7 +8662,10 @@ function DaweibaApp() {
                   <div className="daweiba-fill-system-grid" aria-label="工作台扩展状态">
                     {workbenchStatusCards.map((card) => (
                       <div className="daweiba-fill-system-card" key={card.label}>
-                        <span>{card.label}</span>
+                        <div className="daweiba-fill-system-card__heading">
+                          <span className="daweiba-fill-system-card__icon" aria-hidden="true">{card.icon}</span>
+                          <span>{card.label}</span>
+                        </div>
                         <strong>{card.value}</strong>
                         <small>{card.detail}</small>
                       </div>
