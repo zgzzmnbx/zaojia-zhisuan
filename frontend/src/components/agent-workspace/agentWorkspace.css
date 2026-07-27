@@ -19,7 +19,7 @@
   overflow: hidden;
   background: #fff;
   color: var(--agent-body);
-  font-family: "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-family: var(--font-ui);
   font-size: 14px;
 }
 

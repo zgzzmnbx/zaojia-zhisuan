@@ -15,6 +15,7 @@
 - 当前版本：v5.15.3
 - 当前页面布局：`大尾巴主题 / daweiba` 唯一主界面
 - 前端：React + TypeScript + Vite
+- 界面字体：项目内置简体苹方 WOFF2（准体 / 中黑 / 中粗），跨 Windows、macOS、Linux / UOS 与 Tauri 统一加载
 - 后端：Python + FastAPI
 - 当前对外交付入口：传统开发版、Windows 绿色版、Windows Tauri 桌面版
 - 桌面壳：Tauri 2，作为开发调试入口和 Windows 桌面 exe 交付入口

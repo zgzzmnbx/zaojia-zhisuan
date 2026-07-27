@@ -13,7 +13,7 @@
   overflow: hidden;
   background: #ffffff;
   color: var(--v2-text);
-  font-family: Inter, -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei UI", sans-serif;
+  font-family: var(--font-ui);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
