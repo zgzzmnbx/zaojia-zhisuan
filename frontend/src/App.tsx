@@ -9683,7 +9683,8 @@ function DaweibaApp() {
             ) : (
               <div className="daweiba-module-empty">
                 <FileText size={34} />
-                <p>完成批量匹配后，这里会读取当前任务实际生成的 DOCX，并保留 Excel / Word 下载与失败兜底。</p>
+                <strong>Word 报告尚未生成</strong>
+                <p>完成批量匹配后，系统会在这里加载真实 DOCX，并提供预览与下载。</p>
                 <button className="primary-button" type="button" onClick={() => setActiveDaweibaModule("fill")}>
                   返回填价工作台
                 </button>

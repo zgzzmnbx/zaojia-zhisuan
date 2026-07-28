@@ -91,10 +91,9 @@ export default function ProjectCharts({
   onQuality,
   onSource,
 }: Props) {
-  const trendTotal = dashboard.trend.reduce(
-    (sum, item) => sum + item.new_projects + item.completed_projects,
-    0,
-  );
+  const trendNewTotal = dashboard.trend.reduce((sum, item) => sum + item.new_projects, 0);
+  const trendCompletedTotal = dashboard.trend.reduce((sum, item) => sum + item.completed_projects, 0);
+  const trendTotal = trendNewTotal + trendCompletedTotal;
   const statusTotal = dashboard.status_distribution.reduce((sum, item) => sum + item.count, 0);
   const llmUsage = dashboard.llm_usage ?? EMPTY_LLM_USAGE;
   const sourceData = (dashboard.source_distribution ?? []).filter(
@@ -159,7 +158,9 @@ export default function ProjectCharts({
           <AnalysisEmpty>有效周期不足 2 个，暂不绘制趋势。当前真实任务共 {dashboard.kpis.total_runs} 次。</AnalysisEmpty>
         )}
         <p className="project-dashboard__chart-summary">
-          {dashboard.trend.map((item) => `${item.period} 新增 ${item.new_projects}、完成 ${item.completed_projects}`).join("；") || "当前筛选范围内暂无项目。"}
+          {dashboard.trend.length
+            ? `本期新增 ${trendNewTotal} 个，完成 ${trendCompletedTotal} 个。`
+            : "当前筛选范围内暂无项目。"}
         </p>
       </section>
 

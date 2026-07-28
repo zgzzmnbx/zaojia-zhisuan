@@ -9468,6 +9468,45 @@ tbody tr:hover .row-ai-cell {
   box-shadow: none;
 }
 
+.shell.layout-daweiba .daweiba-report-module .daweiba-module-empty {
+  align-content: center;
+  align-items: center;
+  height: 100%;
+  margin-top: 0;
+  padding: 32px;
+  border: 0;
+  border-radius: 0;
+  background: #ffffff;
+}
+
+.shell.layout-daweiba .daweiba-report-module .daweiba-module-empty > svg {
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba .daweiba-report-module .daweiba-module-empty > strong {
+  color: var(--db-text-strong);
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.shell.layout-daweiba .daweiba-report-module .daweiba-module-empty > p {
+  max-width: 520px;
+  margin: 0;
+  line-height: 1.55;
+}
+
+.shell.layout-daweiba .daweiba-report-module .daweiba-module-empty > .primary-button {
+  align-self: center;
+  width: auto;
+  min-width: 132px;
+  min-height: 36px;
+  height: 36px;
+  padding: 0 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  box-shadow: none;
+}
+
 .shell.layout-daweiba .daweiba-report-workspace {
   display: flex;
   flex-direction: column;
@@ -14114,6 +14153,7 @@ tbody tr:hover .row-ai-cell {
 
 .shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .drop-zone.has-file {
   min-height: 144px;
+  background: var(--db-surface, #ffffff);
 }
 
 .shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill #daweiba-input > .daweiba-project-name-field {
