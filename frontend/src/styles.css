@@ -3521,6 +3521,126 @@ h2 {
   }
 }
 
+/* v5.16.0 unified empty states and lightweight page settings */
+.shell.layout-daweiba .daweiba-workspace-frame .preview-empty {
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  padding: 32px;
+  border: 1px dashed #d8e0ea;
+  border-radius: 10px;
+  background: #fbfcfe;
+  color: var(--db-text-muted);
+  text-align: center;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame .preview-empty > span {
+  display: inline-grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border: 1px solid #dbeafe;
+  border-radius: 10px;
+  background: #eff6ff;
+  color: var(--db-primary);
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame .preview-empty > strong {
+  color: var(--db-text-strong);
+  font-size: 17px;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame .preview-empty > p {
+  max-width: 500px;
+  margin: 0;
+  color: var(--db-text-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame .preview-empty > .primary-button {
+  min-height: 36px;
+  margin-top: 4px;
+  padding-inline: 14px;
+}
+
+.shell.layout-daweiba .chat-empty {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  min-height: 200px;
+  text-align: center;
+}
+
+.shell.layout-daweiba .chat-empty-icon {
+  display: inline-grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid #dbeafe;
+  border-radius: 9px;
+  background: #eff6ff;
+  color: var(--db-primary);
+}
+
+.shell.layout-daweiba .chat-empty > strong {
+  color: var(--db-text-strong);
+  font-size: 14px;
+}
+
+.shell.layout-daweiba .chat-empty > span:last-child {
+  max-width: 320px;
+  color: var(--db-text-muted);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.shell.layout-daweiba .ui-tuner-panel {
+  top: 64px;
+  right: 16px;
+  bottom: 16px;
+  z-index: 34;
+  align-content: start;
+  width: min(390px, calc(100vw - 32px));
+  max-height: calc(100vh - 80px);
+  padding: 16px;
+  overflow: auto;
+  border: 1px solid var(--db-border);
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: var(--db-shadow-dialog);
+  backdrop-filter: none;
+}
+
+.shell.layout-daweiba .ui-tuner-head {
+  position: sticky;
+  z-index: 2;
+  top: -16px;
+  margin: -16px -16px 0;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--db-border-soft);
+  background: #ffffff;
+}
+
+.shell.layout-daweiba .ui-tuner-head button {
+  border-radius: 7px;
+  background: #ffffff;
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba .ui-tuner-grid {
+  gap: 8px;
+}
+
+.shell.layout-daweiba .ui-tuner-help {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--db-border-soft);
+  border-radius: 8px;
+  background: #f8fafc;
+  line-height: 1.55;
+}
+
 .knowledge-memory-form-grid {
   align-items: start;
 }
@@ -8061,6 +8181,383 @@ tbody tr:hover .row-ai-cell {
   min-height: 84px;
 }
 
+/* v5.16.0 Daweiba Shadcn settings dialogs */
+.daweiba-settings-backdrop {
+  z-index: 42;
+  padding: 18px;
+  background: rgb(15 23 42 / 36%);
+  backdrop-filter: blur(2px);
+}
+
+.settings-modal.daweiba-llm-settings-modal {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: 0;
+  width: min(760px, 100%);
+  height: min(78vh, 760px);
+  max-height: calc(100vh - 36px);
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--db-border);
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: var(--db-shadow-dialog);
+}
+
+.settings-modal.daweiba-llm-settings-modal > .modal-title {
+  min-height: 68px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--db-border-soft);
+}
+
+.settings-modal.daweiba-llm-settings-modal > .modal-title > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.settings-modal.daweiba-llm-settings-modal > .modal-title strong {
+  color: var(--db-text-strong);
+  font-size: 17px;
+}
+
+.settings-modal.daweiba-llm-settings-modal > .modal-title small {
+  color: var(--db-text-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.settings-modal.daweiba-llm-settings-modal > .modal-title button {
+  display: inline-grid;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--db-text-muted);
+}
+
+.settings-modal.daweiba-llm-settings-modal > .modal-title button:hover {
+  border-color: var(--db-border);
+  background: #f8fafc;
+  color: var(--db-text-strong);
+}
+
+.daweiba-settings-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 10px 18px 0;
+  border-bottom: 1px solid var(--db-border-soft);
+  background: #ffffff;
+}
+
+.daweiba-settings-tabs button {
+  min-height: 36px;
+  padding: 0 13px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--db-text-muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.daweiba-settings-tabs button:hover {
+  color: var(--db-text);
+}
+
+.daweiba-settings-tabs button.is-active {
+  border-bottom-color: var(--db-primary);
+  color: var(--db-primary);
+}
+
+.daweiba-settings-scroll {
+  min-height: 0;
+  overflow: auto;
+  padding: 18px;
+  scrollbar-gutter: stable;
+}
+
+.settings-modal.daweiba-llm-settings-modal .daweiba-settings-pane {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.settings-modal.daweiba-llm-settings-modal .settings-subsection-title {
+  margin-bottom: 2px;
+  color: var(--db-text-strong);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.settings-modal.daweiba-llm-settings-modal .field-preference-item,
+.settings-modal.daweiba-llm-settings-modal .preference-row {
+  border-radius: 8px;
+}
+
+.settings-modal.daweiba-llm-settings-modal .settings-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  background: #f8fbff;
+  color: #5b6b82;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.settings-modal.daweiba-llm-settings-modal .settings-hint > svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--db-primary);
+}
+
+.daweiba-settings-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 58px;
+  padding: 10px 18px;
+  border-top: 1px solid var(--db-border-soft);
+  background: #ffffff;
+}
+
+.daweiba-settings-footer > span {
+  color: var(--db-text-muted);
+  font-size: 11px;
+}
+
+.daweiba-settings-footer .primary-button {
+  min-width: 78px;
+  min-height: 34px;
+}
+
+@media (max-width: 720px) {
+  .settings-modal.daweiba-llm-settings-modal {
+    height: calc(100vh - 20px);
+    max-height: calc(100vh - 20px);
+  }
+
+  .daweiba-settings-footer > span {
+    display: none;
+  }
+
+  .daweiba-settings-footer {
+    justify-content: flex-end;
+  }
+}
+
+/* v5.16.0 workload capture workbench */
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-workload {
+  container-name: workload-workspace;
+  container-type: inline-size;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-workload > .workload-section {
+  gap: 16px;
+  padding: 20px;
+  background: #ffffff;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-workload > .workload-section > .section-heading {
+  margin: 0;
+  padding: 0 2px;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-workload > .workload-section > .experience-panel {
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid var(--db-border);
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.shell.layout-daweiba .workload-workflow {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  padding: 4px;
+  border: 1px solid var(--db-border);
+  border-radius: 9px;
+  background: #f8fafc;
+}
+
+.shell.layout-daweiba .workload-workflow > div {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 42px;
+  padding: 7px 10px;
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba .workload-workflow > div + div::before {
+  position: absolute;
+  top: 9px;
+  bottom: 9px;
+  left: 0;
+  width: 1px;
+  background: var(--db-border-soft);
+  content: "";
+}
+
+.shell.layout-daweiba .workload-workflow > div > span {
+  display: inline-grid;
+  flex: 0 0 auto;
+  width: 25px;
+  height: 25px;
+  place-items: center;
+  border: 1px solid var(--db-border);
+  border-radius: 999px;
+  background: #ffffff;
+  color: inherit;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.shell.layout-daweiba .workload-workflow > div > strong {
+  overflow: hidden;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell.layout-daweiba .workload-workflow > div.is-complete {
+  color: #4f83d1;
+}
+
+.shell.layout-daweiba .workload-workflow > div.is-current {
+  color: var(--db-primary);
+}
+
+.shell.layout-daweiba .workload-workflow > div.is-current > span {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-workload .workload-input-grid {
+  grid-template-columns: minmax(260px, .82fr) minmax(380px, 1.18fr);
+  gap: 14px;
+  align-items: stretch;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-workload .workload-file-card {
+  min-height: 196px;
+  align-content: center;
+  gap: 10px;
+  padding: 22px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 9px;
+  background: #ffffff;
+}
+
+.shell.layout-daweiba .workload-card-kicker {
+  color: var(--db-primary) !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: .02em;
+}
+
+.shell.layout-daweiba .workload-target-summary {
+  display: grid;
+  gap: 5px;
+  padding: 12px 14px;
+  border: 1px solid var(--db-border-soft);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.shell.layout-daweiba .workload-target-summary > span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--db-primary);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.shell.layout-daweiba .workload-target-summary > strong {
+  color: var(--db-text-strong);
+  font-size: 14px;
+}
+
+.shell.layout-daweiba .workload-target-summary > small {
+  color: var(--db-text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-workload .workload-control-stack {
+  gap: 10px;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-workload .workload-field-row {
+  gap: 8px 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--db-border-soft);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-workload .workload-actions {
+  justify-content: flex-end;
+  padding-top: 0;
+}
+
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-workload .workload-actions .primary-button {
+  min-width: 156px;
+}
+
+@media (max-width: 900px) {
+  .shell.layout-daweiba .workload-workflow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-workload .workload-input-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@container workload-workspace (max-width: 760px) {
+  .shell.layout-daweiba .workload-workflow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .shell.layout-daweiba .workload-workflow > div:nth-child(3)::before {
+    display: none;
+  }
+
+  .shell.layout-daweiba .workload-workflow > div:nth-child(n + 3) {
+    border-top: 1px solid var(--db-border-soft);
+  }
+
+  .shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-workload .workload-input-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-workload > .workload-section,
+  .shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-workload > .workload-section > .experience-panel {
+    padding: 14px;
+  }
+}
+
 /* New fill workspace — local shadcn Rhea / neutral / blue translation (b1au7YYAi). */
 .shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill {
   --fill-ref-border: #e4e7ec;
@@ -11327,8 +11824,48 @@ tbody tr:hover .row-ai-cell {
 }
 
 .shell.layout-daweiba .preview-window .window-bar {
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
   padding: 6px 12px;
+}
+
+.shell.layout-daweiba .preview-window-heading {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.shell.layout-daweiba .preview-window-heading > span:first-child {
+  display: inline-grid;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 1px solid #dbeafe;
+  border-radius: 7px;
+  background: #eff6ff;
+  color: var(--db-primary);
+}
+
+.shell.layout-daweiba .preview-window-heading > span:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.shell.layout-daweiba .preview-window-heading strong {
+  color: var(--db-text-strong);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.shell.layout-daweiba .preview-window-heading small {
+  overflow: hidden;
+  color: var(--db-text-muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .shell.layout-daweiba .preview-window .window-actions {
@@ -12161,7 +12698,7 @@ tbody tr:hover .row-ai-cell {
 
 .shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-collaboration > .daweiba-collaboration-module {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
   gap: 14px;
   width: 100%;
   height: 100%;
@@ -12174,6 +12711,69 @@ tbody tr:hover .row-ai-cell {
   background: #ffffff;
   container-name: collaboration-workspace;
   container-type: inline-size;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid var(--db-border);
+  border-radius: 9px;
+  background: #f8fafc;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-tabs button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  min-height: 48px;
+  padding: 7px 10px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--db-text-muted);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-tabs button:hover {
+  background: rgb(255 255 255 / 72%);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba .daweiba-collaboration-tabs button.is-active {
+  border-color: var(--db-border);
+  background: #ffffff;
+  color: var(--db-primary);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 4%);
+}
+
+.shell.layout-daweiba .daweiba-collaboration-tabs button > svg {
+  flex: 0 0 auto;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-tabs button > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-tabs strong {
+  color: inherit;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-tabs small {
+  overflow: hidden;
+  color: var(--db-text-muted);
+  font-size: 11px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-digital-project-assistant > .daweiba-digital-project-assistant-module {
@@ -12492,7 +13092,7 @@ tbody tr:hover .row-ai-cell {
 
 .shell.layout-daweiba .daweiba-collaboration-body {
   display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.75fr);
+  grid-template-columns: minmax(0, 1fr);
   grid-auto-rows: max-content;
   gap: 14px;
   align-content: start;
@@ -12500,6 +13100,31 @@ tbody tr:hover .row-ai-cell {
   min-height: 0;
   overflow: auto;
   padding-right: 3px;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-body > section {
+  display: none;
+  grid-column: 1 / -1;
+  order: initial;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-body.is-tasks > .is-second-layer,
+.shell.layout-daweiba .daweiba-collaboration-body.is-dispatch > .is-external-dispatch,
+.shell.layout-daweiba .daweiba-collaboration-body.is-connections > .is-webhook-layer,
+.shell.layout-daweiba .daweiba-collaboration-body.is-connections > .daweiba-collaboration-inline-console,
+.shell.layout-daweiba .daweiba-collaboration-body.is-notifications > .is-notification-rules,
+.shell.layout-daweiba .daweiba-collaboration-body.is-notifications > .daweiba-collaboration-history {
+  display: block;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-body.is-connections,
+.shell.layout-daweiba .daweiba-collaboration-body.is-notifications {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.shell.layout-daweiba .daweiba-collaboration-body.is-connections > section,
+.shell.layout-daweiba .daweiba-collaboration-body.is-notifications > section {
+  grid-column: auto;
 }
 
 .shell.layout-daweiba .daweiba-collaboration-settings.is-second-layer {
@@ -13328,6 +13953,15 @@ tbody tr:hover .row-ai-cell {
 }
 
 @container collaboration-workspace (max-width: 760px) {
+  .shell.layout-daweiba .daweiba-collaboration-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .shell.layout-daweiba .daweiba-collaboration-body.is-connections,
+  .shell.layout-daweiba .daweiba-collaboration-body.is-notifications {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .shell.layout-daweiba .daweiba-collaboration-body {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -13396,6 +14030,10 @@ tbody tr:hover .row-ai-cell {
 }
 
 @container collaboration-workspace (max-width: 520px) {
+  .shell.layout-daweiba .daweiba-collaboration-tabs small {
+    display: none;
+  }
+
   .shell.layout-daweiba .daweiba-external-dispatch-file-control {
     grid-template-columns: minmax(0, 1fr);
     align-items: start;

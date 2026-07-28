@@ -156,7 +156,7 @@
   width: 100%;
   margin-bottom: 12px;
   padding: 9px 12px;
-  border: 0;
+  border: 1px solid var(--pd-border-soft);
   border-radius: 12px;
   background: #fff;
   box-shadow: var(--pd-card-shadow);
@@ -518,7 +518,7 @@
   display: grid;
   min-width: 0;
   padding: 14px 15px 13px;
-  border: 0;
+  border: 1px solid var(--pd-border-soft);
   border-radius: 12px;
   background: #fff;
   box-shadow: var(--pd-card-shadow);
@@ -566,6 +566,7 @@
   min-height: 348px;
   margin-top: 0;
   padding: 15px;
+  border: 1px solid var(--pd-border-soft);
   border-radius: 13px;
   background: #fff;
   box-shadow: var(--pd-card-shadow);
@@ -751,7 +752,7 @@
   min-width: 0;
   min-height: 330px;
   padding: 15px;
-  border: 0;
+  border: 1px solid var(--pd-border-soft);
   border-radius: 13px;
   background: #fff;
   box-shadow: var(--pd-card-shadow);
@@ -992,7 +993,7 @@
 
 .project-dashboard__history {
   margin-top: 12px;
-  border: 0;
+  border: 1px solid var(--pd-border-soft);
   border-radius: 13px;
   background: #fff;
   box-shadow: var(--pd-card-shadow);

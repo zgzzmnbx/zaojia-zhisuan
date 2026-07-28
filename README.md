@@ -12,7 +12,7 @@
 
 - 产品名：造价智算
 - 定位：工程造价辅助智能体
-- 当前版本：v5.15.4
+- 当前版本：v5.16.0
 - 当前页面布局：`大尾巴主题 / daweiba` 唯一主界面
 - 当前 UI 基线：`大尾巴 Shadcn UI v1.0.0`，以 shadcn/ui preset `b1au7YYAi` 的 Rhea / Neutral / Blue / Lucide 为视觉输入，使用项目令牌和局部组件样式落地
 - 前端：React + TypeScript + Vite
@@ -125,7 +125,7 @@ python tools/check_prd_consistency.py --strict
 00-PRD/01-模块PRD/01-Excel填价与三数字匹配/PRD.md
 ```
 
-### 项目看板与历史项目（v5.15.4 P0 已完成 MVP）
+### 项目看板与历史项目（v5.16.0 P0 已完成 MVP）
 
 - 左侧继续使用“填价工作台”，中间已实现“项目看板｜新建填价”双视图，不新增一级菜单；默认进入最近 30 天项目看板，切换时文件、项目名、列映射、当前任务和成果状态不丢失。
 - KPI 下方新增项目处理漏斗，按“项目进入 → 完成匹配 → 完成预警 → 生成报告 → 完成复核”展示同一筛选项目的累计闭环进度；点击阶段可同步筛选 KPI、图表和历史项目，且仅以实际存在的 Word 成果和待复核行清零认定后两阶段。
@@ -135,6 +135,7 @@ python tools/check_prd_consistency.py --strict
 - 看板页头已收敛为“筛选、汇报模式、回填历史任务”三个低高度动作：筛选条件在居中弹窗中分组编辑，点击“应用筛选”后才同步刷新 KPI、图表和历史项目；汇报模式以纯白全屏工作区突出图表，并支持按钮或 `Esc` 退出。
 - Dashboard API 新增同筛选口径的项目来源分布；真实数据同时存在至少 2 种来源且累计不少于 3 个项目时显示多蓝色来源环图，单来源或小样本时诚实省略，不用假数据撑版面。
 - v5.15.4 将已验收界面沉淀为 `大尾巴 Shadcn UI v1.0.0`：以 shadcn/ui preset `b1au7YYAi` 的 Rhea / Neutral / Blue / Lucide 和 Inter 比例语言为设计输入，运行时继续使用项目自托管苹方；全局只共享 `--dws-*` 三层令牌，Dashboard 组件规则仍限制在 `.project-dashboard`，未全量执行 shadcn init / create / apply，也未引入 Tailwind、`components.json` 或第二套主题。
+- v5.16.0 将同一设计规范扩展到智能协同、大模型设置、工作量抓取、智算助手、结果预览和页面设置；项目看板 KPI、分析图表、闭环漏斗和历史项目统一恢复 `1px` 浅灰边界，继续坚持纯白背景、无常驻阴影和局部作用域。
 - 设计系统真源为 `frontend/src/design-system/dabawei-shadcn-ui.tokens.json` 与 `frontend/src/design-system/dabawei-shadcn-ui.css`；组件样张位于 `01-assets/01-UI参考图/code/大尾巴-Shadcn-UI-组件样张-v1.0.0.html`，可运行 `python tools/check_ui_design_system.py` 检查令牌、运行时映射和文档同步。
 - 已用真实 100 行样例跑通上传、转换、匹配、预警、报告和 Excel / Word 下载，并完成 1366 / 1440 / 1920、右侧 Dock 展开、空筛选、详情抽屉和历史表浏览器验收；P1 的历史任务恢复、关联已有项目、收藏 / 归档和智算确定性查询仍待开发。
 

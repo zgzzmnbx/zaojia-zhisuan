@@ -1,4 +1,4 @@
-import { Bot } from "lucide-react";
+import { BookOpen, FileSpreadsheet, ShieldCheck, Sparkles } from "lucide-react";
 import type { ReactNode, RefObject } from "react";
 import { agentConversationTurns } from "./agentWorkspaceUtils";
 
@@ -30,8 +30,14 @@ export default function AgentMessageStream<T extends AgentWorkspaceMessage>({
     <div className="agent-workspace__messages" ref={logRef} role="log" aria-live="polite" aria-label="智算助手会话消息">
       {messages.length === 0 ? (
         <div className="agent-workspace__empty">
-          <Bot size={24} />
+          <span className="agent-workspace__empty-icon"><Sparkles size={22} /></span>
+          <strong>从一项专业任务开始</strong>
           <p>{emptyMessage}</p>
+          <div className="agent-workspace__empty-prompts" aria-label="常用任务示例">
+            <span><FileSpreadsheet size={15} />上传 Excel 并开始转换</span>
+            <span><ShieldCheck size={15} />解释规则与待复核原因</span>
+            <span><BookOpen size={15} />查询知识库与项目记忆</span>
+          </div>
         </div>
       ) : (
         <div className="agent-workspace__message-column">

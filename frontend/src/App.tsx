@@ -49,7 +49,7 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.15.4";
+const APP_VERSION = "v5.16.0";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const KNOWLEDGE_QA_ENTRY_COUNT = 3922;
 const KNOWLEDGE_QA_SOURCE_COUNT = 17;
@@ -1885,6 +1885,7 @@ function DaweibaApp() {
   const [isCreatingExternalDispatch, setIsCreatingExternalDispatch] = useState(false);
   const [retryingExternalDispatchTaskId, setRetryingExternalDispatchTaskId] = useState("");
   const [feishuBotConsoleEvents, setFeishuBotConsoleEvents] = useState<FeishuBotConsoleEvent[]>([]);
+  const [activeCollaborationTab, setActiveCollaborationTab] = useState<"tasks" | "dispatch" | "connections" | "notifications">("tasks");
   const [isFeishuBotConsoleOpen, setIsFeishuBotConsoleOpen] = useState(false);
   const [isFeishuBotConsoleInlineOpen, setIsFeishuBotConsoleInlineOpen] = useState(false);
   const [isFeishuBotConsoleLive, setIsFeishuBotConsoleLive] = useState(true);
@@ -1904,6 +1905,7 @@ function DaweibaApp() {
   const [activeUiTextKey, setActiveUiTextKey] = useState<UiTextTargetId>("hero.title");
   const [isUiPickMode, setIsUiPickMode] = useState(false);
   const [llmSettings, setLlmSettings] = useState(DEFAULT_LLM_SETTINGS);
+  const [activeLlmSettingsTab, setActiveLlmSettingsTab] = useState<"model" | "window" | "commands">("model");
   const [riskReport, setRiskReport] = useState("");
   const [riskSummary, setRiskSummary] = useState<RiskSummaryPayload | null>(null);
   const [isRiskSummaryLoading, setIsRiskSummaryLoading] = useState(false);
@@ -8740,12 +8742,13 @@ function DaweibaApp() {
             <div className="preview-grid">
               <div className="preview-window" data-ui-key="preview-window" style={uiStyle("preview-window")}>
                 <div className="window-bar">
-                  <span className="traffic" aria-hidden="true">
-                    <i />
-                    <i />
-                    <i />
+                  <span className="preview-window-heading">
+                    <span><PanelTop size={16} /></span>
+                    <span>
+                      <strong>填价结果预览</strong>
+                      <small>{previewSheetLabel(activePreview, 0)}</small>
+                    </span>
                   </span>
-                  <span className="preview-window-title">填价结果预览</span>
                   <span className="window-actions">
                     <strong className="preview-window-count">
                       前 {visiblePreviewRows.length} 行
@@ -8932,8 +8935,13 @@ function DaweibaApp() {
             </div>
           ) : (
             <div className="preview-empty">
-              <FileSpreadsheet size={32} />
-              <p>上传并转换后，将在这里显示回填后的前几行数据。</p>
+              <span><FileSpreadsheet size={24} /></span>
+              <strong>还没有表格预览</strong>
+              <p>上传标准 Excel 并完成读取后，这里会显示候选 Sheet、列映射和前几行结构化数据。</p>
+              <button className="primary-button" type="button" onClick={() => setActiveDaweibaModule("fill")}>
+                <Upload size={16} />
+                前往填价工作台
+              </button>
             </div>
           )}
         </section>
@@ -9336,8 +9344,8 @@ function DaweibaApp() {
           <div className="section-heading" data-ui-key="section-heading" style={uiStyle("section-heading")}>
             <span><Columns3 size={18} /></span>
             <div>
-              <p>没填数量？</p>
-              <h2 data-ui-text-key="workload.title">{uiText("workload.title", "原始工作量抓取模块")}</h2>
+              <p>工作量补齐</p>
+              <h2 data-ui-text-key="workload.title">{uiText("workload.title", "原始工作量抓取")}</h2>
             </div>
           </div>
 
@@ -9360,6 +9368,27 @@ function DaweibaApp() {
               </div>
             </div>
 
+            <div className="workload-workflow" aria-label="工作量抓取流程">
+              {[
+                ["01", "上传工作量表", Boolean(workloadFile)],
+                ["02", "确认抓取字段", selectedWorkloadFields.length > 0],
+                ["03", "校验目标表", Boolean(result)],
+                ["04", "执行并复核", Boolean(workloadCaptureResult)],
+              ].map(([index, label, complete], stepIndex) => {
+                const isCurrent = !workloadCaptureResult && (
+                  (!workloadFile && stepIndex === 0)
+                  || (workloadFile && !result && stepIndex === 2)
+                  || (workloadFile && result && stepIndex === 3)
+                );
+                return (
+                  <div className={`${complete ? "is-complete" : ""} ${isCurrent ? "is-current" : ""}`} key={String(index)}>
+                    <span>{complete ? <CheckCircle2 size={15} /> : index}</span>
+                    <strong>{label}</strong>
+                  </div>
+                );
+              })}
+            </div>
+
             <div className="workload-input-grid">
               <div className="workload-file-grid" data-ui-key="workload-file-grid" style={uiStyle("workload-file-grid")}>
                 <div
@@ -9370,7 +9399,7 @@ function DaweibaApp() {
                   onDragLeave={(event) => handleWorkloadDragLeave(event, "source")}
                   onDrop={(event) => handleWorkloadDrop(event, "source")}
                 >
-                  <span>工作量表格</span>
+                  <span className="workload-card-kicker">输入文件</span>
                   <input
                     accept=".xlsx"
                     ref={workloadFileInputRef}
@@ -9386,6 +9415,11 @@ function DaweibaApp() {
               </div>
 
               <div className="workload-control-stack">
+                <div className="workload-target-summary">
+                  <span><PanelTop size={16} />目标控制价表</span>
+                  <strong>{result ? "当前预览已就绪" : "等待填价结果"}</strong>
+                  <small>{result ? `任务 ${result.job_id.slice(0, 8)}… 将作为本次写入目标` : "先在填价工作台完成 Excel 转换，再执行抓取。"}</small>
+                </div>
                 <div className="experience-field-row workload-field-row" data-ui-key="workload-field-row" style={uiStyle("workload-field-row")}>
                   <span className="experience-field-label">抓取字段</span>
                   {WORKLOAD_CAPTURE_FIELD_OPTIONS.map((field) => (
@@ -9779,7 +9813,28 @@ function DaweibaApp() {
             </div>
           </div>
 
-          <div className="daweiba-collaboration-body">
+          <nav className="daweiba-collaboration-tabs" role="tablist" aria-label="智能协同工作区">
+            {([
+              ["tasks", "协同任务", "查看机器人状态和最近任务", MessageSquareText],
+              ["dispatch", "新建派发", "创建外部任务并选择人员", Send],
+              ["connections", "连接设置", "管理机器人、Webhook 与控制台", MonitorUp],
+              ["notifications", "通知与记录", "设置通知规则并查看发送历史", Settings],
+            ] as const).map(([id, label, description, Icon]) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={activeCollaborationTab === id}
+                className={activeCollaborationTab === id ? "is-active" : ""}
+                onClick={() => setActiveCollaborationTab(id)}
+              >
+                <Icon size={16} />
+                <span><strong>{label}</strong><small>{description}</small></span>
+              </button>
+            ))}
+          </nav>
+
+          <div className={`daweiba-collaboration-body is-${activeCollaborationTab}`}>
             <section className="daweiba-collaboration-settings is-external-dispatch" aria-label="外部任务主动派发模拟">
               <div className="daweiba-collaboration-section-title">
                 <div>
@@ -10186,7 +10241,8 @@ function DaweibaApp() {
                     <div className="chat-log" ref={chatLogRef} style={{ height: zhisuanChatHeight }}>
                       {chatMessages.length === 0 ? (
                         <div className="chat-empty">
-                          <Bot size={22} />
+                          <span className="chat-empty-icon"><Sparkles size={18} /></span>
+                          <strong>问问智算</strong>
                           <span>{zhisuanWelcomeMessage}</span>
                         </div>
                       ) : (
@@ -11149,7 +11205,7 @@ function DaweibaApp() {
                 </button>
               </div>
               <p className="settings-hint">
-                保存位置：{uiPreferencesPath || "Codex-Temp/runtime/ui-preferences-【codex】.json"}
+                用户偏好仅保存在本机运行目录，刷新页面后仍可恢复。
               </p>
             </div>
             <div className="settings-subsection">
@@ -11281,7 +11337,7 @@ function DaweibaApp() {
           </div>
 
           <p className="ui-tuner-help">
-            {isUiPickMode ? "点击页面中带高亮的区域即可选中。" : `设置文件：${uiPreferencesPath || "Codex-Temp/runtime/ui-preferences-【codex】.json"}`}
+            {isUiPickMode ? "点击页面中带高亮的区域即可选中。" : `用户设置保存在本机运行目录${uiPreferencesPath ? "，刷新后仍可恢复" : ""}。`}
           </p>
         </aside>
       )}
@@ -11584,13 +11640,23 @@ function DaweibaApp() {
       )}
 
       {isLlmSettingsOpen && (
-        <div className="modal-backdrop" role="presentation" onClick={() => setIsLlmSettingsOpen(false)}>
-          <div className="settings-modal" role="dialog" aria-modal="true" aria-label="大模型设置" onClick={(event) => event.stopPropagation()}>
+        <div className="modal-backdrop daweiba-settings-backdrop" role="presentation" onClick={() => setIsLlmSettingsOpen(false)}>
+          <div className="settings-modal daweiba-llm-settings-modal" role="dialog" aria-modal="true" aria-label="大模型设置" onClick={(event) => event.stopPropagation()}>
             <div className="modal-title">
-              <strong>大模型设置</strong>
-              <button type="button" onClick={() => setIsLlmSettingsOpen(false)}>关闭</button>
+              <span>
+                <strong>大模型与智算设置</strong>
+                <small>模型接入、窗口外观和快捷指令分区管理，调整只影响当前会话。</small>
+              </span>
+              <button type="button" aria-label="关闭大模型设置" onClick={() => setIsLlmSettingsOpen(false)}><X size={16} /></button>
             </div>
-            <label>
+            <nav className="daweiba-settings-tabs" role="tablist" aria-label="大模型设置分区">
+              <button type="button" role="tab" aria-selected={activeLlmSettingsTab === "model"} className={activeLlmSettingsTab === "model" ? "is-active" : ""} onClick={() => setActiveLlmSettingsTab("model")}>模型接入</button>
+              <button type="button" role="tab" aria-selected={activeLlmSettingsTab === "window"} className={activeLlmSettingsTab === "window" ? "is-active" : ""} onClick={() => setActiveLlmSettingsTab("window")}>智算窗口</button>
+              <button type="button" role="tab" aria-selected={activeLlmSettingsTab === "commands"} className={activeLlmSettingsTab === "commands" ? "is-active" : ""} onClick={() => setActiveLlmSettingsTab("commands")}>快捷指令</button>
+            </nav>
+            <div className="daweiba-settings-scroll">
+            {activeLlmSettingsTab === "model" && <section className="daweiba-settings-pane" aria-label="模型接入">
+            <label className="field-preference-item">
               <span>模型选择</span>
               <select
                 value={LLM_PRESETS.find((preset) => (
@@ -11606,20 +11672,21 @@ function DaweibaApp() {
                 <option value="custom">自定义</option>
               </select>
             </label>
-            <label>
+            <label className="field-preference-item">
               <span>接入标识</span>
               <input value={llmSettings.provider} onChange={(event) => setLlmSettings((current) => ({ ...current, provider: event.target.value }))} />
             </label>
-            <label>
+            <label className="field-preference-item">
               <span>模型</span>
               <input value={llmSettings.model} onChange={(event) => setLlmSettings((current) => ({ ...current, model: event.target.value }))} />
             </label>
-            <label>
+            <label className="field-preference-item">
               <span>接口地址</span>
               <input value={llmSettings.baseUrl} onChange={(event) => setLlmSettings((current) => ({ ...current, baseUrl: event.target.value }))} />
             </label>
-            <p className="settings-hint">API Key 由后端环境变量提供，不在前端保存。官方 DeepSeek 使用 DEEPSEEK_API_KEY，硅基流动使用 SILICONFLOW_API_KEY。</p>
-            <div className="settings-subsection zhisuan-window-settings">
+            <p className="settings-hint"><ShieldCheck size={15} />API Key 由后端环境变量提供，前端不读取、不保存，也不会在界面回显。</p>
+            </section>}
+            {activeLlmSettingsTab === "window" && <div className="settings-subsection zhisuan-window-settings daweiba-settings-pane">
               <span className="settings-subsection-title">智算窗口</span>
               <label className="field-preference-item">
                 <span>聊天消息区高度（px）</span>
@@ -11721,8 +11788,8 @@ function DaweibaApp() {
                 </button>
               </div>
               <p className="settings-hint">聊天区高度、横向宽度、纵向高度偏好、欢迎语、智算外观风格和显示项统一来自项目默认配置；本页调整仅在当前会话生效，不写入浏览器本地。横向宽度默认 400px；纵向高度跟随窗口默认关闭；显示项默认全部关闭；两版新外观默认不启用，只改变右侧智算 Dock 的外在表现，不改变功能逻辑。</p>
-            </div>
-            <div className="settings-subsection zhisuan-quick-settings">
+            </div>}
+            {activeLlmSettingsTab === "commands" && <div className="settings-subsection zhisuan-quick-settings daweiba-settings-pane">
               <span className="settings-subsection-title">问问智算快捷指令</span>
               <div className="zhisuan-quick-settings-grid">
                 {ZHISUAN_BUILTIN_QUICK_ITEMS.map((item) => (
@@ -11755,7 +11822,12 @@ function DaweibaApp() {
                 </button>
               </div>
               <p className="settings-hint">内置指令开关和自定义指令只在当前会话生效；自定义指令按行应用，点击后只填入“问问智算”输入框，由用户按 Enter 或点击发送确认。</p>
+            </div>}
             </div>
+            <footer className="daweiba-settings-footer">
+              <span>设置仅在当前会话生效，业务规则与价格裁决不受影响。</span>
+              <button className="primary-button" type="button" onClick={() => setIsLlmSettingsOpen(false)}>完成</button>
+            </footer>
           </div>
         </div>
       )}
