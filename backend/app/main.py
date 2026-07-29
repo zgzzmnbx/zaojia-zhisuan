@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 from threading import Lock
 from datetime import datetime, timedelta
@@ -32,11 +33,18 @@ from . import feishu_app_bot
 from . import external_task_dispatch
 from .knowledge_base import KnowledgeBase
 from .knowledge_qa import (
+    ASSISTANT_TABLE_FORMAT_RULE,
     NO_EVIDENCE_ANSWER,
     build_knowledge_answer_prompt,
     is_knowledge_question,
     search_knowledge,
     strip_force_knowledge_prefix,
+)
+from .knowledge_libraries import (
+    KnowledgeLibrarySelection,
+    knowledge_library_catalog,
+    parse_requested_library_ids,
+    resolve_knowledge_library_selection,
 )
 from .knowledge_memory import (
     DEFAULT_AUTO_APPROVE_KNOWLEDGE_TYPES,
@@ -136,7 +144,7 @@ from .professional_skills import (
 from .report import append_risk_report, write_report
 
 
-APP_VERSION = "v5.16.0"
+APP_VERSION = "v5.16.1"
 OUTPUT_FILE_PREFIX = "【输出】"
 TEMP_FILE_PREFIX = "【临时】"
 PROCESS_STATE_FILENAME = "process-state.json"
@@ -1937,7 +1945,10 @@ async def llm_chat(
     messages = [
         {
             "role": "system",
-            "content": "你是造价智算本地原型的大模型测试助手，回答应简洁、准确，避免编造未提供的事实。",
+            "content": (
+                "你是造价智算本地原型的大模型测试助手，回答应简洁、准确，避免编造未提供的事实。"
+                f"{ASSISTANT_TABLE_FORMAT_RULE}"
+            ),
         },
         {"role": "user", "content": clean_message},
     ]
@@ -1960,6 +1971,107 @@ async def llm_chat(
     }
 
 
+def _knowledge_library_selection(
+    payload: dict[str, Any],
+    runtime_context: SkillRuntimeContext,
+    job_dir: Path | None,
+) -> KnowledgeLibrarySelection:
+    base_kwargs = _skill_knowledge_search_kwargs(runtime_context, job_dir)
+    try:
+        requested_ids = parse_requested_library_ids(payload.get("library_ids"))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    project_root = Path(base_kwargs.get("project_root") or PROJECT_ROOT)
+    sources_value = base_kwargs.get("sources")
+    base_sources = (
+        tuple(Path(source) for source in sources_value)
+        if isinstance(sources_value, (list, tuple))
+        else None
+    )
+    index_value = base_kwargs.get("index_path")
+    base_index_path = Path(index_value) if index_value else None
+    return resolve_knowledge_library_selection(
+        requested_ids,
+        project_root=project_root,
+        base_sources=base_sources,
+        base_index_path=base_index_path,
+    )
+
+
+def _search_selected_knowledge(
+    question: str,
+    row_context: dict[str, Any] | None,
+    limit: int,
+    selection: KnowledgeLibrarySelection,
+):
+    if not selection.sources:
+        return []
+    return search_knowledge(
+        question,
+        row_context=row_context,
+        limit=limit,
+        project_root=selection.project_root,
+        index_path=selection.index_path,
+        sources=list(selection.sources),
+    )
+
+
+def _knowledge_source_payload(
+    result: Any,
+    selection: KnowledgeLibrarySelection,
+) -> dict[str, object]:
+    library = selection.library_for_source(result.source_file)
+    return {
+        **result.__dict__,
+        "library_id": library.id if library else None,
+        "library_name": library.name if library else None,
+    }
+
+
+def _selected_library_payload(selection: KnowledgeLibrarySelection) -> list[dict[str, str]]:
+    selected = set(selection.selected_ids)
+    return [
+        {
+            "id": library.id,
+            "name": library.name,
+            "kind": library.kind,
+        }
+        for library in selection.libraries
+        if library.id in selected
+    ]
+
+
+@app.get("/api/knowledge/libraries")
+async def knowledge_libraries(
+    job_id: str = Query(default=""),
+    skill_id: str = Query(default=""),
+    skill_version: str = Query(default=""),
+) -> dict[str, object]:
+    request_payload: dict[str, Any] = {}
+    if job_id.strip():
+        request_payload["job_id"] = job_id.strip()
+    if skill_id.strip():
+        request_payload["skill_id"] = skill_id.strip()
+    if skill_version.strip():
+        request_payload["skill_version"] = skill_version.strip()
+    runtime_context, job_dir, skill_snapshot = _knowledge_runtime_from_payload(request_payload)
+    base_kwargs = _skill_knowledge_search_kwargs(runtime_context, job_dir)
+    project_root = Path(base_kwargs.get("project_root") or PROJECT_ROOT)
+    sources_value = base_kwargs.get("sources")
+    base_sources = (
+        tuple(Path(source) for source in sources_value)
+        if isinstance(sources_value, (list, tuple))
+        else None
+    )
+    return {
+        **knowledge_library_catalog(
+            project_root=project_root,
+            base_sources=base_sources,
+        ),
+        "professional_skill": skill_snapshot,
+    }
+
+
 @app.post("/api/knowledge/search")
 async def knowledge_search(payload: dict[str, Any] = Body(...)) -> dict[str, object]:
     question = str(payload.get("question") or "").strip()
@@ -1970,18 +2082,17 @@ async def knowledge_search(payload: dict[str, Any] = Body(...)) -> dict[str, obj
     limit = _parse_knowledge_limit(payload.get("limit"))
     row_context = _parse_row_context(payload.get("row_context"))
     runtime_context, job_dir, skill_snapshot = _knowledge_runtime_from_payload(payload)
-    results = search_knowledge(
-        question,
-        row_context=row_context,
-        limit=limit,
-        **_skill_knowledge_search_kwargs(runtime_context, job_dir),
-    )
+    selection = _knowledge_library_selection(payload, runtime_context, job_dir)
+    results = _search_selected_knowledge(question, row_context, limit, selection)
     project_key = normalize_project_key(payload.get("project_key"))
-    project_memories, memory_available = _safe_search_project_memories(
-        question,
-        project_key,
-        limit=limit,
-    )
+    if selection.memory_enabled:
+        project_memories, memory_available = _safe_search_project_memories(
+            question,
+            project_key,
+            limit=limit,
+        )
+    else:
+        project_memories, memory_available = [], True
     return {
         "query": question,
         "project_key": project_key or None,
@@ -1989,9 +2100,12 @@ async def knowledge_search(payload: dict[str, Any] = Body(...)) -> dict[str, obj
         "knowledge_question": is_knowledge_question(question),
         "forced_knowledge": force_knowledge,
         "evidence_found": bool(results or project_memories),
-        "results": [result.__dict__ for result in results],
+        "results": [_knowledge_source_payload(result, selection) for result in results],
         "project_memories": project_memories,
         "memory_available": memory_available,
+        "memory_enabled": selection.memory_enabled,
+        "selected_library_ids": list(selection.selected_ids),
+        "selected_libraries": _selected_library_payload(selection),
         "professional_skill": skill_snapshot,
     }
 
@@ -2007,28 +2121,37 @@ async def knowledge_ask(payload: dict[str, Any] = Body(...)) -> dict[str, object
     limit = _parse_knowledge_limit(payload.get("limit"))
     row_context = _parse_row_context(payload.get("row_context"))
     runtime_context, job_dir, skill_snapshot = _knowledge_runtime_from_payload(payload)
-    results = search_knowledge(
-        question,
-        row_context=row_context,
-        limit=limit,
-        **_skill_knowledge_search_kwargs(runtime_context, job_dir),
-    )
+    selection = _knowledge_library_selection(payload, runtime_context, job_dir)
+    results = _search_selected_knowledge(question, row_context, limit, selection)
     project_key = normalize_project_key(payload.get("project_key"))
-    project_memories, memory_available = _safe_search_project_memories(
-        question,
-        project_key,
-        limit=limit,
-    )
+    if selection.memory_enabled:
+        project_memories, memory_available = _safe_search_project_memories(
+            question,
+            project_key,
+            limit=limit,
+        )
+    else:
+        project_memories, memory_available = [], True
     if not results and not project_memories:
+        answer = NO_EVIDENCE_ANSWER
+        if (
+            selection.memory_enabled
+            and not selection.static_library_ids
+            and memory_available
+        ):
+            answer = _knowledge_memory_no_evidence_answer(question)
         return {
-            "answer": NO_EVIDENCE_ANSWER,
+            "answer": answer,
             "sources": [],
             "project_memories": [],
             "project_key": project_key or None,
             "memory_available": memory_available,
+            "memory_enabled": selection.memory_enabled,
             "evidence_found": False,
             "forced_knowledge": force_knowledge,
             "debug": None,
+            "selected_library_ids": list(selection.selected_ids),
+            "selected_libraries": _selected_library_payload(selection),
             "professional_skill": skill_snapshot,
         }
 
@@ -2055,10 +2178,13 @@ async def knowledge_ask(payload: dict[str, Any] = Body(...)) -> dict[str, object
 
     return {
         "answer": answer or NO_EVIDENCE_ANSWER,
-        "sources": [result.__dict__ for result in results],
+        "sources": [_knowledge_source_payload(result, selection) for result in results],
         "project_memories": project_memories,
         "project_key": project_key or None,
         "memory_available": memory_available,
+        "memory_enabled": selection.memory_enabled,
+        "selected_library_ids": list(selection.selected_ids),
+        "selected_libraries": _selected_library_payload(selection),
         "professional_skill": skill_snapshot,
         "evidence_found": True,
         "forced_knowledge": force_knowledge,
@@ -2291,6 +2417,37 @@ def _safe_search_project_memories(
         )
     except (OSError, sqlite3.Error):
         return [], False
+
+
+def _knowledge_memory_no_evidence_answer(question: str) -> str:
+    clean = re.sub(r"\s+", "", question)
+    if "已撤销" in clean:
+        return (
+            "当前没有可参与回答的已撤销知识。"
+            "已撤销记录在检索前即按状态隔离，不会作为问答依据。"
+        )
+    if "冲突" in clean and ("正式规则" in clean or "正式依据" in clean):
+        return (
+            "当前未检索到与该问题匹配的有效知识记忆。"
+            "如果已确认知识记忆与项目正式规则冲突，必须以项目正式规则为准，"
+            "并提交人工复核；知识记忆不得反向修改正式价格或系数。"
+        )
+    if all(marker in clean for marker in ("通用知识", "项目知识", "任务知识")):
+        return (
+            "当前未检索到与该问题匹配的有效知识记忆。"
+            "通用知识可在所有项目使用；项目知识仅在 project_key 完全一致时使用；"
+            "任务知识还必须符合对应任务范围。范围不一致时不得跨项目或跨任务引用。"
+        )
+    if "过期" in clean or "疑似失效" in clean:
+        return (
+            "已经过期或被标记为疑似失效的知识记忆不能参与回答。"
+            "系统只检索 confirmed 且未过期的记录；候选、待确认、已驳回、"
+            "已撤销和疑似失效记录均在回答前过滤。"
+        )
+    return (
+        "未找到与问题匹配的已确认且未失效知识记忆。"
+        "候选、待确认、已驳回、已撤销、疑似失效或范围不一致的记录不会参与回答。"
+    )
 
 
 def _knowledge_memory_http_error(exc: Exception) -> HTTPException:
@@ -4021,14 +4178,25 @@ def _project_zhisuan_window_defaults() -> dict[str, object]:
     section = _project_default_section("zhisuanWindow")
     quick_settings = section.get("quickSettings", {})
     dock_visibility = section.get("dockVisibility", {})
+    raw_common_questions = section.get("commonQuestions", [])
+    common_questions = []
+    if isinstance(raw_common_questions, list):
+        for value in raw_common_questions:
+            question = str(value).strip()
+            if question and question not in common_questions:
+                common_questions.append(question)
+            if len(common_questions) >= 12:
+                break
     return {
         "chatHeight": _project_default_int(section, "chatHeight", 430, 300, 720),
         "dockWidth": _project_default_int(section, "dockWidth", 400, 300, 560),
         "useViewportHeight": _project_default_bool(section, "useViewportHeight", False),
+        "showAssistantAvatar": _project_default_bool(section, "showAssistantAvatar", False),
         "quickSettings": quick_settings if isinstance(quick_settings, dict) else {},
         "dockVisibility": dock_visibility if isinstance(dock_visibility, dict) else {},
         "welcomeMessage": str(section.get("welcomeMessage", "") or "").strip(),
         "dockStyle": str(section.get("dockStyle", "") or "").strip(),
+        "commonQuestions": common_questions,
     }
 
 

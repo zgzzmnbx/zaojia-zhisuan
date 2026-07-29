@@ -43,7 +43,7 @@ def test_health_endpoint():
 
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
-    assert response.json()["version"] == "v5.16.0"
+    assert response.json()["version"] == "v5.16.1"
 
 
 def test_project_default_settings_include_zhisuan_window():
@@ -54,12 +54,33 @@ def test_project_default_settings_include_zhisuan_window():
     payload = response.json()
     assert payload["file_path"].replace("\\", "/").endswith("config/project-default-settings.json")
     assert payload["zhisuanWindow"]["dockWidth"] == 400
+    assert payload["zhisuanWindow"]["showAssistantAvatar"] is False
     assert payload["zhisuanWindow"]["welcomeMessage"]
     assert payload["zhisuanWindow"]["quickSettings"]["autoHide"] is True
     assert payload["zhisuanWindow"]["quickSettings"]["customPrompts"] == ["@知识库："]
+    assert payload["zhisuanWindow"]["commonQuestions"][0].startswith("表4水文地质勘察")
+    assert len(payload["zhisuanWindow"]["commonQuestions"]) == 6
     assert payload["knowledgeMemory"]["autoApproveTypes"] == ["operation", "general_explanation"]
     assert payload["knowledgeMemory"]["duplicateSimilarityThreshold"] == 0.92
     assert payload["professionalSkills"]["defaultSkillId"] == "survey-measurement-limit-price"
+
+
+def test_project_default_settings_reload_common_questions_from_file(tmp_path, monkeypatch):
+    settings_path = tmp_path / "project-default-settings.json"
+    settings_path.write_text(
+        json.dumps({"zhisuanWindow": {"commonQuestions": ["问题一", "问题二"]}}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(main_module, "PROJECT_DEFAULT_SETTINGS_PATH", settings_path)
+    client = TestClient(app)
+
+    assert client.get("/api/project-default-settings").json()["zhisuanWindow"]["commonQuestions"] == ["问题一", "问题二"]
+
+    settings_path.write_text(
+        json.dumps({"zhisuanWindow": {"commonQuestions": ["更新后的问题"]}}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    assert client.get("/api/project-default-settings").json()["zhisuanWindow"]["commonQuestions"] == ["更新后的问题"]
 
 
 def test_ui_preferences_are_saved_and_loaded(tmp_path, monkeypatch):
@@ -2588,10 +2609,11 @@ def test_llm_chat_endpoint_returns_model_answer(monkeypatch):
     assert payload["debug"]["max_tokens"] == 1800
     assert payload["debug"]["prompt_markdown"].endswith("提示词-【codex】.md")
     assert Path(payload["debug"]["prompt_markdown"]).exists()
-    assert payload["debug"]["messages"][0] == {
-        "role": "system",
-        "content": "你是造价智算本地原型的大模型测试助手，回答应简洁、准确，避免编造未提供的事实。",
-    }
+    system_prompt = payload["debug"]["messages"][0]
+    assert system_prompt["role"] == "system"
+    assert "回答应简洁、准确，避免编造未提供的事实" in system_prompt["content"]
+    assert "优先使用标准 Markdown 表格" in system_prompt["content"]
+    assert "单一结论、连续解释、风险警告和操作步骤不强行表格化" in system_prompt["content"]
     assert payload["debug"]["messages"][-1]["content"] == "请用一句话介绍管勘智算"
     assert "secret-from-backend-env" not in str(payload["debug"])
     assert captured["model"] == "demo-model"
@@ -2826,8 +2848,12 @@ def test_knowledge_ask_uses_evidence_bounded_prompt(monkeypatch):
     user_prompt = captured["messages"][1]["content"]
     assert "只能基于【已检索资料】和【当前行上下文】回答" in system_prompt
     assert "不得直接裁决基价、实物工作费调整系数、技术工作费调整系数" in system_prompt
+    assert "优先使用标准 Markdown 表格" in system_prompt
+    assert "表格必须包含表头和分隔行" in system_prompt
+    assert "完整来源路径由界面另行折叠展示" in system_prompt
     assert "表2 测量" in user_prompt
     assert "0.22 是哪来的？" in user_prompt
+    assert "不输出完整目录路径" in user_prompt
     assert "secret-from-backend-env" not in str(payload["debug"])
 
 

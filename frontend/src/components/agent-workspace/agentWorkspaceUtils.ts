@@ -2,6 +2,18 @@ import type { ProfessionalSkillSnapshot, ProfessionalSkillSummary } from "../ski
 
 export type AgentTaskPhase = "empty" | "file-ready" | "preview-ready" | "matched" | "warning-complete";
 
+export function agentComposerSpaceCompletion(value: string) {
+  return value === "@" ? "@知识库：" : null;
+}
+
+export function shouldShowKnowledgeQuestionSuggestions(value: string) {
+  return /^@知识库[：:]?$/.test(value.trim());
+}
+
+export function knowledgeQuestionPrompt(question: string) {
+  return `@知识库：${question.trim()}`;
+}
+
 export function agentConversationTurns<T extends { role: "system" | "user" | "assistant" }>(messages: T[]) {
   return messages.reduce<T[][]>((turns, message) => {
     if (turns.length === 0 || message.role === "user") {

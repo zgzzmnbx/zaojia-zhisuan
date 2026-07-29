@@ -14,9 +14,15 @@ from .paths import DEFAULT_KNOWLEDGE_QA_INDEX_PATH, PROJECT_ROOT
 
 
 NO_EVIDENCE_ANSWER = "当前知识库未找到明确依据，需要人工复核。"
+ASSISTANT_TABLE_FORMAT_RULE = (
+    "回答格式规则：当用户明确要求表格，或回答包含一个对象的三个及以上字段，"
+    "或包含多个对象的对比、清单、数字、价格、系数、单位、状态、来源时，优先使用标准 Markdown 表格；"
+    "表格必须包含表头和分隔行，不使用 HTML 表格。"
+    "单一结论、连续解释、风险警告和操作步骤不强行表格化，必要时可在表格后补充简短说明。"
+)
 DEFAULT_INDEX_PATH = DEFAULT_KNOWLEDGE_QA_INDEX_PATH
 FORCE_KNOWLEDGE_PREFIXES = ("查库：", "查库:", "@知识库", "#知识库")
-KNOWLEDGE_INDEX_VERSION = "2026-06-30-fuzzy-price-candidates-v1"
+KNOWLEDGE_INDEX_VERSION = "2026-07-28-library-selector-v2"
 
 COMMON_STOP_TERMS = {
     "什么",
@@ -203,6 +209,7 @@ def build_knowledge_answer_prompt(
     row_context: dict[str, Any] | None = None,
     project_memories: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, str]]:
+    dictionary_lookup = _is_dictionary_lookup_question(question)
     evidence_blocks = []
     for index, result in enumerate(results, start=1):
         evidence_blocks.append(
@@ -239,6 +246,23 @@ def build_knowledge_answer_prompt(
         if row_context
         else "未提供当前行上下文。"
     )
+    answer_instructions = (
+        [
+            "本题属于字典式数字快查，请只输出一个简洁的 Markdown 表格。",
+            "表格列必须覆盖用户指定的字段，并将资料简称、工作表、章节或行号放在最后一列“来源定位”中。",
+            "用户同时询问多个对象时，必须逐项从各自对应证据中提取，不能把一个对象的数值复制给另一个对象；专项章节优先于总说明。",
+            "不要在表格外重复输出“智算解释、正式依据、项目记忆、提示”等固定章节。",
+            "如用户要求例外、不计取范围或适用条件，将其放入表格对应列；表外最多补充一句确有必要的说明。",
+        ]
+        if dictionary_lookup
+        else [
+            "请用以下结构回答：",
+            "智算解释：",
+            "正式依据：只写 1-3 条最相关依据的资料简称和工作表、章节或行号定位，不输出完整目录路径，不重复罗列同一资料。",
+            "项目记忆：",
+            "提示：本回答只解释依据，不改变程序填价结果。",
+        ]
+    )
     user_content = "\n\n".join(
         [
             "【用户问题】",
@@ -249,11 +273,7 @@ def build_knowledge_answer_prompt(
             "\n\n".join(evidence_blocks) or "未检索到正式知识与规则依据。",
             "【已确认通用与项目知识记忆】",
             "\n\n".join(memory_blocks) or "未检索到当前项目已确认知识记忆。",
-            "请用以下结构回答：",
-            "智算解释：",
-            "正式依据：",
-            "项目记忆：",
-            "提示：本回答只解释依据，不改变程序填价结果。",
+            *answer_instructions,
             "项目记忆补充要求：",
             "1. 正式标准、正式规则和结构化计价库始终优先于项目记忆。",
             "2. 引用项目记忆时必须明确写“项目记忆”，并说明所属项目、确认人、确认时间、适用条件和来源。",
@@ -274,11 +294,32 @@ def build_knowledge_answer_prompt(
                 "不得编造标准依据。不得直接裁决基价、实物工作费调整系数、技术工作费调整系数。"
                 "不得覆盖结构化规则引擎的结果。如果资料不足，必须明确回答“当前知识库未找到明确依据，需要人工复核”。"
                 "正式依据优先于项目记忆；项目记忆必须显式标注，不能伪装成正式标准。"
-                "你的任务是把检索到的依据解释给业务人员听，并列出来源。"
+                "你的任务是把检索到的依据解释给业务人员听。"
+                "正式依据部分保持简洁，只写资料简称和关键定位；完整来源路径由界面另行折叠展示。"
+                "对外统一使用“造价通用知识库”，来源文件名或路径中的内部代号“AIW”不得在回答正文中展示。"
+                f"{ASSISTANT_TABLE_FORMAT_RULE}"
             ),
         },
         {"role": "user", "content": user_content},
     ]
+
+
+def _is_dictionary_lookup_question(question: str) -> bool:
+    clean = _normalize_text(question)
+    return any(
+        marker in clean
+        for marker in (
+            "只回答",
+            "只返回",
+            "分别是多少",
+            "费率是多少",
+            "按多少比例",
+            "考虑多少",
+            "人工单价是多少",
+            "采用多少",
+            "清单编码",
+        )
+    )
 
 
 def load_or_build_index(
@@ -475,6 +516,8 @@ def _make_chunk(path: Path, project_root: Path, suffix: str, title_path: str, co
 def _source_type(path: Path) -> str:
     text = str(path)
     name = path.name
+    if "06-知识库问答资料" in text:
+        return "reference"
     if "原始资料" in text or "财建[2009]17号" in name or "计价格[2002]10号" in name:
         return "standard"
     if "backend" in text and "rules" in text:
@@ -523,6 +566,10 @@ def _expand_query_terms(question: str, row_context: dict[str, Any] | None) -> di
         _add_term(terms, "基价", 2.8)
         _add_term(terms, "单价", 2.6)
         _add_term(terms, "价格", 2.4)
+    if any(marker in clean for marker in ("如何计取", "怎么计取", "怎样计取", "如何计算", "怎么计算")):
+        _add_term(terms, "计算方法", 0.3)
+        _add_term(terms, "综合确定价格", 0.45)
+        _add_term(terms, "计价方法", 0.3)
     for level in ("简单", "中等", "复杂"):
         if level in clean:
             _add_term(terms, level, 2.5)
@@ -544,6 +591,17 @@ def _expand_query_terms(question: str, row_context: dict[str, Any] | None) -> di
     for raw in re.findall(r"[\u4e00-\u9fffA-Za-z0-9.%\-]{2,}", clean):
         if raw not in COMMON_STOP_TERMS and len(raw) <= 16:
             _add_term(terms, raw, 1.0)
+    for chinese_span in re.findall(r"[\u4e00-\u9fff]{9,}", question):
+        for size, weight in ((8, 1.0), (6, 1.0), (5, 1.15), (4, 0.9)):
+            if len(chinese_span) < size:
+                continue
+            step = max(1, size // 2)
+            starts = list(range(0, len(chinese_span) - size + 1, step))
+            final_start = len(chinese_span) - size
+            if final_start not in starts:
+                starts.append(final_start)
+            for start in starts:
+                _add_term(terms, chinese_span[start : start + size], weight)
     if row_context:
         for value in row_context.values():
             if isinstance(value, (str, int, float)) and str(value).strip():
@@ -572,8 +630,14 @@ def _score_chunk(chunk: KnowledgeChunk, terms: dict[str, float]) -> float:
         occurrences = content.count(clean_term)
         if occurrences:
             score += weight * min(occurrences, 4)
+            if re.fullmatch(r"\d{6,}", clean_term):
+                score += weight * 24
     if "standard" == chunk.source_type:
         score *= 1.08
+    if title.endswith("来源信息") or "/来源信息" in title:
+        score -= 36.0
+    if content.startswith("---") and "knowledge_asset" in content[:240]:
+        score -= 48.0
     score += _module_affinity_score(chunk.module, terms)
     score += _price_database_affinity_score(chunk, terms)
     return score
@@ -650,6 +714,13 @@ def _split_long_text(text: str, max_chars: int = 1500) -> list[str]:
         paragraph = paragraph.strip()
         if not paragraph:
             continue
+        if len(paragraph) > max_chars:
+            if current:
+                parts.append("\n\n".join(current))
+                current = []
+                current_len = 0
+            parts.extend(_split_oversized_paragraph(paragraph, max_chars))
+            continue
         if current and current_len + len(paragraph) > max_chars:
             parts.append("\n\n".join(current))
             current = []
@@ -661,11 +732,46 @@ def _split_long_text(text: str, max_chars: int = 1500) -> list[str]:
     return parts
 
 
+def _split_oversized_paragraph(paragraph: str, max_chars: int) -> list[str]:
+    if "</tr>" in paragraph.lower():
+        units = re.split(r"(?<=</tr>)", paragraph, flags=re.IGNORECASE)
+    else:
+        units = re.split(r"(?<=[。！？；.!?;])", paragraph)
+    pieces: list[str] = []
+    current = ""
+    for unit in units:
+        unit = unit.strip()
+        if not unit:
+            continue
+        while len(unit) > max_chars:
+            if current:
+                pieces.append(current)
+                current = ""
+            pieces.append(unit[:max_chars])
+            unit = unit[max_chars:]
+        if current and len(current) + len(unit) > max_chars:
+            pieces.append(current)
+            current = ""
+        current = f"{current}{unit}"
+    if current:
+        pieces.append(current)
+    return pieces
+
+
 def _build_snippet(content: str, terms: dict[str, float], max_chars: int = 520) -> str:
     clean = content.strip()
     normalized = _normalize_text(clean)
     first_hit = -1
-    for term in terms:
+    ranked_terms = sorted(
+        terms.items(),
+        key=lambda item: (
+            item[1] * min(len(_normalize_text(item[0])), 16),
+            len(_normalize_text(item[0])),
+            item[1],
+        ),
+        reverse=True,
+    )
+    for term, _weight in ranked_terms:
         index = normalized.find(_normalize_text(term))
         if index >= 0:
             first_hit = index

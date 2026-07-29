@@ -106,6 +106,107 @@ def test_general_sensitive_candidate_requires_manual_review(tmp_path):
     assert store.search_confirmed("实物工作费调整系数", "") == []
 
 
+def test_exact_numeric_code_does_not_return_unrelated_confirmed_memory(tmp_path):
+    store = KnowledgeMemoryStore(tmp_path / "knowledge-memory.sqlite3")
+    unrelated = confirm_item(
+        store,
+        store.create_candidate(
+            candidate_payload(
+                title="2024年全费用清单资料范围",
+                question="2024年清单资料包括哪些册？",
+                conclusion="资料包括油气输送管道、储罐、通用安装等内容。",
+            ),
+        ),
+    )
+    related = confirm_item(
+        store,
+        store.create_candidate(
+            candidate_payload(
+                title="清单编码10101002",
+                question="清单编码10101002的单价是多少？",
+                conclusion="清单编码10101002的单价为1.66元。",
+            ),
+        ),
+    )
+
+    results = store.search_confirmed(
+        "查清单编码10101002，只回答单价。",
+        related["project_key"],
+    )
+
+    assert [item["id"] for item in results] == [related["id"]]
+    assert unrelated["id"] not in {item["id"] for item in results}
+
+
+def test_long_governance_question_does_not_recall_unrelated_general_memory(tmp_path):
+    store = KnowledgeMemoryStore(tmp_path / "knowledge-memory.sqlite3")
+    item = store.create_candidate(
+        candidate_payload(
+            project_name="",
+            project_key="",
+            scope_type="general",
+            title="2024年五册资料范围",
+            question="2024年五册资料包括哪些工程？",
+            conclusion="资料包括油气输送管道、储罐、通用安装等内容。",
+            conditions="",
+            exceptions="",
+        ),
+    )
+    assert item["status"] == "confirmed"
+
+    assert store.search_confirmed(
+        "通用知识、项目知识和任务知识分别可以在哪些范围内使用？"
+        "项目键或任务范围不一致时是否可以跨项目引用？",
+        "造价智算",
+    ) == []
+
+
+def test_memory_inventory_query_returns_all_active_general_memories(tmp_path):
+    store = KnowledgeMemoryStore(tmp_path / "knowledge-memory.sqlite3")
+    item = store.create_candidate(
+        candidate_payload(
+            project_name="",
+            project_key="",
+            scope_type="general",
+            title="2024年五册资料范围",
+            question="2024年五册资料包括哪些工程？",
+            conclusion="资料包括油气输送管道、储罐、通用安装等内容。",
+            conditions="",
+            exceptions="",
+        ),
+    )
+    assert item["status"] == "confirmed"
+
+    results = store.search_confirmed(
+        "列出当前所有已确认且未失效的记录。",
+        "造价智算",
+    )
+
+    assert [result["id"] for result in results] == [item["id"]]
+
+
+def test_project_specific_inventory_does_not_treat_general_memory_as_project_confirmation(tmp_path):
+    store = KnowledgeMemoryStore(tmp_path / "knowledge-memory.sqlite3")
+    item = store.create_candidate(
+        candidate_payload(
+            project_name="",
+            project_key="",
+            scope_type="general",
+            title="通用资料范围",
+            question="通用资料有哪些？",
+            conclusion="这是面向全部项目的通用资料。",
+            conditions="",
+            exceptions="",
+        ),
+    )
+    assert item["status"] == "confirmed"
+
+    assert store.search_confirmed(
+        "本项目已经人工确认的计价口径有哪些？",
+        "造价智算",
+    ) == []
+
+
 def test_auto_approve_types_are_configurable(tmp_path):
     store = KnowledgeMemoryStore(
         tmp_path / "knowledge-memory.sqlite3",
@@ -564,6 +665,32 @@ def test_memory_database_failure_does_not_break_existing_no_evidence_behavior(mo
     assert response.status_code == 200
     assert response.json()["answer"] == "当前知识库未找到明确依据，需要人工复核。"
     assert response.json()["memory_available"] is False
+
+
+def test_memory_only_no_evidence_explains_revoked_record_isolation(monkeypatch):
+    import app.main as main_module
+
+    monkeypatch.setattr(main_module, "search_knowledge", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        main_module,
+        "search_confirmed_project_memory",
+        lambda *args, **kwargs: [],
+    )
+    response = TestClient(app).post(
+        "/api/knowledge/ask",
+        json={
+            "question": "当前是否存在可以参与回答的已撤销知识？",
+            "project_key": "造价智算",
+            "library_ids": ["knowledge-memory"],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["evidence_found"] is False
+    assert response.json()["answer"] == (
+        "当前没有可参与回答的已撤销知识。"
+        "已撤销记录在检索前即按状态隔离，不会作为问答依据。"
+    )
 
 
 def test_duplicate_is_reused_without_creating_a_second_item(tmp_path):

@@ -24,6 +24,7 @@ type Props<T extends AgentWorkspaceMessage> = {
   isBusy: boolean;
   actions: ReactNode;
   artifacts: ReactNode;
+  knowledgeQuestions: string[];
   onInputChange: (value: string) => void;
   onInputFocusChange: (focused: boolean) => void;
   onSelectSkill: (skillId: string) => void;
@@ -54,6 +55,7 @@ export default function ConversationalAgentWorkspace<T extends AgentWorkspaceMes
   isBusy,
   actions,
   artifacts,
+  knowledgeQuestions,
   onInputChange,
   onInputFocusChange,
   onSelectSkill,
@@ -78,17 +80,11 @@ export default function ConversationalAgentWorkspace<T extends AgentWorkspaceMes
         </div>
       </header>
 
-      {isBusy && (
-        <div className="agent-workspace__progress" aria-label={progressLabel}>
-          <div><span>{progressLabel}</span><strong>{Math.round(progressPercent)}%</strong></div>
-          <i><span style={{ width: `${Math.max(4, progressPercent)}%` }} /></i>
-        </div>
-      )}
-
       <AgentMessageStream
         messages={messages}
         logRef={logRef}
         emptyMessage={welcomeMessage}
+        activeProgress={isBusy ? { label: progressLabel, percent: progressPercent } : undefined}
         renderMessage={renderMessage}
         onRevealMessage={onRevealMessage}
       />
@@ -104,6 +100,7 @@ export default function ConversationalAgentWorkspace<T extends AgentWorkspaceMes
         disabled={isBusy && !isChatting}
         actions={actions}
         artifacts={artifacts}
+        knowledgeQuestions={knowledgeQuestions}
         onChange={onInputChange}
         onSelectSkill={onSelectSkill}
         onPickFile={onPickFile}

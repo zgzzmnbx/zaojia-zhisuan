@@ -687,10 +687,11 @@ def default_project_settings_payload() -> dict[str, object]:
             "columnWidths": {},
         },
         "zhisuanWindow": {
-            "_说明": "问问智算窗口的项目默认设置：聊天区、右侧 Dock、欢迎语、显示项和快捷指令都统一从这里读取；设置页内调整只在当前会话生效。",
+            "_说明": "问问智算窗口的项目默认设置：聊天区、右侧 Dock、欢迎语、消息头像、显示项和快捷指令都统一从这里读取；设置页内调整只在当前会话生效。",
             "chatHeight": 430,
             "dockWidth": 400,
             "useViewportHeight": False,
+            "showAssistantAvatar": False,
             "quickSettings": {
                 "_说明": "enabledIds 控制启用的内置快捷指令；customPrompts 是逐行显示的自定义快捷指令；autoHide 控制快捷指令是否默认收起。",
                 "enabledIds": [
@@ -802,11 +803,16 @@ def copy_runtime_assets(project_root: Path, release_root: Path) -> None:
         ".env.local.example",
         "docs/绿色版说明.md",
         "00-PRD/00-产品总览.md",
+        "config/knowledge-qa-libraries.json",
         "03-知识库-二维数据库制作/【数据库】【导入】.xlsx",
         "03-知识库-二维数据库制作/输入100 和 空单价100.xlsx",
     ):
         copy_file(project_root, release_root, relative)
 
+    copy_tree(
+        project_root / "06-知识库问答资料",
+        release_root / "06-知识库问答资料",
+    )
     copy_tree(
         project_root / "03-知识库-二维数据库制作" / "01-报告模板-招标控制价报告模板",
         release_root / "03-知识库-二维数据库制作" / "01-报告模板-招标控制价报告模板",

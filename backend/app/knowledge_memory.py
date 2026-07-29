@@ -725,12 +725,43 @@ class KnowledgeMemoryStore:
                     )
                     continue
                 active_rows.append(row)
+        if _requires_project_specific_memory(clean_question):
+            active_rows = [
+                row
+                for row in active_rows
+                if normalize_project_key(row["project_key"]) == normalized_key
+            ]
+        if _is_memory_inventory_query(clean_question):
+            inventory: list[dict[str, Any]] = []
+            for row in active_rows[: max(1, min(limit, 20))]:
+                item = _row_dict(row)
+                item["score"] = 1.0
+                inventory.append(item)
+            return inventory
         query_terms = _search_terms(clean_question)
+        query_identifiers = set(re.findall(r"\d{6,}", clean_question))
+        normalized_question = _normalized_content(clean_question)
+        minimum_score = 12.0 if len(normalized_question) <= 18 else 48.0
         scored: list[tuple[float, dict[str, Any]]] = []
         for row in active_rows:
             item = _row_dict(row)
+            if query_identifiers:
+                searchable_text = " ".join(
+                    str(item.get(field) or "")
+                    for field in (
+                        "title",
+                        "question",
+                        "conclusion",
+                        "conditions",
+                        "exceptions",
+                        "evidence_summary",
+                        "source_reference",
+                    )
+                )
+                if not any(identifier in searchable_text for identifier in query_identifiers):
+                        continue
             score = _memory_score(item, query_terms)
-            if score > 0:
+            if score >= minimum_score:
                 item["score"] = round(score, 3)
                 scored.append((score, item))
         scored.sort(key=lambda pair: (pair[0], pair[1]["updated_at"]), reverse=True)
@@ -986,6 +1017,38 @@ def _search_terms(text: str) -> set[str]:
             for index in range(max(0, len(chinese) - width + 1))
         )
     return terms
+
+
+def _requires_project_specific_memory(question: str) -> bool:
+    clean = re.sub(r"\s+", "", question)
+    if "本项目" not in clean and "当前任务" not in clean:
+        return False
+    return any(
+        marker in clean
+        for marker in (
+            "已经确认",
+            "已确认",
+            "之前确认",
+            "特殊处理",
+            "例外规则",
+            "列映射",
+            "输出约定",
+            "计价口径",
+        )
+    )
+
+
+def _is_memory_inventory_query(question: str) -> bool:
+    clean = re.sub(r"\s+", "", question)
+    return any(
+        marker in clean
+        for marker in (
+            "列出当前所有已确认且未失效",
+            "当前有哪些已确认知识",
+            "检查当前有效知识记忆",
+            "某条已确认知识经历过哪些版本变化",
+        )
+    )
 
 
 def classify_knowledge_type(payload: dict[str, Any]) -> str:

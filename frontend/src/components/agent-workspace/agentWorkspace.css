@@ -11,7 +11,7 @@
   --agent-title-weight: 700;
   --agent-title-line-height: 1.35;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   width: 100%;
   height: 100%;
   min-width: 0;
@@ -24,9 +24,8 @@
 }
 
 .agent-workspace__header { grid-row: 1; }
-.agent-workspace__progress { grid-row: 2; }
-.agent-workspace__messages { grid-row: 3; }
-.agent-composer { grid-row: 4; }
+.agent-workspace__messages { grid-row: 2; }
+.agent-composer { grid-row: 3; }
 
 .agent-workspace__header {
   display: flex;
@@ -74,11 +73,6 @@
   cursor: pointer;
 }
 .agent-workspace__header-actions button:hover { background: var(--agent-soft); }
-
-.agent-workspace__progress { padding: 8px 22px; border-bottom: 1px solid var(--agent-line); background: #fff; }
-.agent-workspace__progress div { display: flex; justify-content: space-between; color: var(--agent-muted); font-size: 12px; }
-.agent-workspace__progress i { display: block; height: 2px; margin-top: 7px; overflow: hidden; border-radius: 999px; background: #ececec; }
-.agent-workspace__progress i span { display: block; height: 100%; background: #4f83d1; transition: width .2s ease; }
 
 .agent-workspace__messages {
   min-height: 0;
@@ -129,6 +123,69 @@
 .agent-message.user .agent-message__body { padding: 10px 14px; border-radius: 14px; background: #f1f4fa; color: var(--agent-ink); }
 .agent-message.user:has(.zhisuan-file-attachment) .agent-message__body { padding: 0; background: transparent; }
 .agent-message.source-thinking .agent-message__body { padding-left: 15px; border-left: 1px solid var(--agent-line); color: var(--agent-muted); }
+.agent-turn--progress { margin-top: 24px; padding-top: 24px; }
+.agent-turn.has-user > .agent-message.assistant.agent-message--progress::before { display: none; }
+.agent-progress-message {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 10px;
+  width: min(620px, 100%);
+}
+.agent-progress-message__icon {
+  display: inline-grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 9px;
+  background: #eff6ff;
+  color: #2563eb;
+}
+.agent-progress-message__icon svg { animation: agent-progress-spin 1.1s linear infinite; }
+.agent-progress-message__content { min-width: 0; padding-top: 2px; }
+.agent-progress-message__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.agent-progress-message__heading strong {
+  color: var(--agent-ink);
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.5;
+}
+.agent-progress-message__heading span {
+  flex: 0 0 auto;
+  color: #2563eb;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+}
+.agent-message__body .agent-progress-message p {
+  margin: 2px 0 9px;
+  overflow: hidden;
+  color: var(--agent-muted);
+  font-size: 12px;
+  line-height: 1.55;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-progress-message__track {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e8eef6;
+}
+.agent-progress-message__track i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #4f83d1;
+  transition: width .2s ease;
+}
+@keyframes agent-progress-spin {
+  to { transform: rotate(360deg); }
+}
 
 .agent-composer {
   position: relative;
@@ -159,6 +216,13 @@
   line-height: 1.55;
 }
 .agent-composer textarea::placeholder { color: #a2a2a2; }
+.shell.layout-daweiba .agent-workspace .agent-composer:has(textarea:focus-visible) {
+  border-color: #aeb8c5;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, .07), 0 0 0 3px rgba(148, 163, 184, .11);
+}
+.shell.layout-daweiba .agent-workspace .agent-composer textarea:focus-visible {
+  outline: none;
+}
 .agent-composer.is-dragging-file { border-color: #91a9dd; background: #fbfcff; }
 .agent-composer__drop-overlay {
   position: absolute;
@@ -411,6 +475,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .agent-workspace__progress i span { transition: none; }
+  .agent-progress-message__icon svg { animation: none; }
+  .agent-progress-message__track i { transition: none; }
   .agent-composer__skill-chevron { transition: none; }
 }

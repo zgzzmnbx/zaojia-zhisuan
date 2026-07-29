@@ -1,4 +1,4 @@
-import { BookOpen, FileSpreadsheet, ShieldCheck, Sparkles } from "lucide-react";
+import { BookOpen, FileSpreadsheet, LoaderCircle, ShieldCheck, Sparkles } from "lucide-react";
 import type { ReactNode, RefObject } from "react";
 import { agentConversationTurns } from "./agentWorkspaceUtils";
 
@@ -13,6 +13,10 @@ type Props<T extends AgentWorkspaceMessage> = {
   messages: T[];
   logRef: RefObject<HTMLDivElement | null>;
   emptyMessage: string;
+  activeProgress?: {
+    label: string;
+    percent: number;
+  };
   renderMessage: (message: T) => ReactNode;
   onRevealMessage: (messageId?: string) => void;
 };
@@ -21,14 +25,47 @@ export default function AgentMessageStream<T extends AgentWorkspaceMessage>({
   messages,
   logRef,
   emptyMessage,
+  activeProgress,
   renderMessage,
   onRevealMessage,
 }: Props<T>) {
   const turns = agentConversationTurns(messages);
+  const progressPercent = activeProgress
+    ? Math.min(100, Math.max(0, Math.round(activeProgress.percent)))
+    : 0;
+  const progressMessage = activeProgress ? (
+    <article className="agent-message assistant agent-message--progress">
+      <span className="agent-message__speaker">Z</span>
+      <div className="agent-message__body">
+        <div className="agent-progress-message">
+          <span className="agent-progress-message__icon" aria-hidden="true">
+            <LoaderCircle size={16} strokeWidth={2} />
+          </span>
+          <div className="agent-progress-message__content">
+            <div className="agent-progress-message__heading">
+              <strong>智算正在执行</strong>
+              <span>{progressPercent}%</span>
+            </div>
+            <p>{activeProgress.label}</p>
+            <div
+              className="agent-progress-message__track"
+              role="progressbar"
+              aria-label={activeProgress.label}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={progressPercent}
+            >
+              <i style={{ width: `${progressPercent}%` }} />
+            </div>
+          </div>
+        </div>
+      </div>
+    </article>
+  ) : null;
 
   return (
     <div className="agent-workspace__messages" ref={logRef} role="log" aria-live="polite" aria-label="智算助手会话消息">
-      {messages.length === 0 ? (
+      {messages.length === 0 && !activeProgress ? (
         <div className="agent-workspace__empty">
           <span className="agent-workspace__empty-icon"><Sparkles size={22} /></span>
           <strong>从一项专业任务开始</strong>
@@ -60,8 +97,14 @@ export default function AgentMessageStream<T extends AgentWorkspaceMessage>({
                   <div className="agent-message__body">{renderMessage(message)}</div>
                 </article>
               ))}
+              {turnIndex === turns.length - 1 ? progressMessage : null}
             </section>
           ))}
+          {turns.length === 0 && progressMessage && (
+            <section className="agent-turn agent-turn--progress" aria-label="智算执行进度">
+              {progressMessage}
+            </section>
+          )}
         </div>
       )}
     </div>

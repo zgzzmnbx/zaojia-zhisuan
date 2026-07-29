@@ -1,7 +1,8 @@
 import { Check, ChevronDown, FileSpreadsheet, Loader2, Paperclip, Send, SlidersHorizontal, Square } from "lucide-react";
 import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import KnowledgeQuestionSuggestions from "../knowledge/KnowledgeQuestionSuggestions";
 import type { ProfessionalSkillSnapshot, ProfessionalSkillSummary } from "../skills/ProfessionalSkillSelector";
-import { agentSelectedSkill } from "./agentWorkspaceUtils";
+import { agentComposerSpaceCompletion, agentSelectedSkill, knowledgeQuestionPrompt } from "./agentWorkspaceUtils";
 
 type Props = {
   skills: ProfessionalSkillSummary[];
@@ -14,6 +15,7 @@ type Props = {
   disabled: boolean;
   actions: ReactNode;
   artifacts: ReactNode;
+  knowledgeQuestions: string[];
   onChange: (value: string) => void;
   onSelectSkill: (skillId: string) => void;
   onPickFile: () => void;
@@ -34,6 +36,7 @@ export default function AgentComposer({
   disabled,
   actions,
   artifacts,
+  knowledgeQuestions,
   onChange,
   onSelectSkill,
   onPickFile,
@@ -50,6 +53,7 @@ export default function AgentComposer({
   const dragDepthRef = useRef(0);
   const actionMenuRef = useRef<HTMLDetailsElement>(null);
   const skillMenuRef = useRef<HTMLDetailsElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     const closeComposerMenus = (event: MouseEvent) => {
@@ -75,6 +79,19 @@ export default function AgentComposer({
   }, []);
 
   const handleKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+    const spaceCompletion = agentComposerSpaceCompletion(value);
+    if (
+      event.key === " "
+      && !event.altKey
+      && !event.ctrlKey
+      && !event.metaKey
+      && !event.nativeEvent.isComposing
+      && spaceCompletion
+    ) {
+      event.preventDefault();
+      onChange(spaceCompletion);
+      return;
+    }
     if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
     event.preventDefault();
     if (!busy && value.trim() && !disabled) onSend();
@@ -124,7 +141,17 @@ export default function AgentComposer({
           <span>松开以上传 Excel</span>
         </div>
       )}
+      <KnowledgeQuestionSuggestions
+        value={value}
+        questions={knowledgeQuestions}
+        placement="agent"
+        onSelect={(question) => {
+          onChange(knowledgeQuestionPrompt(question));
+          window.requestAnimationFrame(() => inputRef.current?.focus());
+        }}
+      />
       <textarea
+        ref={inputRef}
         aria-label="输入任务目标或问题"
         rows={3}
         value={value}

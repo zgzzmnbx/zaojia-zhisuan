@@ -33,7 +33,22 @@ import ProfessionalSkillSelector, {
   type ProfessionalSkillSnapshot,
   type ProfessionalSkillSummary,
 } from "./components/skills/ProfessionalSkillSelector";
+import KnowledgeLibrarySelector, {
+  type KnowledgeLibraryOption,
+} from "./components/knowledge/KnowledgeLibrarySelector";
+import KnowledgeQuestionSuggestions from "./components/knowledge/KnowledgeQuestionSuggestions";
 import ConversationalAgentWorkspace from "./components/agent-workspace/ConversationalAgentWorkspace";
+import { agentComposerSpaceCompletion, knowledgeQuestionPrompt } from "./components/agent-workspace/agentWorkspaceUtils";
+import {
+  compactKnowledgeSourceName,
+  removeVerboseEvidenceSection,
+  uniqueKnowledgeSources,
+} from "./utils/knowledgeAnswerPresentation";
+import {
+  parseZhisuanInlineMarkdown,
+  type ZhisuanInlineMarkdownToken,
+} from "./utils/zhisuanInlineMarkdown";
+import { parseMarkdownTableAt } from "./utils/zhisuanMarkdownTable";
 
 const ProjectDashboard = lazy(() => import("./components/project-dashboard/ProjectDashboard"));
 const DEFAULT_API_BASE = import.meta.env.DEV ? "http://127.0.0.1:8000" : "";
@@ -49,16 +64,15 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.16.0";
+const APP_VERSION = "v5.16.1";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
-const KNOWLEDGE_QA_ENTRY_COUNT = 3922;
-const KNOWLEDGE_QA_SOURCE_COUNT = 17;
 const PRICE_KNOWLEDGE_ROW_COUNT = 560;
 const FORCE_KNOWLEDGE_PREFIXES = ["查库：", "查库:", "@知识库", "#知识库"] as const;
 const GENERAL_KNOWLEDGE_NAME = "通用知识";
 const GENERAL_KNOWLEDGE_KEY = "通用知识";
 const KNOWLEDGE_PROJECT_NAME_STORAGE_KEY = "zaojiazhisuan-knowledge-project-name";
 const KNOWLEDGE_PROJECT_KEY_STORAGE_KEY = "zaojiazhisuan-knowledge-project-key";
+const KNOWLEDGE_LIBRARY_SELECTION_STORAGE_KEY = "zaojiazhisuan-knowledge-library-selection";
 const ROW_AI_CONTEXT_FIELD_GROUPS = [
   { label: "匹配状态", aliases: ["匹配状态"] },
   { label: "匹配说明", aliases: ["匹配说明", "填价说明", "匹配报告"] },
@@ -544,6 +558,7 @@ type ChatMessage = {
   source?: "model" | "system" | "command" | "thinking";
   rowDetailContext?: RowAiContext;
   knowledgeCandidate?: KnowledgeCandidateSeed;
+  knowledgeSources?: KnowledgeSource[];
   projectMemories?: ProjectMemory[];
   attachment?: ChatFileAttachment;
   inlineAction?: ChatInlineAction;
@@ -587,6 +602,8 @@ type ZhisuanWindowSettings = {
   dockVisibility: ZhisuanDockVisibilitySettings;
   welcomeMessage: string;
   dockStyle: ZhisuanDockStyle;
+  commonQuestions: string[];
+  showAssistantAvatar: boolean;
 };
 type ZhisuanWindowSettingsPayload = Partial<Omit<ZhisuanWindowSettings, "quickSettings" | "dockVisibility">> & {
   quickSettings?: Partial<ZhisuanQuickSettings>;
@@ -665,6 +682,15 @@ const DEFAULT_ZHISUAN_WINDOW_SETTINGS: ZhisuanWindowSettings = {
   dockVisibility: DEFAULT_ZHISUAN_DOCK_VISIBILITY_SETTINGS,
   welcomeMessage: ZHISUAN_WELCOME_MESSAGE,
   dockStyle: "default",
+  showAssistantAvatar: false,
+  commonQuestions: [
+    "表4水文地质勘察简单、中等、复杂技术工作费调整系数分别是多少？请用表格回答。",
+    "新疆地区场（站）和输送管道地区差异调整系数分别是多少？请用表格回答。",
+    "查清单编码11301001，只回答清单名称、单位、清单单价、规费、安全生产费和来源定位。",
+    "对比清单编码11301001、11301002、11301003，只回答清单名称、单位、清单单价、规费、安全生产费和来源定位。",
+    "附加调整系数为什么不能连乘？",
+    "第二层经验提示是什么意思？",
+  ],
 };
 const ZHISUAN_AVATAR_STATE_LABELS: Record<ZhisuanAvatarState, string> = {
   idle: "待命",
@@ -698,6 +724,8 @@ type KnowledgeSource = {
   snippet: string;
   score: number;
   module?: string;
+  library_id?: string | null;
+  library_name?: string | null;
 };
 
 type KnowledgeMemoryStatus = "candidate" | "pending" | "confirmed" | "rejected" | "revoked" | "suspected_stale";
@@ -792,6 +820,18 @@ type KnowledgeAskResponse = {
   evidence_found: boolean;
   forced_knowledge?: boolean;
   debug?: LlmDebugInfo | null;
+  memory_enabled?: boolean;
+  selected_library_ids?: string[];
+  selected_libraries?: Array<{
+    id: string;
+    name: string;
+    kind: "static" | "memory";
+  }>;
+};
+
+type KnowledgeLibraryCatalogResponse = {
+  libraries: KnowledgeLibraryOption[];
+  default_library_ids: string[];
 };
 
 type PreviewColumn = {
@@ -862,6 +902,8 @@ type RowAiContext = {
   previewRow: Array<string | number | null>;
   sourceIndex: number;
 };
+
+const DEFAULT_ROW_AI_QUESTION = "解释这行要素含义，并判断当前基价和两个系数是否合理。";
 
 type WarningSummary = {
   pool_enabled: boolean;
@@ -1569,6 +1611,9 @@ function normalizeZhisuanDockStyle(value: unknown): ZhisuanDockStyle {
 
 function normalizeZhisuanWindowSettings(raw?: ZhisuanWindowSettingsPayload): ZhisuanWindowSettings {
   const welcomeMessage = String(raw?.welcomeMessage ?? "").replace(/\r/g, "").trim();
+  const commonQuestions = Array.isArray(raw?.commonQuestions)
+    ? Array.from(new Set(raw.commonQuestions.map((value) => String(value).trim()).filter(Boolean))).slice(0, 12)
+    : DEFAULT_ZHISUAN_WINDOW_SETTINGS.commonQuestions;
   return {
     chatHeight: clampZhisuanChatHeight(raw?.chatHeight),
     dockWidth: clampZhisuanDockWidth(raw?.dockWidth),
@@ -1577,6 +1622,8 @@ function normalizeZhisuanWindowSettings(raw?: ZhisuanWindowSettingsPayload): Zhi
     dockVisibility: normalizeZhisuanDockVisibilitySettings(raw?.dockVisibility),
     welcomeMessage: welcomeMessage || DEFAULT_ZHISUAN_WINDOW_SETTINGS.welcomeMessage,
     dockStyle: normalizeZhisuanDockStyle(raw?.dockStyle),
+    commonQuestions,
+    showAssistantAvatar: raw?.showAssistantAvatar ?? DEFAULT_ZHISUAN_WINDOW_SETTINGS.showAssistantAvatar,
   };
 }
 
@@ -1706,6 +1753,17 @@ function readKnowledgeProjectStorage(key: string) {
     return window.localStorage.getItem(key) ?? "";
   } catch {
     return "";
+  }
+}
+
+function readKnowledgeLibrarySelection() {
+  try {
+    const value = JSON.parse(window.localStorage.getItem(KNOWLEDGE_LIBRARY_SELECTION_STORAGE_KEY) || "[]");
+    return Array.isArray(value)
+      ? value.map((item) => String(item || "").trim()).filter(Boolean)
+      : [];
+  } catch {
+    return [];
   }
 }
 
@@ -1920,6 +1978,10 @@ function DaweibaApp() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [knowledgeProjectName, setKnowledgeProjectName] = useState(() => readKnowledgeProjectStorage(KNOWLEDGE_PROJECT_NAME_STORAGE_KEY) || GENERAL_KNOWLEDGE_NAME);
   const [knowledgeProjectKey, setKnowledgeProjectKey] = useState(() => readKnowledgeProjectStorage(KNOWLEDGE_PROJECT_KEY_STORAGE_KEY) || GENERAL_KNOWLEDGE_KEY);
+  const [knowledgeLibraries, setKnowledgeLibraries] = useState<KnowledgeLibraryOption[]>([]);
+  const [selectedKnowledgeLibraryIds, setSelectedKnowledgeLibraryIds] = useState<string[]>(readKnowledgeLibrarySelection);
+  const [isKnowledgeLibrariesLoading, setIsKnowledgeLibrariesLoading] = useState(true);
+  const [knowledgeLibrariesError, setKnowledgeLibrariesError] = useState("");
   const [knowledgeOperator, setKnowledgeOperator] = useState("本机试点用户");
   const [knowledgeActorRole, setKnowledgeActorRole] = useState("project_owner");
   const [knowledgeCandidateDraft, setKnowledgeCandidateDraft] = useState<KnowledgeCandidateDraft | null>(null);
@@ -1946,6 +2008,7 @@ function DaweibaApp() {
   const [zhisuanWelcomeDraft, setZhisuanWelcomeDraft] = useState(DEFAULT_ZHISUAN_WINDOW_SETTINGS.welcomeMessage);
   const [isZhisuanWelcomeLoaded, setIsZhisuanWelcomeLoaded] = useState(false);
   const [zhisuanDockStyle, setZhisuanDockStyle] = useState<ZhisuanDockStyle>(DEFAULT_ZHISUAN_WINDOW_SETTINGS.dockStyle);
+  const [showZhisuanAssistantAvatar, setShowZhisuanAssistantAvatar] = useState(DEFAULT_ZHISUAN_WINDOW_SETTINGS.showAssistantAvatar);
   const [llmDebugHistory, setLlmDebugHistory] = useState<LlmDebugRecord[]>([]);
   const [experienceFile, setExperienceFile] = useState<File | null>(null);
   const [selectedExperienceFields, setSelectedExperienceFields] = useState<string[]>([...EXPERIENCE_FIELD_OPTIONS]);
@@ -2364,6 +2427,68 @@ function DaweibaApp() {
     [professionalSkills, selectedProfessionalSkillId],
   );
 
+  useEffect(() => {
+    const controller = new AbortController();
+    const query = new URLSearchParams();
+    if (result?.job_id) {
+      query.set("job_id", result.job_id);
+    } else if (selectedProfessionalSkill) {
+      query.set("skill_id", selectedProfessionalSkill.id);
+      query.set("skill_version", selectedProfessionalSkill.version);
+    }
+    setIsKnowledgeLibrariesLoading(true);
+    setKnowledgeLibrariesError("");
+    fetch(`${API_BASE}/api/knowledge/libraries${query.size ? `?${query.toString()}` : ""}`, {
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          const payload = await response.json().catch(() => null);
+          throw new Error(payload?.detail ?? `知识库列表读取失败：${response.status}`);
+        }
+        return response.json() as Promise<KnowledgeLibraryCatalogResponse>;
+      })
+      .then((payload) => {
+        const libraries = Array.isArray(payload.libraries) ? payload.libraries : [];
+        const availableIds = new Set(
+          libraries.filter((library) => library.available).map((library) => library.id),
+        );
+        const savedIds = readKnowledgeLibrarySelection().filter((libraryId) => availableIds.has(libraryId));
+        const defaultIds = (payload.default_library_ids ?? []).filter((libraryId) => availableIds.has(libraryId));
+        const nextIds = savedIds.length
+          ? savedIds
+          : defaultIds.length
+            ? defaultIds
+            : libraries.filter((library) => library.available).slice(0, 1).map((library) => library.id);
+        setKnowledgeLibraries(libraries);
+        setSelectedKnowledgeLibraryIds(nextIds);
+      })
+      .catch((requestError) => {
+        if (requestError instanceof DOMException && requestError.name === "AbortError") return;
+        setKnowledgeLibrariesError(
+          requestError instanceof Error ? requestError.message : "知识库列表读取失败",
+        );
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setIsKnowledgeLibrariesLoading(false);
+        }
+      });
+    return () => controller.abort();
+  }, [result?.job_id, selectedProfessionalSkill?.id, selectedProfessionalSkill?.version]);
+
+  useEffect(() => {
+    if (!selectedKnowledgeLibraryIds.length) return;
+    try {
+      window.localStorage.setItem(
+        KNOWLEDGE_LIBRARY_SELECTION_STORAGE_KEY,
+        JSON.stringify(selectedKnowledgeLibraryIds),
+      );
+    } catch {
+      // The backend defaults remain available when local interface preferences cannot be saved.
+    }
+  }, [selectedKnowledgeLibraryIds]);
+
   const activePreview = useMemo(() => {
     return (
       previewSheets.find((sheet) => sheet.sheet_name === activePreviewSheetName) ??
@@ -2779,6 +2904,7 @@ function DaweibaApp() {
       typing?: boolean;
       rowDetailContext?: RowAiContext;
       knowledgeCandidate?: KnowledgeCandidateSeed;
+      knowledgeSources?: KnowledgeSource[];
       projectMemories?: ProjectMemory[];
       inlineAction?: ChatInlineAction;
     } = {},
@@ -2797,6 +2923,7 @@ function DaweibaApp() {
         source,
         rowDetailContext: options.rowDetailContext,
         knowledgeCandidate: options.knowledgeCandidate,
+        knowledgeSources: options.knowledgeSources,
         projectMemories: options.projectMemories,
         inlineAction: options.inlineAction,
       },
@@ -2812,6 +2939,7 @@ function DaweibaApp() {
       typing?: boolean;
       rowDetailContext?: RowAiContext;
       knowledgeCandidate?: KnowledgeCandidateSeed;
+      knowledgeSources?: KnowledgeSource[];
       projectMemories?: ProjectMemory[];
     } = {},
   ) {
@@ -2827,6 +2955,7 @@ function DaweibaApp() {
               source,
               rowDetailContext: options.rowDetailContext ?? message.rowDetailContext,
               knowledgeCandidate: options.knowledgeCandidate ?? message.knowledgeCandidate,
+              knowledgeSources: options.knowledgeSources ?? message.knowledgeSources,
               projectMemories: options.projectMemories ?? message.projectMemories,
             }
           : message,
@@ -3023,9 +3152,9 @@ function DaweibaApp() {
 
   function formatKnowledgeAnswer(payload: KnowledgeAskResponse, options: { forcedKnowledge?: boolean } = {}) {
     const forcedKnowledge = options.forcedKnowledge || Boolean(payload.forced_knowledge);
-    const projectMemories = payload.project_memories ?? [];
+    const selectedLibraryNames = (payload.selected_libraries ?? []).map((library) => library.name).join("、");
     const knowledgeModeLine = forcedKnowledge
-      ? "已调用知识库：本次回答先检索本地规则、知识库和当前行上下文。"
+      ? `已调用知识库${selectedLibraryNames ? `（${selectedLibraryNames}）` : ""}：本次回答先检索所选资料和当前行上下文。`
       : "";
     if (!payload.evidence_found) {
       return [
@@ -3034,22 +3163,10 @@ function DaweibaApp() {
         payload.answer,
       ].filter(Boolean).join("\n\n");
     }
-    const sourceLines = payload.sources.slice(0, 5).map((source, index) => {
-      const title = source.title_path ? ` / ${source.title_path}` : "";
-      return `${index + 1}. ${source.source_file}${title}`;
-    });
-    const memoryLines = projectMemories.slice(0, 5).map((memory, index) => {
-      const scopeLabel = memory.scope_type === "general" ? "通用知识" : "项目记忆";
-      return `${index + 1}. ${scopeLabel}｜${memory.title}｜范围：${memory.project_name}｜确认人：${memory.confirmer || "未记录"}｜确认时间：${memory.confirmed_at || "未记录"}｜适用条件：${memory.conditions || "未填写"}｜来源：${memory.source_reference}`;
-    });
-    const hasSourceSection = payload.answer.includes("依据来源");
-    const hasFormalSection = payload.answer.includes("正式依据");
     const hasBoundaryTip = payload.answer.includes("不改变程序填价结果") || payload.answer.includes("不改变填价结果");
     return [
       knowledgeModeLine,
-      payload.answer.trim(),
-      sourceLines.length === 0 || hasSourceSection || hasFormalSection ? "" : `正式依据：\n${sourceLines.join("\n")}`,
-      memoryLines.length === 0 ? "" : `知识记忆详情：\n${memoryLines.join("\n")}`,
+      removeVerboseEvidenceSection(payload.answer),
       hasBoundaryTip ? "" : "提示：本回答只解释依据，不改变程序填价结果。",
     ]
       .filter(Boolean)
@@ -3765,6 +3882,7 @@ function DaweibaApp() {
     setZhisuanWelcomeMessage(defaults.welcomeMessage);
     setZhisuanWelcomeDraft(defaults.welcomeMessage);
     setZhisuanDockStyle(defaults.dockStyle);
+    setShowZhisuanAssistantAvatar(defaults.showAssistantAvatar);
     if (!defaults.dockVisibility.debugInfo) setIsLlmDebugOpen(false);
   }
 
@@ -6031,6 +6149,13 @@ function DaweibaApp() {
     const sheetIndex = Math.max(0, previewSheets.findIndex((sheet) => sheet.sheet_name === sourceSheet.sheet_name));
     const sheetName = previewSheetLabel(sourceSheet, sheetIndex);
     const rowNumber = previewExcelRowNumber(sourceSheet, sourceIndex, sheetConfigs);
+    const inlineRowAiContext = buildRowAiContext(row, sourceIndex, sourceSheet, sourceColumns);
+    if (inlineRowAiContext) {
+      setRowAiContext(inlineRowAiContext);
+      setRowAiQuestion(DEFAULT_ROW_AI_QUESTION);
+      setRowAiAnswer("");
+      setRowAiDetailPrompt(null);
+    }
     setFillAssistDialog({
       context: {
         sheet_name: sheetName,
@@ -6370,6 +6495,7 @@ function DaweibaApp() {
           limit: 8,
           force_knowledge: Boolean(options.forcedKnowledge),
           project_key: knowledgeProjectKey || null,
+          library_ids: selectedKnowledgeLibraryIds.length ? selectedKnowledgeLibraryIds : undefined,
           job_id: result?.job_id ?? null,
           skill_id: result ? null : selectedProfessionalSkill?.id ?? null,
           skill_version: result ? null : selectedProfessionalSkill?.version ?? null,
@@ -6383,7 +6509,12 @@ function DaweibaApp() {
       const answer = formatKnowledgeAnswer(payload, { forcedKnowledge: options.forcedKnowledge });
       const projectMemories = payload.project_memories ?? [];
       const sourceReferences = [
-        ...payload.sources.map((source) => `${source.source_file}${source.title_path ? ` / ${source.title_path}` : ""}`),
+        ...payload.sources.map(
+          (source) =>
+            `${source.library_name ? `[${source.library_name}] ` : ""}${source.source_file}${
+              source.title_path ? ` / ${source.title_path}` : ""
+            }`,
+        ),
         ...projectMemories.map((memory) => `项目记忆 ${memory.id} / ${memory.source_reference}`),
       ];
       const evidenceSummary = [
@@ -6395,6 +6526,7 @@ function DaweibaApp() {
         : "";
       replaceZhisuanMessage(thinking, answer, payload.evidence_found ? "model" : "command", {
         rowDetailContext: options.rowDetailContext,
+        knowledgeSources: payload.sources,
         projectMemories,
         knowledgeCandidate: payload.evidence_found
           ? {
@@ -6473,7 +6605,11 @@ function DaweibaApp() {
     await askZhisuanFreeform(message);
   }
 
-  async function askRowAi(context: RowAiContext | null = rowAiContext, question = rowAiQuestion) {
+  async function askRowAi(
+    context: RowAiContext | null = rowAiContext,
+    question = rowAiQuestion,
+    options: { showDetailPrompt?: boolean } = {},
+  ) {
     if (!context) return;
     const cleanQuestion = question.trim();
     if (!cleanQuestion) {
@@ -6490,7 +6626,9 @@ function DaweibaApp() {
         rowDetailContext: context,
       });
       setRowAiAnswer(answer);
-      setRowAiDetailPrompt(context);
+      if (options.showDetailPrompt !== false) {
+        setRowAiDetailPrompt(context);
+      }
     } catch (err) {
       const messageText = err instanceof Error ? err.message : "行级 AI 分析失败";
       setError(messageText);
@@ -6501,9 +6639,15 @@ function DaweibaApp() {
     }
   }
 
-  function openRowAi(row: Array<string | number | null>, rowIndex: number) {
+  function buildRowAiContext(
+    row: Array<string | number | null>,
+    rowIndex: number,
+    sourceSheet: TablePreview = activePreview,
+    sourceColumns: PreviewColumn[] = previewColumns,
+  ): RowAiContext | null {
+    if (!sourceSheet) return null;
     const values: Record<string, string> = Object.fromEntries(
-      previewColumns
+      sourceColumns
         .filter((column) => column.index >= 0)
         .map((column) => [column.label, previewHeaderText(row[column.index])]),
     );
@@ -6516,7 +6660,7 @@ function DaweibaApp() {
     };
     const findHeaderIndex = (aliases: readonly string[]) => {
       const normalizedAliases = aliases.map((alias) => compactHeader(alias));
-      return activePreview.headers.findIndex((header) => {
+      return sourceSheet.headers.findIndex((header) => {
         const normalizedHeader = compactHeader(header);
         return normalizedAliases.some((alias) => normalizedHeader.includes(alias));
       });
@@ -6530,18 +6674,23 @@ function DaweibaApp() {
         values[field.label] = text;
       }
     });
-    const context = {
-      sheetName: previewSheetLabel(activePreview, 0),
-      rowNumber: previewExcelRowNumber(activePreview, rowIndex, sheetConfigs),
+    const sheetIndex = Math.max(0, previewSheets.findIndex((sheet) => sheet.sheet_name === sourceSheet.sheet_name));
+    return {
+      sheetName: previewSheetLabel(sourceSheet, sheetIndex),
+      rowNumber: previewExcelRowNumber(sourceSheet, rowIndex, sheetConfigs),
       values,
       previewRow: row,
       sourceIndex: rowIndex,
     };
-    const question = "解释这行要素含义，并判断当前基价和两个系数是否合理。";
+  }
+
+  function openRowAi(row: Array<string | number | null>, rowIndex: number) {
+    const context = buildRowAiContext(row, rowIndex);
+    if (!context) return;
     setRowAiContext(context);
     setRowAiAnswer("");
-    setRowAiQuestion(question);
-    setChatInput(question);
+    setRowAiQuestion(DEFAULT_ROW_AI_QUESTION);
+    setChatInput(DEFAULT_ROW_AI_QUESTION);
     setIsChatOpen(true);
     setIsAiDockCollapsed(false);
     window.setTimeout(() => chatInputRef.current?.focus(), 0);
@@ -6974,17 +7123,39 @@ function DaweibaApp() {
   }
 
   function renderZhisuanRichInlineText(text: string) {
-    const segments = text.split(/(\*\*[^*]+\*\*)/g);
-    return segments.map((segment, index) => {
-      if (segment.startsWith("**") && segment.endsWith("**") && segment.length > 4) {
-        return (
-          <strong key={`strong-${index}`}>
-            {renderZhisuanInlineText(segment.slice(2, -2))}
-          </strong>
-        );
-      }
-      return <span key={`text-${index}`}>{renderZhisuanInlineText(segment)}</span>;
-    });
+    const renderTokens = (tokens: ZhisuanInlineMarkdownToken[], keyPrefix: string): ReactNode[] =>
+      tokens.map((token, index) => {
+        const key = `${keyPrefix}-${index}`;
+        if (token.type === "text") {
+          return <span key={key}>{renderZhisuanInlineText(token.value)}</span>;
+        }
+        if (token.type === "code") {
+          return <code className="zhisuan-inline-code" key={key}>{token.value}</code>;
+        }
+        if (token.type === "link") {
+          return (
+            <a
+              className="zhisuan-markdown-link"
+              href={token.href}
+              key={key}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(event) => event.stopPropagation()}
+            >
+              {renderTokens(token.children, `${key}-link`)}
+            </a>
+          );
+        }
+        const children = renderTokens(token.children, `${key}-${token.type}`);
+        if (token.type === "strong") return <strong key={key}>{children}</strong>;
+        if (token.type === "emphasis") return <em key={key}>{children}</em>;
+        if (token.type === "strong-emphasis") {
+          return <strong key={key}><em>{children}</em></strong>;
+        }
+        return <del key={key}>{children}</del>;
+      });
+
+    return renderTokens(parseZhisuanInlineMarkdown(text), "markdown");
   }
 
   function zhisuanLineTone(text: string) {
@@ -7100,7 +7271,8 @@ function DaweibaApp() {
     const lines = text.replace(/\r/g, "").split("\n");
     const nodes: ReactNode[] = [];
     let paragraph: string[] = [];
-    let bullets: string[] = [];
+    let listItems: string[] = [];
+    let listIsOrdered = false;
 
     const flushParagraph = () => {
       if (!paragraph.length) return;
@@ -7114,36 +7286,107 @@ function DaweibaApp() {
       }
       paragraph = [];
     };
-    const flushBullets = () => {
-      if (!bullets.length) return;
+    const flushList = () => {
+      if (!listItems.length) return;
+      const ListTag = listIsOrdered ? "ol" : "ul";
       nodes.push(
-        <ul className="zhisuan-message-list" key={`ul-${nodes.length}`}>
-          {bullets.map((item, index) => (
+        <ListTag
+          className={`zhisuan-message-list ${listIsOrdered ? "is-ordered" : ""}`}
+          key={`list-${nodes.length}`}
+        >
+          {listItems.map((item, index) => (
             <li className={zhisuanLineTone(item)} key={`${item}-${index}`}>
               {renderZhisuanRichInlineText(item)}
             </li>
           ))}
-        </ul>,
+        </ListTag>,
       );
-      bullets = [];
+      listItems = [];
     };
 
-    for (const rawLine of lines) {
+    for (let lineIndex = 0; lineIndex < lines.length;) {
+      const rawLine = lines[lineIndex];
       const line = rawLine.trim();
       if (!line) {
         flushParagraph();
-        flushBullets();
+        flushList();
+        lineIndex += 1;
+        continue;
+      }
+      const codeFenceMatch = line.match(/^```([\w-]+)?\s*$/);
+      if (codeFenceMatch) {
+        flushParagraph();
+        flushList();
+        const codeLines: string[] = [];
+        let nextLineIndex = lineIndex + 1;
+        while (nextLineIndex < lines.length && !/^```\s*$/.test(lines[nextLineIndex].trim())) {
+          codeLines.push(lines[nextLineIndex]);
+          nextLineIndex += 1;
+        }
+        nodes.push(
+          <pre className="zhisuan-code-block" key={`code-${nodes.length}`}>
+            <code data-language={codeFenceMatch[1] || undefined}>{codeLines.join("\n")}</code>
+          </pre>,
+        );
+        lineIndex = nextLineIndex < lines.length ? nextLineIndex + 1 : nextLineIndex;
+        continue;
+      }
+      const markdownTable = parseMarkdownTableAt(lines, lineIndex);
+      if (markdownTable) {
+        flushParagraph();
+        flushList();
+        nodes.push(
+          <div
+            className="zhisuan-markdown-table-wrap"
+            key={`table-${nodes.length}`}
+            role="region"
+            aria-label="回答表格，可横向滚动"
+            tabIndex={0}
+          >
+            <table className="zhisuan-markdown-table">
+              <thead>
+                <tr>
+                  {markdownTable.headers.map((header, columnIndex) => (
+                    <th
+                      key={`header-${columnIndex}`}
+                      style={{ textAlign: markdownTable.alignments[columnIndex] }}
+                      scope="col"
+                    >
+                      {renderZhisuanRichInlineText(header)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {markdownTable.rows.map((row, rowIndex) => (
+                  <tr key={`row-${rowIndex}`}>
+                    {row.map((cell, columnIndex) => (
+                      <td
+                        key={`cell-${rowIndex}-${columnIndex}`}
+                        style={{ textAlign: markdownTable.alignments[columnIndex] }}
+                      >
+                        {renderZhisuanRichInlineText(cell)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>,
+        );
+        lineIndex = markdownTable.nextLineIndex;
         continue;
       }
       if (line === ZHISUAN_WORD_REPORT_ACTION) {
         flushParagraph();
-        flushBullets();
+        flushList();
         nodes.push(renderZhisuanWordReportActions());
+        lineIndex += 1;
         continue;
       }
       if (line === ZHISUAN_PREVIEW_ACTION) {
         flushParagraph();
-        flushBullets();
+        flushList();
         nodes.push(renderZhisuanPreviewAction());
         nodes.push(
           <p className="zhisuan-message-paragraph zhisuan-next-step-advice" key={`preview-advice-${nodes.length}`}>
@@ -7151,50 +7394,78 @@ function DaweibaApp() {
             预览确认无误后执行“批量匹配”，系统将正式填写基价和两类调整系数。
           </p>,
         );
+        lineIndex += 1;
         continue;
       }
       if (line === ZHISUAN_BATCH_MATCH_ACTION) {
         flushParagraph();
-        flushBullets();
+        flushList();
         nodes.push(renderZhisuanBatchMatchAction());
+        lineIndex += 1;
         continue;
       }
-      const bulletMatch = line.match(/^(?:[-*•]|\d+[.、]|[一二三四五六七八九十]+[.、])\s*(.+)$/);
+      const bulletMatch = line.match(/^([-*•]|\d+[.、]|[一二三四五六七八九十]+[.、])\s*(.+)$/);
       if (bulletMatch) {
         flushParagraph();
-        bullets.push(bulletMatch[1].trim());
+        const ordered = !/^[-*•]$/.test(bulletMatch[1]);
+        if (listItems.length && ordered !== listIsOrdered) flushList();
+        listIsOrdered = ordered;
+        listItems.push(bulletMatch[2].trim());
+        lineIndex += 1;
+        continue;
+      }
+      const blockquoteMatch = line.match(/^>\s?(.*)$/);
+      if (blockquoteMatch) {
+        flushParagraph();
+        flushList();
+        nodes.push(
+          <blockquote className="zhisuan-blockquote" key={`quote-${nodes.length}`}>
+            {renderZhisuanRichInlineText(blockquoteMatch[1])}
+          </blockquote>,
+        );
+        lineIndex += 1;
+        continue;
+      }
+      if (/^(?:-{3,}|\*{3,}|_{3,})$/.test(line)) {
+        flushParagraph();
+        flushList();
+        nodes.push(<hr className="zhisuan-markdown-divider" key={`divider-${nodes.length}`} />);
+        lineIndex += 1;
         continue;
       }
       const headingMatch = line.match(/^#{1,4}\s*(.+)$/) || line.match(/^([一二三四五六七八九十]+[、.].{2,32})$/);
       const colonHeading = /^[^：:]{2,18}[：:]$/.test(line);
       if (headingMatch || colonHeading) {
         flushParagraph();
-        flushBullets();
+        flushList();
         const headingText = (headingMatch?.[1] ?? line).replace(/[：:]$/, "");
         nodes.push(
           <div className="zhisuan-message-heading" key={`h-${nodes.length}`}>
             {renderZhisuanRichInlineText(headingText)}
           </div>,
         );
+        lineIndex += 1;
         continue;
       }
       const severity = /高风险/.test(line) ? "high" : /低风险/.test(line) ? "low" : undefined;
       const warning = findWarningDetailFromZhisuanLine(line, severity);
       if (warning) {
         flushParagraph();
-        flushBullets();
+        flushList();
         nodes.push(
           <p className={`zhisuan-message-paragraph zhisuan-warning-line ${zhisuanLineTone(line)}`} key={`warning-${nodes.length}`}>
             <span>{renderZhisuanRichInlineText(line)}</span>
             {renderZhisuanWarningJump(warning)}
           </p>,
         );
+        lineIndex += 1;
         continue;
       }
       paragraph.push(line);
+      lineIndex += 1;
     }
     flushParagraph();
-    flushBullets();
+    flushList();
 
     return nodes.length > 0 ? nodes : renderZhisuanRichInlineText(text);
   }
@@ -7281,20 +7552,96 @@ function DaweibaApp() {
     );
   }
 
+  function renderKnowledgeEvidenceSummary(message: ChatMessage) {
+    const sources = uniqueKnowledgeSources(message.knowledgeSources ?? []);
+    if (!sources.length) return null;
+    const visibleSources = sources.slice(0, 2);
+
+    return (
+      <section className="knowledge-evidence-summary" aria-label={`依据摘要，共 ${sources.length} 条来源`}>
+        <div className="knowledge-evidence-summary__head">
+          <span className="knowledge-evidence-summary__icon" aria-hidden="true">
+            <BookOpen size={15} />
+          </span>
+          <div>
+            <strong>依据摘要</strong>
+            <small>{sources.length} 条来源 · 优先显示最相关的 {visibleSources.length} 条</small>
+          </div>
+        </div>
+        <div className="knowledge-evidence-summary__list">
+          {visibleSources.map((source, index) => (
+            <div
+              className="knowledge-evidence-summary__item"
+              key={`${source.source_file}-${source.title_path ?? ""}-${index}`}
+            >
+              <span>{source.library_name || "知识库"}</span>
+              <div>
+                <strong title={source.source_file}>{compactKnowledgeSourceName(source.source_file)}</strong>
+                {source.title_path && <small title={source.title_path}>{source.title_path}</small>}
+              </div>
+            </div>
+          ))}
+        </div>
+        <details className="knowledge-evidence-details">
+          <summary>
+            <span>查看完整依据路径</span>
+            <small>{sources.length} 条</small>
+            <ChevronDown size={14} aria-hidden="true" />
+          </summary>
+          <ol>
+            {sources.map((source, index) => (
+              <li key={`full-${source.source_file}-${source.title_path ?? ""}-${index}`}>
+                <span>{source.library_name ? `[${source.library_name}] ` : ""}{source.source_file}</span>
+                {source.title_path && <small>{source.title_path}</small>}
+              </li>
+            ))}
+          </ol>
+        </details>
+      </section>
+    );
+  }
+
+  function zhisuanMessageDisplayText(message: ChatMessage) {
+    const content = message.role === "assistant"
+      ? (message.displayContent ?? message.content)
+      : message.content;
+    return message.role === "assistant" && (message.knowledgeSources?.length ?? 0) > 0
+      ? removeVerboseEvidenceSection(content)
+      : content;
+  }
+
+  function renderZhisuanAnswerHeading(message: ChatMessage) {
+    if (message.role !== "assistant" || !(message.knowledgeSources?.length ?? 0)) return null;
+    return (
+      <div className="zhisuan-answer-heading" role="heading" aria-level={3}>
+        <span className="knowledge-evidence-summary__icon" aria-hidden="true">
+          <Sparkles size={15} />
+        </span>
+        <strong>智算回答</strong>
+      </div>
+    );
+  }
+
   function renderZhisuanMessageBody(message: ChatMessage) {
     return (
       <div className="chat-message-body">
+        {renderZhisuanAnswerHeading(message)}
         {message.attachment
           ? renderZhisuanFileAttachment(message.attachment)
-          : renderZhisuanMessageText(message.role === "assistant" ? (message.displayContent ?? message.content) : message.content)}
+          : renderZhisuanMessageText(zhisuanMessageDisplayText(message))}
         {message.role === "assistant"
           && !message.isTyping
           && message.content === zhisuanWelcomeMessage
           && renderZhisuanModuleLinks()}
         {message.role === "assistant" && !message.isTyping && renderZhisuanInlineAction(message)}
+        {message.role === "assistant" && !message.isTyping && renderKnowledgeEvidenceSummary(message)}
         {message.role === "assistant" && message.isTyping && <i className="typing-caret" />}
         {message.role === "assistant" && !message.isTyping && (message.projectMemories?.length ?? 0) > 0 && (
           <div className="knowledge-memory-hit-list">
+            <div className="knowledge-memory-hit-list__head">
+              <span>已确认知识记忆</span>
+              <small>{message.projectMemories?.length} 条</small>
+            </div>
             {message.projectMemories?.map((memory) => (
               <button
                 key={memory.id}
@@ -7332,15 +7679,17 @@ function DaweibaApp() {
         {message.role === "assistant" && !message.isTyping && message.knowledgeCandidate && (
           <div className="zhisuan-message-actions">
             <button
-              className="zhisuan-action-button secondary"
+              className="zhisuan-action-button secondary knowledge-candidate-action"
               type="button"
               onClick={(event) => {
                 event.stopPropagation();
                 openKnowledgeCandidate(message.knowledgeCandidate!);
               }}
             >
-              <Database size={14} />
-              保存为知识候选
+              <span className="knowledge-evidence-summary__icon" aria-hidden="true">
+                <Database size={15} />
+              </span>
+              <span>保存为知识候选</span>
             </button>
           </div>
         )}
@@ -7614,6 +7963,11 @@ function DaweibaApp() {
   const experienceInfoDetail = result
     ? `价格 ${result.summary.matched_rows} · 实物 ${result.summary.physical_experience_rows} · 技术 ${result.summary.technical_experience_rows}`
     : "转换后显示经验信息数";
+  const availableKnowledgeSourceCount = knowledgeLibraries.reduce(
+    (total, library) => total + (library.available && library.kind === "static" ? library.source_count ?? 0 : 0),
+    0,
+  );
+  const availableKnowledgeLibraryCount = knowledgeLibraries.filter((library) => library.available).length;
   const workbenchStatusCards = [
     {
       label: "预警概览",
@@ -7644,8 +7998,10 @@ function DaweibaApp() {
     {
       label: "知识库",
       icon: <BookOpen size={15} />,
-      value: `${KNOWLEDGE_QA_ENTRY_COUNT} 条知识`,
-      detail: `${KNOWLEDGE_QA_SOURCE_COUNT} 个来源 · 结构化计价库 ${PRICE_KNOWLEDGE_ROW_COUNT} 条`,
+      value: isKnowledgeLibrariesLoading ? "读取中" : `${availableKnowledgeSourceCount} 个来源`,
+      detail: isKnowledgeLibrariesLoading
+        ? "正在读取知识库配置"
+        : `${availableKnowledgeLibraryCount} 层可选知识库 · 结构化计价库 ${PRICE_KNOWLEDGE_ROW_COUNT} 条`,
     },
   ];
   const agentTaskBusy = Boolean(
@@ -7810,6 +8166,23 @@ function DaweibaApp() {
       : feishuWebhookStatus.enabled
         ? "已启用"
         : "已配置未启用";
+  const selectedFillAssistCandidate = fillAssistDialog?.candidates.find(
+    (candidate) => candidate.id === fillAssistDialog.selectedCandidateId,
+  ) ?? null;
+  const fillAssistRowAiContext = fillAssistDialog
+    && rowAiContext
+    && normalizePreviewSheetName(rowAiContext.sheetName) === normalizePreviewSheetName(fillAssistDialog.context.sheet_name)
+    && rowAiContext.rowNumber === fillAssistDialog.context.excel_row
+    ? rowAiContext
+    : null;
+  const fillAssistCandidateReviewContext = selectedFillAssistCandidate
+    ? [
+        `当前结构化建议值：${selectedFillAssistCandidate.value}`,
+        `候选来源：${fillAssistSourceDisplay(selectedFillAssistCandidate)}`,
+        `结构化匹配说明：${selectedFillAssistCandidate.reason}`,
+        "请结合本行要素核对该候选是否适合作为人工确认参考，但不要生成或写入新的数值。",
+      ].join("\n")
+    : "";
 
   return (
     <main
@@ -8005,46 +8378,28 @@ function DaweibaApp() {
         <aside className={`daweiba-nav ${isLeftColumnCollapsed ? "is-collapsed" : ""}`} aria-label="大尾巴主题模块导航">
             <div className="daweiba-icon-rail" aria-label="全局快捷入口">
               <button className="daweiba-mark" type="button" title={APP_NAME} onClick={() => setActiveDaweibaModule("fill")}>智</button>
-              <button
-                className={`daweiba-icon-link ${activeDaweibaModule === "agent" ? "is-active" : ""}`}
-                type="button"
-                title="智算助手"
-                onClick={openAgentWorkspace}
-              >
-                <Sparkles size={18} />
-              </button>
-              <button
-                className={`daweiba-icon-link ${activeDaweibaModule === "fill" ? "is-active" : ""}`}
-                type="button"
-                title="填价工作台"
-                onClick={() => setActiveDaweibaModule("fill")}
-              >
-                <FileSpreadsheet size={18} />
-              </button>
-              <button
-                className={`daweiba-icon-link ${activeDaweibaModule === "preview" ? "is-active" : ""}`}
-                type="button"
-                title="表格预览"
-                onClick={() => setActiveDaweibaModule("preview")}
-              >
-                <Columns3 size={18} />
-              </button>
-              <button
-                className={`daweiba-icon-link ${activeDaweibaModule === "knowledge" ? "is-active" : ""}`}
-                type="button"
-                title="知识库问答"
-                onClick={openDaweibaKnowledge}
-              >
-                <Bot size={18} />
-              </button>
-              <button
-                className={`daweiba-icon-link ${activeDaweibaModule === "collaboration" ? "is-active" : ""}`}
-                type="button"
-                title="智能协同"
-                onClick={() => setActiveDaweibaModule("collaboration")}
-              >
-                <Send size={18} />
-              </button>
+              {daweibaModules.map((item) => (
+                <button
+                  className={`daweiba-icon-link ${activeDaweibaModule === item.id ? "is-active" : ""}`}
+                  type="button"
+                  aria-label={item.name}
+                  title={item.name}
+                  key={`shortcut-${item.id}`}
+                  onClick={() => {
+                    if (item.id === "agent") {
+                      openAgentWorkspace();
+                      return;
+                    }
+                    if (item.id === "knowledge") {
+                      openDaweibaKnowledge();
+                      return;
+                    }
+                    setActiveDaweibaModule(item.id);
+                  }}
+                >
+                  {item.icon}
+                </button>
+              ))}
               <button className="daweiba-icon-link" type="button" title="页面设置" onClick={() => setIsPageSettingsOpen(true)}>
                 <Settings size={18} />
               </button>
@@ -9736,6 +10091,13 @@ function DaweibaApp() {
                 <h2>知识库状态</h2>
               </div>
             </div>
+            <KnowledgeLibrarySelector
+              libraries={knowledgeLibraries}
+              selectedIds={selectedKnowledgeLibraryIds}
+              loading={isKnowledgeLibrariesLoading}
+              error={knowledgeLibrariesError}
+              onChange={setSelectedKnowledgeLibraryIds}
+            />
             <div className="daweiba-knowledge-grid">
               <div className="daweiba-knowledge-card is-primary">
                 <Database size={26} />
@@ -10181,6 +10543,7 @@ function DaweibaApp() {
             isBusy={agentTaskBusy}
             actions={agentWorkspaceActions}
             artifacts={agentWorkspaceArtifacts}
+            knowledgeQuestions={zhisuanWindowDefaults.commonQuestions}
             onInputChange={setChatInput}
             onInputFocusChange={setIsChatInputFocused}
             onSelectSkill={selectAgentSkill}
@@ -10248,7 +10611,7 @@ function DaweibaApp() {
                       ) : (
                         chatMessages.map((message, index) => (
                           <div
-                            className={`chat-message ${message.role} ${message.source ? `source-${message.source}` : ""} ${message.isTyping ? "is-typing" : ""}`}
+                            className={`chat-message ${message.role} ${message.role === "assistant" && !showZhisuanAssistantAvatar ? "is-avatar-hidden" : ""} ${message.source ? `source-${message.source}` : ""} ${message.isTyping ? "is-typing" : ""}`}
                             key={message.id ?? `${message.role}-${index}`}
                             onClick={() => {
                               if (message.role === "assistant" && message.isTyping) {
@@ -10257,19 +10620,27 @@ function DaweibaApp() {
                             }}
                             title={message.role === "assistant" && message.isTyping ? "点击立即显示全部" : undefined}
                           >
-                            <span className="chat-message-speaker">{message.role === "user" ? "U" : "Z"}</span>
+                            {(message.role === "user" || showZhisuanAssistantAvatar) && (
+                              <span className="chat-message-speaker">{message.role === "user" ? "U" : "Z"}</span>
+                            )}
                             <div className="chat-message-body">
+                              {renderZhisuanAnswerHeading(message)}
                               {message.attachment
                                 ? renderZhisuanFileAttachment(message.attachment)
-                                : renderZhisuanMessageText(message.role === "assistant" ? (message.displayContent ?? message.content) : message.content)}
+                                : renderZhisuanMessageText(zhisuanMessageDisplayText(message))}
                               {message.role === "assistant"
                                 && !message.isTyping
                                 && message.content === zhisuanWelcomeMessage
                                 && renderZhisuanModuleLinks()}
                               {message.role === "assistant" && !message.isTyping && renderZhisuanInlineAction(message)}
+                              {message.role === "assistant" && !message.isTyping && renderKnowledgeEvidenceSummary(message)}
                               {message.role === "assistant" && message.isTyping && <i className="typing-caret" />}
                               {message.role === "assistant" && !message.isTyping && (message.projectMemories?.length ?? 0) > 0 && (
                                 <div className="knowledge-memory-hit-list">
+                                  <div className="knowledge-memory-hit-list__head">
+                                    <span>已确认知识记忆</span>
+                                    <small>{message.projectMemories?.length} 条</small>
+                                  </div>
                                   {message.projectMemories?.map((memory) => (
                                     <button
                                       key={memory.id}
@@ -10307,15 +10678,17 @@ function DaweibaApp() {
                               {message.role === "assistant" && !message.isTyping && message.knowledgeCandidate && (
                                 <div className="zhisuan-message-actions">
                                   <button
-                                    className="zhisuan-action-button secondary"
+                                    className="zhisuan-action-button secondary knowledge-candidate-action"
                                     type="button"
                                     onClick={(event) => {
                                       event.stopPropagation();
                                       openKnowledgeCandidate(message.knowledgeCandidate!);
                                     }}
                                   >
-                                    <Database size={14} />
-                                    保存为知识候选
+                                    <span className="knowledge-evidence-summary__icon" aria-hidden="true">
+                                      <Database size={15} />
+                                    </span>
+                                    <span>保存为知识候选</span>
                                   </button>
                                 </div>
                               )}
@@ -10343,18 +10716,40 @@ function DaweibaApp() {
                       </div>
                     </div>
                     <div className="chat-compose">
+                      <KnowledgeQuestionSuggestions
+                        value={chatInput}
+                        questions={zhisuanWindowDefaults.commonQuestions}
+                        placement="dock"
+                        onSelect={(question) => {
+                          setChatInput(knowledgeQuestionPrompt(question));
+                          window.requestAnimationFrame(() => chatInputRef.current?.focus());
+                        }}
+                      />
                       <textarea
                         ref={chatInputRef}
                         value={chatInput}
                         rows={3}
                         placeholder="输入一句问题"
                         onChange={(event) => setChatInput(event.target.value)}
-                        onFocus={() => setIsChatInputFocused(true)}
-                        onBlur={() => setIsChatInputFocused(false)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-                            event.preventDefault();
-                            sendChatMessage();
+                  onFocus={() => setIsChatInputFocused(true)}
+                  onBlur={() => setIsChatInputFocused(false)}
+                  onKeyDown={(event) => {
+                    const spaceCompletion = agentComposerSpaceCompletion(chatInput);
+                    if (
+                      event.key === " "
+                      && !event.altKey
+                      && !event.ctrlKey
+                      && !event.metaKey
+                      && !event.nativeEvent.isComposing
+                      && spaceCompletion
+                    ) {
+                      event.preventDefault();
+                      setChatInput(spaceCompletion);
+                      return;
+                    }
+                    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                      event.preventDefault();
+                      sendChatMessage();
                           }
                         }}
                       />
@@ -10601,12 +10996,15 @@ function DaweibaApp() {
                   )}
                   <div className="fill-assist-workspace">
                     <section className="fill-assist-candidate-panel" aria-labelledby="fill-assist-candidate-title">
-                      <div className="fill-assist-section-heading">
+                      <div className="fill-assist-column-head">
+                        <span className="fill-assist-column-icon" aria-hidden="true">
+                          <Database size={17} />
+                        </span>
                         <div>
-                          <p>推荐候选</p>
-                          <h3 id="fill-assist-candidate-title">选择建议值</h3>
+                          <p>建议值</p>
+                          <h3 id="fill-assist-candidate-title">结构化候选</h3>
                         </div>
-                        <span>{fillAssistDialog.candidates.length} 个候选</span>
+                        <small>{fillAssistDialog.candidates.length} 个候选</small>
                       </div>
                       {fillAssistDialog.candidates.length > 0 ? (
                         <div className="fill-assist-candidates">
@@ -10616,7 +11014,11 @@ function DaweibaApp() {
                                 type="radio"
                                 name="fill-assist-candidate"
                                 checked={fillAssistDialog.selectedCandidateId === candidate.id}
-                                onChange={() => setFillAssistDialog((current) => current ? { ...current, selectedCandidateId: candidate.id } : current)}
+                                onChange={() => {
+                                  setFillAssistDialog((current) => current ? { ...current, selectedCandidateId: candidate.id } : current);
+                                  setRowAiAnswer("");
+                                }}
+                                disabled={isRowAiLoading}
                               />
                               <span className="fill-assist-selection-dot" aria-hidden="true" />
                               <span className="fill-assist-candidate-content">
@@ -10628,7 +11030,7 @@ function DaweibaApp() {
                                   </span>
                                 </span>
                                 <span className="fill-assist-candidate-metrics">
-                                  {typeof candidate.similarity === "number" && <small>相似度 {candidate.similarity}%</small>}
+                                  {typeof candidate.similarity === "number" && <small className="fill-assist-similarity">相似度 {candidate.similarity}%</small>}
                                   {typeof candidate.sample_count === "number" && <small>样本 {candidate.sample_count} 条</small>}
                                 </span>
                                 <em>{candidate.reason}</em>
@@ -10647,13 +11049,17 @@ function DaweibaApp() {
                     </section>
 
                     <aside className="fill-assist-sidebar">
-                      <section className="fill-assist-context-panel" aria-labelledby="fill-assist-context-title">
-                        <div className="fill-assist-section-heading is-compact">
-                          <div>
-                            <p>当前记录</p>
-                            <h3 id="fill-assist-context-title">行信息</h3>
-                          </div>
+                      <div className="fill-assist-column-head">
+                        <span className="fill-assist-column-icon" aria-hidden="true">
+                          <FileSpreadsheet size={17} />
+                        </span>
+                        <div>
+                          <p>当前记录</p>
+                          <h3 id="fill-assist-context-title">行信息与依据</h3>
                         </div>
+                        <small>本行上下文</small>
+                      </div>
+                      <section className="fill-assist-context-panel" aria-labelledby="fill-assist-context-title">
                         <div className="fill-assist-context-highlight">
                           <span>
                             <small>待填字段</small>
@@ -10731,6 +11137,86 @@ function DaweibaApp() {
                           placeholder="补充人工采用理由"
                         />
                       </label>
+                    </aside>
+
+                    <aside className="fill-assist-ai-review" aria-labelledby="fill-assist-ai-title">
+                      <div className="fill-assist-column-head">
+                        <span className="fill-assist-column-icon" aria-hidden="true">
+                          <Bot size={17} />
+                        </span>
+                        <div>
+                          <p>大模型辅助</p>
+                          <h3 id="fill-assist-ai-title">行级AI复核</h3>
+                        </div>
+                        <small>只解释，不写值</small>
+                      </div>
+
+                      <section className="fill-assist-ai-candidate" aria-label="当前结构化建议">
+                        <div>
+                          <span>当前结构化建议</span>
+                          <small>供大模型复核时对照</small>
+                        </div>
+                        {selectedFillAssistCandidate ? (
+                          <>
+                            <strong>{selectedFillAssistCandidate.value}</strong>
+                            <span className={`fill-assist-source ${fillAssistSourceClass(selectedFillAssistCandidate)}`}>
+                              {fillAssistSourceDisplay(selectedFillAssistCandidate)}
+                            </span>
+                            <p>{selectedFillAssistCandidate.reason}</p>
+                          </>
+                        ) : (
+                          <p>请先从左侧选择一个候选值。</p>
+                        )}
+                      </section>
+
+                      <label className="fill-assist-ai-question">
+                        <span>复核问题</span>
+                        <textarea
+                          rows={4}
+                          value={rowAiQuestion}
+                          onChange={(event) => setRowAiQuestion(event.target.value)}
+                          placeholder="说明希望大模型重点复核的内容"
+                        />
+                      </label>
+
+                      <button
+                        className="fill-assist-ai-submit"
+                        type="button"
+                        disabled={!fillAssistRowAiContext || isRowAiLoading || !rowAiQuestion.trim()}
+                        onClick={() => void askRowAi(
+                          fillAssistRowAiContext,
+                          [rowAiQuestion.trim(), fillAssistCandidateReviewContext].filter(Boolean).join("\n\n"),
+                          { showDetailPrompt: false },
+                        )}
+                      >
+                        {isRowAiLoading ? <Loader2 className="spin" size={16} /> : <Sparkles size={16} />}
+                        {isRowAiLoading ? "正在复核" : "开始AI复核"}
+                      </button>
+
+                      <section
+                        className={`fill-assist-ai-answer ${isRowAiLoading ? "is-loading" : ""} ${rowAiAnswer ? "has-answer" : ""}`}
+                        aria-label="大模型复核建议"
+                        aria-live="polite"
+                      >
+                        <header>
+                          <Sparkles size={15} aria-hidden="true" />
+                          <strong>大模型建议</strong>
+                        </header>
+                        <div>
+                          {isRowAiLoading ? (
+                            <span>正在结合本行要素、三个数字、候选值与知识库依据生成复核意见...</span>
+                          ) : rowAiAnswer ? (
+                            renderZhisuanMessageText(rowAiAnswer)
+                          ) : (
+                            <span>点击“开始AI复核”，即可在这里对照查看模型意见。模型不会替您采用或写入候选值。</span>
+                          )}
+                        </div>
+                      </section>
+
+                      <p className="fill-assist-ai-boundary">
+                        <ShieldCheck size={15} />
+                        候选值仍由结构化资料生成；大模型建议仅供人工复核。
+                      </p>
                     </aside>
                   </div>
                 </>
@@ -11732,6 +12218,17 @@ function DaweibaApp() {
                   onChange={(event) => updateZhisuanQuickAutoHide(event.target.checked)}
                 />
               </label>
+              <label className="preference-row">
+                <span>
+                  <strong>显示智算消息头像</strong>
+                  <small>默认关闭；关闭后隐藏助手消息左侧的 Z 头像，并释放对应的横向空间。</small>
+                </span>
+                <input
+                  checked={showZhisuanAssistantAvatar}
+                  type="checkbox"
+                  onChange={(event) => setShowZhisuanAssistantAvatar(event.target.checked)}
+                />
+              </label>
               <label className="field-preference-item">
                 <span>智算外观风格</span>
                 <select
@@ -11787,7 +12284,7 @@ function DaweibaApp() {
                   应用当前会话设置
                 </button>
               </div>
-              <p className="settings-hint">聊天区高度、横向宽度、纵向高度偏好、欢迎语、智算外观风格和显示项统一来自项目默认配置；本页调整仅在当前会话生效，不写入浏览器本地。横向宽度默认 400px；纵向高度跟随窗口默认关闭；显示项默认全部关闭；两版新外观默认不启用，只改变右侧智算 Dock 的外在表现，不改变功能逻辑。</p>
+              <p className="settings-hint">聊天区高度、横向宽度、纵向高度偏好、欢迎语、消息头像、智算外观风格和显示项统一来自项目默认配置；本页调整仅在当前会话生效，不写入浏览器本地。横向宽度默认 400px；纵向高度跟随窗口和智算消息头像默认关闭；显示项默认全部关闭；两版新外观默认不启用，只改变右侧智算 Dock 的外在表现，不改变功能逻辑。</p>
             </div>}
             {activeLlmSettingsTab === "commands" && <div className="settings-subsection zhisuan-quick-settings daweiba-settings-pane">
               <span className="settings-subsection-title">问问智算快捷指令</span>
