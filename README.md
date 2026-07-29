@@ -51,7 +51,7 @@ CHANGELOG.md
 | Windows 绿色版 | `docs/绿色版说明.md` |
 | Tauri 桌面版 | `docs/Tauri桌面壳MVP说明.md` |
 | 统信 UOS 兼容性准备 | `docs/统信UOS兼容性开发说明.md` |
-| 云端发布与验收 | `docs/云端发布与验收操作指南.md`、`00-PRD/05-线程交接提示词/云端发布专用线程-交接提示词.md` |
+| 云端发布与验收 | `tools/build_cloud_release.py`、`docs/云端发布与验收操作指南.md`、`00-PRD/05-线程交接提示词/云端发布专用线程-交接提示词.md` |
 
 ## PRD 入口
 
