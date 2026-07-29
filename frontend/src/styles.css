@@ -14168,14 +14168,20 @@ tbody tr:hover .row-ai-cell {
   display: block;
 }
 
-.shell.layout-daweiba .daweiba-collaboration-body.is-connections,
-.shell.layout-daweiba .daweiba-collaboration-body.is-notifications {
+.shell.layout-daweiba .daweiba-collaboration-body.is-connections {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.shell.layout-daweiba .daweiba-collaboration-body.is-connections > section,
-.shell.layout-daweiba .daweiba-collaboration-body.is-notifications > section {
+.shell.layout-daweiba .daweiba-collaboration-body.is-notifications {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.shell.layout-daweiba .daweiba-collaboration-body.is-connections > section {
   grid-column: auto;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-body.is-notifications > section {
+  grid-column: 1 / -1;
 }
 
 .shell.layout-daweiba .daweiba-collaboration-settings.is-second-layer {
@@ -14194,12 +14200,13 @@ tbody tr:hover .row-ai-cell {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
+  padding-block: 8px 4px;
 }
 
 .shell.layout-daweiba .daweiba-external-dispatch-form label {
   display: grid;
   align-content: start;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
   color: var(--db-text-muted);
   font-size: 12px;
@@ -14208,6 +14215,7 @@ tbody tr:hover .row-ai-cell {
 .shell.layout-daweiba .daweiba-external-dispatch-form label > span {
   color: var(--db-text-strong);
   font-weight: 600;
+  line-height: 1.4;
 }
 
 .shell.layout-daweiba .daweiba-external-dispatch-form label.is-wide {
@@ -14787,7 +14795,7 @@ tbody tr:hover .row-ai-cell {
 
 .shell.layout-daweiba .daweiba-collaboration-settings.is-webhook-layer .daweiba-collaboration-form-grid {
   row-gap: 18px;
-  padding-block: 4px 2px;
+  padding-block: 8px 4px;
 }
 
 .shell.layout-daweiba .daweiba-collaboration-form-grid label {
@@ -14808,6 +14816,7 @@ tbody tr:hover .row-ai-cell {
   color: var(--db-text);
   font-size: 12px;
   font-weight: 600;
+  line-height: 1.4;
 }
 
 .shell.layout-daweiba .daweiba-collaboration-form-grid input {
