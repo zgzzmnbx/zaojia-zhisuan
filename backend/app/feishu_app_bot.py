@@ -95,6 +95,281 @@ BOT_INTRODUCTION = (
     "• 上传时请在收到提示后的 1 分钟内发送一个 .xlsx 文件。\n\n"
     "说明：价格和系数仍由造价智算规则与知识库处理，大模型不会直接裁决最终结果。"
 )
+MARKDOWN_TABLE_SEPARATOR_CELL = re.compile(r"^:?-{3,}:?$")
+MARKDOWN_LINK = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+MARKDOWN_LINE_BREAK = re.compile(r"<br\s*/?>", re.IGNORECASE)
+
+
+def _split_markdown_table_row(line: str) -> list[str]:
+    value = line.strip()
+    if "|" not in value:
+        return []
+    if value.startswith("|"):
+        value = value[1:]
+    if value.endswith("|") and not value.endswith("\\|"):
+        value = value[:-1]
+
+    cells: list[str] = []
+    cell: list[str] = []
+    escaped = False
+    for char in value:
+        if escaped:
+            cell.append(char)
+            escaped = False
+        elif char == "\\":
+            escaped = True
+        elif char == "|":
+            cells.append("".join(cell).strip())
+            cell = []
+        else:
+            cell.append(char)
+    if escaped:
+        cell.append("\\")
+    cells.append("".join(cell).strip())
+    return cells
+
+
+def _plain_markdown_cell(value: str) -> str:
+    text = MARKDOWN_LINE_BREAK.sub(" / ", value.strip())
+    text = MARKDOWN_LINK.sub(r"\1（\2）", text)
+    for marker in ("**", "__", "~~", "`"):
+        text = text.replace(marker, "")
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _parse_markdown_table_at(
+    lines: list[str],
+    index: int,
+) -> tuple[list[str], list[list[str]], int] | None:
+    header = _split_markdown_table_row(lines[index])
+    if len(header) < 2 or index + 1 >= len(lines):
+        return None
+
+    separator = _split_markdown_table_row(lines[index + 1])
+    if len(separator) != len(header) or not all(
+        MARKDOWN_TABLE_SEPARATOR_CELL.fullmatch(cell.strip()) for cell in separator
+    ):
+        return None
+
+    rows: list[list[str]] = []
+    cursor = index + 2
+    while cursor < len(lines):
+        row = _split_markdown_table_row(lines[cursor])
+        if not row:
+            break
+        if len(row) < len(header):
+            row.extend([""] * (len(header) - len(row)))
+        elif len(row) > len(header):
+            break
+        rows.append(row)
+        cursor += 1
+    if not rows:
+        return None
+    return header, rows, cursor
+
+
+def format_markdown_tables_for_plain_chat(text: str) -> str:
+    """Convert GFM tables into a compact list that Feishu and WeAct can display."""
+    lines = str(text or "").splitlines()
+    output: list[str] = []
+    index = 0
+
+    while index < len(lines):
+        table = _parse_markdown_table_at(lines, index)
+        if table is None:
+            output.append(lines[index])
+            index += 1
+            continue
+        header, rows, cursor = table
+
+        labels = [
+            _plain_markdown_cell(cell) or f"字段{column_index}"
+            for column_index, cell in enumerate(header, start=1)
+        ]
+        for row_index, row in enumerate(rows, start=1):
+            first_value = _plain_markdown_cell(row[0]) or "—"
+            output.append(f"【{row_index}】{labels[0]}：{first_value}")
+            for label, value in zip(labels[1:], row[1:]):
+                output.append(f"• {label}：{_plain_markdown_cell(value) or '—'}")
+            if row_index < len(rows):
+                output.append("")
+        index = cursor
+
+    return "\n".join(output)
+
+
+def _plain_markdown_block(value: str) -> str:
+    lines: list[str] = []
+    in_code_block = False
+    for raw_line in value.splitlines():
+        line = raw_line.strip()
+        if line.startswith("```"):
+            in_code_block = not in_code_block
+            continue
+        line = re.sub(r"^#{1,6}\s+", "", line)
+        line = re.sub(r"^>\s?", "", line)
+        line = re.sub(r"^[-*+]\s+", "• ", line)
+        line = _plain_markdown_cell(line)
+        if in_code_block and line:
+            line = f"  {line}"
+        lines.append(line)
+    return "\n".join(lines).strip()
+
+
+def _safe_lark_markdown(value: str) -> str:
+    return (
+        _plain_markdown_cell(value)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
+def _native_feishu_table(header: list[str], rows: list[list[str]]) -> dict[str, Any]:
+    labels = [_plain_markdown_cell(cell) or f"字段{index}" for index, cell in enumerate(header, start=1)]
+    columns: list[dict[str, Any]] = []
+    for index, label in enumerate(labels, start=1):
+        column: dict[str, Any] = {
+            "name": f"column_{index}",
+            "display_name": label,
+            "data_type": "text",
+            "horizontal_align": "left",
+            "vertical_align": "top",
+            "width": "auto",
+        }
+        if len(labels) == 3:
+            column["width"] = ("22%", "24%", "54%")[index - 1]
+        columns.append(column)
+    return {
+        "tag": "table",
+        "page_size": min(10, max(1, len(rows))),
+        "row_height": "high",
+        "freeze_first_column": len(labels) > 3,
+        "header_style": {
+            "text_align": "left",
+            "text_size": "normal",
+            "background_style": "grey",
+            "text_color": "default",
+            "bold": True,
+            "lines": 2,
+        },
+        "columns": columns,
+        "rows": [
+            {
+                f"column_{column_index}": _plain_markdown_cell(value) or "—"
+                for column_index, value in enumerate(row, start=1)
+            }
+            for row in rows
+        ],
+    }
+
+
+def _weact_compatible_table_rows(header: list[str], rows: list[list[str]]) -> list[dict[str, Any]]:
+    labels = [_plain_markdown_cell(cell) or f"字段{index}" for index, cell in enumerate(header, start=1)]
+    elements: list[dict[str, Any]] = []
+    for row_index, row in enumerate(rows):
+        fields: list[dict[str, Any]] = []
+        for label, value in zip(labels, row):
+            clean_value = _safe_lark_markdown(value) or "—"
+            is_short = len(label) <= 12 and len(clean_value) <= 24
+            fields.append({
+                "is_short": is_short,
+                "text": {
+                    "tag": "lark_md",
+                    "content": f"**{_safe_lark_markdown(label)}**\n{clean_value}",
+                },
+            })
+        elements.append({"tag": "div", "fields": fields})
+        if row_index < len(rows) - 1:
+            elements.append({"tag": "hr"})
+    return elements
+
+
+def build_markdown_table_answer_card(
+    text: str,
+    *,
+    title: str,
+    native_table: bool,
+) -> dict[str, Any] | None:
+    lines = str(text or "").splitlines()
+    elements: list[dict[str, Any]] = []
+    text_buffer: list[str] = []
+    table_count = 0
+    index = 0
+
+    def flush_text_buffer() -> None:
+        content = _plain_markdown_block("\n".join(text_buffer))
+        text_buffer.clear()
+        if content:
+            if elements and elements[-1].get("tag") != "hr":
+                elements.append({"tag": "hr"})
+            elements.append({
+                "tag": "div",
+                "text": {"tag": "plain_text", "content": content},
+            })
+
+    while index < len(lines):
+        table = _parse_markdown_table_at(lines, index)
+        if table is None:
+            text_buffer.append(lines[index])
+            index += 1
+            continue
+
+        flush_text_buffer()
+        header, rows, cursor = table
+        if elements and elements[-1].get("tag") != "hr":
+            elements.append({"tag": "hr"})
+        if native_table:
+            elements.append(_native_feishu_table(header, rows))
+        else:
+            elements.extend(_weact_compatible_table_rows(header, rows))
+        table_count += 1
+        index = cursor
+
+    flush_text_buffer()
+    if table_count == 0 or table_count > 5:
+        return None
+
+    card = {
+        "config": {"wide_screen_mode": True},
+        "header": {
+            "title": {"tag": "plain_text", "content": title},
+            "template": "blue",
+        },
+        "elements": elements,
+    }
+    if len(json.dumps(card, ensure_ascii=False).encode("utf-8")) > 28_000:
+        return None
+    return card
+
+
+def send_answer_with_table_card(
+    chat_id: str,
+    answer: str,
+    feishu: FeishuApi,
+    *,
+    title: str,
+    fallback_heading: str = "",
+    log_category: str,
+) -> str:
+    native_table = getattr(feishu, "domain", DEFAULT_FEISHU_DOMAIN) == DEFAULT_FEISHU_DOMAIN
+    card = build_markdown_table_answer_card(answer, title=title, native_table=native_table)
+    if card is not None:
+        try:
+            feishu.send_card(chat_id, card)
+            return "card"
+        except Exception as exc:
+            append_runtime_event(
+                log_category,
+                f"结构化回答卡片发送失败，已降级为文字清单：{sanitize_error(exc)}",
+                level="warning",
+                profile_id=active_profile_id(),
+            )
+
+    plain_answer = format_markdown_tables_for_plain_chat(answer)
+    fallback = f"{fallback_heading}\n\n{plain_answer}" if fallback_heading else plain_answer
+    feishu.send_text(chat_id, fallback)
+    return "text"
 
 
 def normalize_feishu_domain(value: object) -> str:
@@ -1890,7 +2165,14 @@ def accept_knowledge_event(
 def answer_knowledge_event(chat_id: str, question: str, feishu: FeishuApi, professional: ProfessionalApi) -> None:
     try:
         answer = professional.ask_knowledge(question)
-        feishu.send_text(chat_id, f"知识库查询完成：\n\n{answer}")
+        send_answer_with_table_card(
+            chat_id,
+            answer,
+            feishu,
+            title="造价智算 · 知识库回答",
+            fallback_heading="知识库查询完成：",
+            log_category="knowledge",
+        )
         append_runtime_event("knowledge", "知识库问题查询完成并已回复", level="success", profile_id=active_profile_id())
     except Exception as exc:
         append_runtime_event("knowledge", f"知识库问题查询失败：{sanitize_error(exc)}", level="error", profile_id=active_profile_id())
@@ -2101,7 +2383,13 @@ def accept_conversation_event(
 def answer_chat_event(chat_id: str, question: str, feishu: FeishuApi, professional: ProfessionalApi) -> None:
     try:
         answer = professional.ask_chat(question)
-        feishu.send_text(chat_id, answer)
+        send_answer_with_table_card(
+            chat_id,
+            answer,
+            feishu,
+            title="造价智算 · 智能回答",
+            log_category="message",
+        )
         append_runtime_event("message", "大模型托底问答完成并已回复", level="success", profile_id=active_profile_id())
     except Exception as exc:
         append_runtime_event("message", f"大模型托底问答失败：{sanitize_error(exc)}", level="error", profile_id=active_profile_id())
