@@ -64,7 +64,7 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.16.1";
+const APP_VERSION = "v5.16.2";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const PRICE_KNOWLEDGE_ROW_COUNT = 560;
 const FORCE_KNOWLEDGE_PREFIXES = ["查库：", "查库:", "@知识库", "#知识库"] as const;

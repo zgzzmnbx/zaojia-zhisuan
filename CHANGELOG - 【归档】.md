@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## v5.15.4 - 2026-07-27
+
+- 将当前已验收界面正式沉淀为“大尾巴 Shadcn UI v1.0.0”：以 shadcn/ui preset `b1au7YYAi` 的 Rhea / Neutral / Blue / Lucide 和 Inter 比例语言为设计输入，运行时继续使用项目自托管苹方，不全量执行 shadcn init / create / apply，也不引入 Tailwind 或第二套全局主题。
+- 新增 `frontend/src/design-system/dabawei-shadcn-ui.tokens.json` 与 `dabawei-shadcn-ui.css`，建立 primitive → semantic → component 三层令牌；现有大尾巴主题和 Dashboard 通过 `--dws-*` 变量映射渐进接入，保留成功、警告、危险等业务语义色和组件局部作用域。
+- UI 规范补齐按钮、输入框、卡片、分段切换、表格、弹窗、图表、状态与无障碍规则；新增可独立查看的组件样张和 `tools/check_ui_design_system.py` 自动检查器，并同步 README、产品总览、当前版本计划、Dashboard PRD 与开发提示词。
+- 验证完成：设计令牌 JSON 与自动检查器通过，前端生产构建成功，后端 API 专项 `65 passed, 2 skipped`，PRD 一致性巡检和 `git diff --check` 通过；内置浏览器确认 v5.15.4、苹方字体、`#2563EB` 主色、`#E2E8F0` 边框、148×36 分段切换器均在运行态生效，项目看板、新建填价、结果预览和右侧智算无横向溢出、控制台 0 错误 / 0 警告。
+
 ## v5.15.3 - 2026-07-26
 
 - Dashboard 在五项 KPI 与分析图表之间新增“项目进入 → 完成匹配 → 完成预警 → 生成报告 → 完成复核”横向处理漏斗，以当前筛选项目累计统计每阶段数量、相对上一阶段转化率和流失量，便于汇报对象一眼理解业务闭环。
