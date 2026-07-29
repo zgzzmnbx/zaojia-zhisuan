@@ -15,7 +15,9 @@ from app.feishu_app_bot import (
     accept_conversation_event, accept_knowledge_event, acknowledge_message_event, answer_chat_event, answer_group_members_event,
     answer_task_result_event,
     answer_knowledge_event, append_runtime_event, describe_message_event,
-    CONTROL_PATH, PID_PATH, cleanup_expired, credential_configuration_issue, is_bot_enabled, load_bot_defaults, load_completion_card_app_url, load_credentials,
+    PROFILE_ENVIRONMENT_KEY, active_profile_id, bot_pid_path, cleanup_expired,
+    credential_configuration_issue, is_bot_enabled, load_bot_defaults,
+    load_completion_card_app_url, load_credentials,
     delayed_file_matches_pending_window, message_is_stale, parse_message_envelope,
     should_acknowledge_message, utc_now,
 )
@@ -190,14 +192,20 @@ def process_external_submission_event(
 
 def main() -> int:
     defaults = load_bot_defaults()
-    credentials = load_credentials()
-    if not is_bot_enabled():
+    profile_id = str(
+        os.environ.get(PROFILE_ENVIRONMENT_KEY) or active_profile_id() or ""
+    ).strip()
+    credentials = load_credentials(profile_id)
+    if not profile_id:
+        print("未指定第二层机器人平台配置。")
+        return 3
+    if not is_bot_enabled(profile_id):
         print("第二层飞书机器人未启用。")
         return 0
     if not credentials.get("app_id") or not credentials.get("app_secret"):
         print("第二层飞书机器人未配置本机应用凭证。")
         return 0
-    configuration_issue = credential_configuration_issue(credentials=credentials)
+    configuration_issue = credential_configuration_issue(profile_id, credentials)
     if configuration_issue:
         append_runtime_event(
             "config",
@@ -216,10 +224,9 @@ def main() -> int:
 
     store = TaskStore(DB_PATH)
     dispatch_store = external_task_dispatch.ExternalDispatchStore(DB_PATH)
-    recovered = store.recover_interrupted()
+    recovered = store.recover_interrupted(profile_id)
     cleanup_expired(store)
     domain = credentials.get("domain") or "https://open.feishu.cn"
-    profile_id = str(credentials.get("profile_id") or "")
     append_runtime_event(
         "process",
         f"机器人进程已就绪，准备连接 {domain}",
@@ -263,16 +270,32 @@ def main() -> int:
             level="success",
             profile_id=profile_id,
         )
-    worker = TaskWorker(store, feishu, professional)
-    PID_PATH.parent.mkdir(parents=True, exist_ok=True)
-    PID_PATH.write_text(str(os.getpid()), encoding="utf-8")
+    worker = TaskWorker(
+        store,
+        feishu,
+        professional,
+        platform_profile_id=profile_id,
+    )
+    pid_path = bot_pid_path(profile_id)
+    pid_path.parent.mkdir(parents=True, exist_ok=True)
+    pid_path.write_text(str(os.getpid()), encoding="utf-8")
 
     def control_loop() -> None:
+        waiting_for_task = False
         while True:
             time.sleep(1)
-            if not is_bot_enabled():
+            if not is_bot_enabled(profile_id):
+                if store.current_task(profile_id):
+                    if not waiting_for_task:
+                        append_runtime_event(
+                            "process",
+                            "接收已关闭，当前任务完成后将安全退出长连接",
+                            profile_id=profile_id,
+                        )
+                        waiting_for_task = True
+                    continue
                 append_runtime_event("process", "机器人接收已关闭，长连接进程正在退出", profile_id=profile_id)
-                PID_PATH.unlink(missing_ok=True)
+                pid_path.unlink(missing_ok=True)
                 os._exit(0)
 
     def worker_loop() -> None:
@@ -386,6 +409,7 @@ def main() -> int:
                 envelope,
                 store,
                 received_at=received_at,
+                platform_profile_id=profile_id,
             )
             delayed_external_submission = (
                 stale
@@ -438,6 +462,7 @@ def main() -> int:
                 envelope.chat_id,
                 envelope.sender_id,
                 envelope.message_created_at or received_at,
+                platform_profile_id=profile_id,
             )
             schedule_acknowledgement(
                 data,
@@ -461,12 +486,14 @@ def main() -> int:
                     threading.Thread(
                         target=answer_knowledge_event,
                         args=(knowledge["chat_id"], knowledge["question"], feishu, professional),
+                        kwargs={"platform_profile_id": profile_id},
                         name="feishu-knowledge-query",
                         daemon=True,
                     ).start()
                 return
             result = accept_event(
                 data, store, feishu, bot_open_id=bot_open_id, bot_name=bot_name,
+                platform_profile_id=profile_id,
             )
             if result and result.get("task_id"):
                 append_runtime_event(
@@ -489,6 +516,7 @@ def main() -> int:
             else:
                 conversation = accept_conversation_event(
                     data, store, feishu, bot_open_id=bot_open_id, bot_name=bot_name,
+                    platform_profile_id=profile_id,
                 )
                 conversation_log = {
                     "greeting": "收到问候，已回复自我介绍和使用说明",
@@ -514,6 +542,7 @@ def main() -> int:
                     threading.Thread(
                         target=answer_chat_event,
                         args=(conversation["chat_id"], conversation["question"], feishu, professional),
+                        kwargs={"platform_profile_id": profile_id},
                         name="feishu-llm-chat",
                         daemon=True,
                     ).start()
@@ -521,6 +550,7 @@ def main() -> int:
                     threading.Thread(
                         target=answer_group_members_event,
                         args=(conversation["chat_id"], feishu),
+                        kwargs={"platform_profile_id": profile_id},
                         name="feishu-group-members",
                         daemon=True,
                     ).start()
@@ -528,6 +558,7 @@ def main() -> int:
                     threading.Thread(
                         target=answer_task_result_event,
                         args=(conversation["chat_id"], conversation["task_id"], store, feishu),
+                        kwargs={"platform_profile_id": profile_id},
                         name="feishu-task-result",
                         daemon=True,
                     ).start()
@@ -647,7 +678,10 @@ def main() -> int:
     )
     append_runtime_event("connection", f"正在建立长连接：{domain}", profile_id=profile_id)
     print(f"第二层飞书机器人正在建立长连接：{domain}", flush=True)
-    client.start()
+    try:
+        client.start()
+    finally:
+        pid_path.unlink(missing_ok=True)
     return 0
 
 

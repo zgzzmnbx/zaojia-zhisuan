@@ -64,16 +64,62 @@ def test_cloud_runtime_requires_running_bot_when_enabled():
     states = {service: "active" for service in module.CLOUD_SERVICES}
 
     errors = module.validate_cloud_runtime(states, {
-        "enabled": True,
-        "configured": True,
-        "profile_consistent": True,
-        "running": False,
+        "profiles": [{
+            "profile_id": "default",
+            "label": "普通飞书",
+            "enabled": True,
+            "configured": True,
+            "profile_consistent": True,
+            "running": False,
+        }],
+        "running_profile_count": 0,
     })
 
-    assert errors == ["第二层机器人已启用，但等待 30 秒后仍未进入 running 状态"]
+    assert errors == ["普通飞书已启用，但等待 30 秒后仍未进入 running 状态"]
 
 
 def test_cloud_runtime_allows_intentionally_disabled_bot():
+    module = load_check_module()
+    states = {
+        "zaojiazhisuan.service": "active",
+        "zaojiazhisuan-feishu-bot.service": "active",
+    }
+
+    errors = module.validate_cloud_runtime(states, {
+        "profiles": [{
+            "profile_id": "default",
+            "label": "普通飞书",
+            "enabled": False,
+            "configured": True,
+            "profile_consistent": True,
+            "running": False,
+        }],
+        "running_profile_count": 0,
+    })
+
+    assert errors == []
+
+
+def test_cloud_runtime_rejects_disabled_profile_that_is_still_running():
+    module = load_check_module()
+    states = {service: "active" for service in module.CLOUD_SERVICES}
+
+    errors = module.validate_cloud_runtime(states, {
+        "profiles": [{
+            "profile_id": "weact_cost",
+            "label": "企业 WeAct",
+            "enabled": False,
+            "configured": True,
+            "profile_consistent": True,
+            "running": True,
+        }],
+        "running_profile_count": 1,
+    })
+
+    assert errors == ["企业 WeAct已关闭，但运行器仍未退出"]
+
+
+def test_cloud_runtime_requires_supervisor_even_when_both_profiles_are_disabled():
     module = load_check_module()
     states = {
         "zaojiazhisuan.service": "active",
@@ -81,10 +127,13 @@ def test_cloud_runtime_allows_intentionally_disabled_bot():
     }
 
     errors = module.validate_cloud_runtime(states, {
-        "enabled": False,
-        "configured": True,
-        "profile_consistent": True,
-        "running": False,
+        "profiles": [
+            {"profile_id": "default", "label": "普通飞书", "enabled": False, "running": False},
+            {"profile_id": "weact_cost", "label": "企业 WeAct", "enabled": False, "running": False},
+        ],
+        "running_profile_count": 0,
     })
 
-    assert errors == []
+    assert errors == [
+        "zaojiazhisuan-feishu-bot.service 双平台监督器当前状态不是 active：inactive"
+    ]

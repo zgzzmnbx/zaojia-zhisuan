@@ -78,47 +78,15 @@ function Test-Frontend {
     }
 }
 
-function Get-FeishuBotProcess {
+function Get-FeishuBotProcesses {
     return Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -like "python*.exe" -and $_.CommandLine -and $_.CommandLine.Contains("feishu_bot_runner.py") } |
-        Select-Object -First 1
+        Where-Object { $_.Name -like "python*.exe" -and $_.CommandLine -and $_.CommandLine.Contains("feishu_bot_runner.py") }
 }
 
 function Test-FeishuBotConfigured {
-    $settingsPath = Join-Path $ProjectDir "Codex-Temp\runtime\feishu-robot-settings.json"
-    $legacySettingsPath = Join-Path $ProjectDir "Codex-Temp\runtime\feishu-app-settings.json"
-    $controlPath = Join-Path $ProjectDir "Codex-Temp\runtime\feishu-bot\control.json"
-    $defaultsPath = Join-Path $ProjectDir "config\project-default-settings.json"
-    if (-not (Test-Path -LiteralPath $settingsPath) -and (Test-Path -LiteralPath $legacySettingsPath)) {
-        $settingsPath = $legacySettingsPath
-    }
-    if (-not (Test-Path -LiteralPath $settingsPath) -or -not (Test-Path -LiteralPath $defaultsPath)) {
-        return $false
-    }
     try {
-        $settings = Get-Content -LiteralPath $settingsPath -Encoding UTF8 -Raw | ConvertFrom-Json
-        $defaults = Get-Content -LiteralPath $defaultsPath -Encoding UTF8 -Raw | ConvertFrom-Json
-        $credentialStore = if ($settings.app_bot) { $settings.app_bot } else { $settings }
-        $appId = [string]$credentialStore.app_id
-        $appSecret = [string]$credentialStore.app_secret
-        if ($credentialStore.profiles) {
-            $activeProfile = [string]$credentialStore.active_profile
-            $profile = $credentialStore.profiles.PSObject.Properties[$activeProfile].Value
-            if ($profile) {
-                $appId = [string]$profile.app_id
-                $appSecret = [string]$profile.app_secret
-            }
-        }
-        $enabled = $defaults.feishuAppBot.enabled -eq $true
-        if (Test-Path -LiteralPath $controlPath) {
-            $control = Get-Content -LiteralPath $controlPath -Encoding UTF8 -Raw | ConvertFrom-Json
-            $enabled = $control.enabled -eq $true
-        }
-        return (
-            $enabled -and
-            -not [string]::IsNullOrWhiteSpace($appId) -and
-            -not [string]::IsNullOrWhiteSpace($appSecret)
-        )
+        $status = Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/collaboration/feishu-app-bot/status" -TimeoutSec 3
+        return @($status.profiles | Where-Object { $_.configured -and $_.enabled }).Count -gt 0
     }
     catch {
         Write-Host "[提醒] 第二层机器人配置无法读取，已跳过自动启动。"
@@ -131,16 +99,19 @@ function Start-FeishuBot {
         Write-Host "第二层机器人未启用或未配置，已跳过。"
         return
     }
-    $running = Get-FeishuBotProcess
-    if ($running) {
-        Write-Host "第二层机器人已经在运行，PID: $($running.ProcessId)"
-        return
+    $pythonExe = "python"
+    $bundledPython = Join-Path $ProjectDir "runtime\python\python.exe"
+    if (Test-Path -LiteralPath $bundledPython) {
+        $pythonExe = $bundledPython
     }
-    Start-Process powershell -ArgumentList @(
-        "-NoExit", "-NoProfile", "-ExecutionPolicy", "Bypass",
-        "-Command", "Set-Location -LiteralPath '$ProjectDir'; python backend\feishu_bot_runner.py"
-    )
-    Write-Host "已打开第二层飞书机器人窗口。"
+    Push-Location $ProjectDir
+    try {
+        & $pythonExe -c "from backend.app.feishu_app_bot import start_enabled_bot_processes; print(start_enabled_bot_processes())"
+    }
+    finally {
+        Pop-Location
+    }
+    Write-Host "已按独立开关启动普通飞书和 WeAct 长连接。"
 }
 
 function Write-PortOwner {
@@ -282,7 +253,7 @@ function Show-Status {
     $frontendOk = Test-Frontend
     $backendOwner = Get-PortOwner 8000
     $frontendOwner = Get-PortOwner 5174
-    $feishuBot = Get-FeishuBotProcess
+    $feishuBots = @(Get-FeishuBotProcesses)
 
     Write-Host "管勘智算运行状态"
     Write-Host "项目目录: $ProjectDir"
@@ -293,7 +264,7 @@ function Show-Status {
     Write-Host "前端: $(if ($frontendOk) { '已启动，网页身份正确' } else { '未检测到管勘智算前端' })"
     Write-PortOwner "前端端口" $frontendOwner
     Write-Host ""
-    Write-Host "第二层飞书机器人: $(if ($feishuBot) { "已启动，PID: $($feishuBot.ProcessId)" } elseif (Test-FeishuBotConfigured) { '已配置但未启动' } else { '未启用或未配置' })"
+    Write-Host "第二层机器人长连接: $(if ($feishuBots.Count -gt 0) { "运行中 $($feishuBots.Count) 个实例" } elseif (Test-FeishuBotConfigured) { '已配置但未启动' } else { '未启用或未配置' })"
     Write-Host ""
     if ($backendOk -and $frontendOk) {
         Write-Host "程序已经在运行，可以访问: $FrontendUrl"

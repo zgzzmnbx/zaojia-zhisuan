@@ -9,6 +9,7 @@ import subprocess
 import sys
 import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -31,6 +32,10 @@ PID_PATH = RUNTIME_ROOT / "runner.pid"
 CONSOLE_EVENTS_PATH = RUNTIME_ROOT / "console-events.jsonl"
 RUNNER_OUT_LOG_PATH = RUNTIME_ROOT / "logs" / "runner.out.log"
 RUNNER_ERR_LOG_PATH = RUNTIME_ROOT / "logs" / "runner.err.log"
+PROFILE_RUNTIME_ROOT = RUNTIME_ROOT / "profiles"
+PROFILE_ENVIRONMENT_KEY = "FEISHU_APP_BOT_PROFILE_ID"
+PROFILE_START_LOCK_STALE_SECONDS = 30.0
+PROFILE_START_LOCK_WAIT_SECONDS = 2.0
 CONSOLE_EVENT_MAX_BYTES = 2 * 1024 * 1024
 CONSOLE_MESSAGE_MAX_CHARS = 20000
 CONSOLE_EVENT_LEVELS = {"info", "success", "warning", "error"}
@@ -351,6 +356,7 @@ def send_answer_with_table_card(
     title: str,
     fallback_heading: str = "",
     log_category: str,
+    profile_id: str = "",
 ) -> str:
     native_table = getattr(feishu, "domain", DEFAULT_FEISHU_DOMAIN) == DEFAULT_FEISHU_DOMAIN
     card = build_markdown_table_answer_card(answer, title=title, native_table=native_table)
@@ -363,7 +369,7 @@ def send_answer_with_table_card(
                 log_category,
                 f"结构化回答卡片发送失败，已降级为文字清单：{sanitize_error(exc)}",
                 level="warning",
-                profile_id=active_profile_id(),
+                profile_id=profile_id or active_profile_id(),
             )
 
     plain_answer = format_markdown_tables_for_plain_chat(answer)
@@ -457,7 +463,7 @@ def _runner_timestamp(value: str) -> str:
         return utc_now()
 
 
-def _read_runner_connection_events(path: Path) -> list[dict[str, Any]]:
+def _read_runner_connection_events(path: Path, profile_id: str = "") -> list[dict[str, Any]]:
     try:
         with path.open("rb") as stream:
             stream.seek(0, os.SEEK_END)
@@ -498,7 +504,7 @@ def _read_runner_connection_events(path: Path) -> list[dict[str, Any]]:
                 "category": "connection",
                 "message": message,
                 "task_id": "",
-                "profile_id": "",
+                "profile_id": _sanitize_console_text(profile_id),
                 "source": "sdk",
             })
     return events
@@ -702,23 +708,79 @@ def save_active_profile(profile_id: str) -> None:
     append_runtime_event("config", f"已切换第二层机器人：{label}", profile_id=profile_id)
 
 
-def is_bot_enabled() -> bool:
+def _profile_runtime_path(profile_id: str, file_name: str) -> Path:
+    safe_profile_id = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(profile_id or "").strip()).strip(".-")
+    if not safe_profile_id:
+        raise ValueError("profile_id 不能为空")
+    return PROFILE_RUNTIME_ROOT / safe_profile_id / file_name
+
+
+def bot_control_path(profile_id: str | None = None) -> Path:
+    selected_profile = str(profile_id or "").strip()
+    return _profile_runtime_path(selected_profile, "control.json") if selected_profile else CONTROL_PATH
+
+
+def bot_pid_path(profile_id: str | None = None) -> Path:
+    selected_profile = str(profile_id or "").strip()
+    return _profile_runtime_path(selected_profile, "runner.pid") if selected_profile else PID_PATH
+
+
+def bot_runner_log_paths(profile_id: str | None = None) -> tuple[Path, Path]:
+    selected_profile = str(profile_id or "").strip()
+    if not selected_profile:
+        return RUNNER_OUT_LOG_PATH, RUNNER_ERR_LOG_PATH
+    profile_root = _profile_runtime_path(selected_profile, "logs")
+    return profile_root / "runner.out.log", profile_root / "runner.err.log"
+
+
+def _read_enabled_control(path: Path) -> bool | None:
     try:
-        raw = json.loads(CONTROL_PATH.read_text(encoding="utf-8"))
+        raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
+        return None
+    return bool(raw.get("enabled")) if isinstance(raw, dict) else None
+
+
+def is_bot_enabled(profile_id: str | None = None) -> bool:
+    selected_profile = str(profile_id or "").strip()
+    if not selected_profile:
+        legacy_value = _read_enabled_control(CONTROL_PATH)
+        return legacy_value if legacy_value is not None else bool(load_bot_defaults().get("enabled"))
+
+    profile_value = _read_enabled_control(bot_control_path(selected_profile))
+    if profile_value is not None:
+        return profile_value
+    if selected_profile == active_profile_id():
+        legacy_value = _read_enabled_control(CONTROL_PATH)
+        if legacy_value is not None:
+            return legacy_value
         return bool(load_bot_defaults().get("enabled"))
-    return bool(raw.get("enabled")) if isinstance(raw, dict) else bool(load_bot_defaults().get("enabled"))
+    return False
 
 
-def save_bot_enabled(enabled: bool) -> None:
-    CONTROL_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CONTROL_PATH.write_text(json.dumps({"enabled": bool(enabled)}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    append_runtime_event("config", "已启用第二层机器人接收" if enabled else "已关闭第二层机器人接收")
+def save_bot_enabled(enabled: bool, profile_id: str | None = None) -> None:
+    selected_profile = str(profile_id or "").strip()
+    control_path = bot_control_path(selected_profile or None)
+    control_path.parent.mkdir(parents=True, exist_ok=True)
+    control_path.write_text(
+        json.dumps({"enabled": bool(enabled)}, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    profile = next(
+        (item for item in credential_profiles() if item["profile_id"] == selected_profile),
+        None,
+    )
+    label = str((profile or {}).get("label") or selected_profile or "第二层机器人")
+    append_runtime_event(
+        "config",
+        f"{label}已启用接收" if enabled else f"{label}已关闭接收",
+        profile_id=selected_profile,
+    )
 
 
-def bot_process_running() -> bool:
+def _pid_is_running(pid_path: Path) -> bool:
     try:
-        pid = int(PID_PATH.read_text(encoding="utf-8").strip())
+        pid = int(pid_path.read_text(encoding="utf-8").strip())
         if os.name == "nt":
             import ctypes
 
@@ -734,64 +796,200 @@ def bot_process_running() -> bool:
         return False
 
 
-def start_bot_process() -> bool:
-    if not is_bot_enabled() or bot_process_running():
-        return bot_process_running()
-    credentials = load_credentials()
-    if not credentials.get("app_id") or not credentials.get("app_secret"):
+def bot_process_running(profile_id: str | None = None) -> bool:
+    selected_profile = str(profile_id or "").strip()
+    if not selected_profile:
+        return _pid_is_running(PID_PATH)
+    if _pid_is_running(bot_pid_path(selected_profile)):
+        return True
+    return selected_profile == active_profile_id() and _pid_is_running(PID_PATH)
+
+
+@contextmanager
+def _profile_start_lock(profile_id: str):
+    """Serialize runner creation across the API process and cloud supervisor."""
+    lock_path = _profile_runtime_path(profile_id, "start.lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    deadline = time.monotonic() + PROFILE_START_LOCK_WAIT_SECONDS
+    descriptor: int | None = None
+    while descriptor is None:
+        try:
+            descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            try:
+                stale = time.time() - lock_path.stat().st_mtime > PROFILE_START_LOCK_STALE_SECONDS
+            except OSError:
+                stale = False
+            if stale:
+                lock_path.unlink(missing_ok=True)
+                continue
+            if time.monotonic() >= deadline:
+                yield False
+                return
+            time.sleep(0.05)
+    try:
+        os.write(descriptor, str(os.getpid()).encode("ascii"))
+        yield True
+    finally:
+        os.close(descriptor)
+        lock_path.unlink(missing_ok=True)
+
+
+def _migrate_legacy_bot_runtime() -> bool:
+    if not _pid_is_running(PID_PATH):
+        return True
+    selected_profile = active_profile_id()
+    if not selected_profile:
         return False
-    configuration_issue = credential_configuration_issue(credentials=credentials)
-    if configuration_issue:
-        append_runtime_event(
-            "config",
-            configuration_issue,
-            level="error",
-            profile_id=str(credentials.get("profile_id") or ""),
+    legacy_enabled = is_bot_enabled()
+    profile_control = bot_control_path(selected_profile)
+    if not profile_control.exists():
+        profile_control.parent.mkdir(parents=True, exist_ok=True)
+        profile_control.write_text(
+            json.dumps({"enabled": legacy_enabled}, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
         )
+    CONTROL_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CONTROL_PATH.write_text(
+        json.dumps({"enabled": False}, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    deadline = time.monotonic() + 8.0
+    while _pid_is_running(PID_PATH) and time.monotonic() < deadline:
+        time.sleep(0.1)
+    if _pid_is_running(PID_PATH):
         return False
-    runner = PROJECT_ROOT / "backend" / "feishu_bot_runner.py"
-    log_dir = RUNTIME_ROOT / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-    with (log_dir / "runner.out.log").open("a", encoding="utf-8") as stdout, (log_dir / "runner.err.log").open("a", encoding="utf-8") as stderr:
-        process = subprocess.Popen(
-            [sys.executable, str(runner)], cwd=PROJECT_ROOT,
-            stdout=stdout, stderr=stderr, creationflags=creationflags,
-            start_new_session=os.name != "nt",
-        )
-    PID_PATH.parent.mkdir(parents=True, exist_ok=True)
-    PID_PATH.write_text(str(process.pid), encoding="utf-8")
+    PID_PATH.unlink(missing_ok=True)
     append_runtime_event(
         "process",
-        "第二层机器人子进程已启动，正在建立长连接",
-        profile_id=str(credentials.get("profile_id") or ""),
+        "旧版单实例长连接已安全退出，运行态已迁移为按平台隔离",
+        profile_id=selected_profile,
     )
     return True
 
 
-def wait_for_bot_process_exit(timeout_seconds: float = 5.0) -> bool:
+def start_bot_process(profile_id: str | None = None) -> bool:
+    selected_profile = str(profile_id or active_profile_id() or "").strip()
+    if not selected_profile:
+        return False
+    with _profile_start_lock(selected_profile) as lock_acquired:
+        if not lock_acquired:
+            return bot_process_running(selected_profile)
+        if not is_bot_enabled(selected_profile) or bot_process_running(selected_profile):
+            return bot_process_running(selected_profile)
+        credentials = load_credentials(selected_profile)
+        if not credentials.get("app_id") or not credentials.get("app_secret"):
+            return False
+        configuration_issue = credential_configuration_issue(selected_profile, credentials)
+        if configuration_issue:
+            append_runtime_event(
+                "config",
+                configuration_issue,
+                level="error",
+                profile_id=str(credentials.get("profile_id") or ""),
+            )
+            return False
+        runner = PROJECT_ROOT / "backend" / "feishu_bot_runner.py"
+        runner_out_path, runner_err_path = bot_runner_log_paths(selected_profile)
+        runner_out_path.parent.mkdir(parents=True, exist_ok=True)
+        creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+        environment = os.environ.copy()
+        environment[PROFILE_ENVIRONMENT_KEY] = selected_profile
+        with runner_out_path.open("a", encoding="utf-8") as stdout, runner_err_path.open("a", encoding="utf-8") as stderr:
+            process = subprocess.Popen(
+                [sys.executable, str(runner)], cwd=PROJECT_ROOT,
+                stdout=stdout, stderr=stderr, creationflags=creationflags,
+                start_new_session=os.name != "nt",
+                env=environment,
+            )
+        pid_path = bot_pid_path(selected_profile)
+        pid_path.parent.mkdir(parents=True, exist_ok=True)
+        pid_path.write_text(str(process.pid), encoding="utf-8")
+        label = next(
+            (item["label"] for item in credential_profiles() if item["profile_id"] == selected_profile),
+            selected_profile,
+        )
+        append_runtime_event(
+            "process",
+            f"{label}子进程已启动，正在建立独立长连接",
+            profile_id=str(credentials.get("profile_id") or ""),
+        )
+        return True
+
+
+def start_enabled_bot_processes() -> dict[str, bool]:
+    if not _migrate_legacy_bot_runtime():
+        raise RuntimeError("旧版单实例机器人仍在退出，暂时不能启动并行长连接")
+    results: dict[str, bool] = {}
+    for profile in credential_profiles():
+        profile_id = str(profile.get("profile_id") or "")
+        if profile_id and is_bot_enabled(profile_id):
+            results[profile_id] = start_bot_process(profile_id)
+    return results
+
+
+def wait_for_bot_process_exit(profile_id: str | None = None, timeout_seconds: float = 5.0) -> bool:
+    selected_profile = str(profile_id or "").strip()
     deadline = time.monotonic() + max(0.1, timeout_seconds)
-    while bot_process_running() and time.monotonic() < deadline:
+    while bot_process_running(selected_profile or None) and time.monotonic() < deadline:
         time.sleep(0.1)
-    return not bot_process_running()
+    return not bot_process_running(selected_profile or None)
 
 
 def bot_status(db_path: Path | None = None) -> dict[str, Any]:
     defaults = load_bot_defaults()
-    credentials = load_credentials()
     store = TaskStore(db_path or DB_PATH)
     counts = store.counts()
     current = store.current_task()
-    configuration_issue = credential_configuration_issue(credentials=credentials)
+    profiles: list[dict[str, Any]] = []
+    for profile in credential_profiles():
+        profile_id = str(profile.get("profile_id") or "")
+        credentials = load_credentials(profile_id)
+        configuration_issue = credential_configuration_issue(profile_id, credentials)
+        configured = bool(
+            credentials.get("app_id")
+            and credentials.get("app_secret")
+            and not configuration_issue
+        )
+        enabled = is_bot_enabled(profile_id)
+        running = bot_process_running(profile_id)
+        if configuration_issue:
+            status = "configuration_error"
+        elif not configured:
+            status = "not_configured"
+        elif running and enabled:
+            status = "running"
+        elif running:
+            status = "stopping"
+        elif enabled:
+            status = "starting"
+        else:
+            status = "disabled"
+        profiles.append({
+            **profile,
+            "configured": configured,
+            "profile_consistent": not bool(configuration_issue),
+            "configuration_error": configuration_issue,
+            "enabled": enabled,
+            "running": running,
+            "status": status,
+            "counts": store.counts(profile_id),
+        })
+    configuration_errors = [
+        str(profile["configuration_error"])
+        for profile in profiles
+        if profile.get("configuration_error")
+    ]
     return {
-        "enabled": is_bot_enabled(),
-        "configured": bool(credentials.get("app_id") and credentials.get("app_secret") and not configuration_issue),
-        "profile_consistent": not bool(configuration_issue),
-        "configuration_error": configuration_issue,
+        "enabled": any(profile["enabled"] for profile in profiles),
+        "configured": bool(profiles) and any(profile["configured"] for profile in profiles),
+        "profile_consistent": not bool(configuration_errors),
+        "configuration_error": "；".join(configuration_errors),
         "active_profile": active_profile_id(),
-        "profiles": credential_profiles(),
-        "running": bot_process_running(),
-        "connection_mode": "local_long_connection",
+        "profiles": profiles,
+        "running": any(profile["running"] for profile in profiles),
+        "running_profile_count": sum(1 for profile in profiles if profile["running"]),
+        "connection_mode": "parallel_long_connections",
         "concurrency": 1,
         "retention_days": int(defaults.get("retentionDays") or 30),
         "counts": counts,
@@ -806,6 +1004,7 @@ def public_task(task: dict[str, Any]) -> dict[str, Any]:
         for key in (
             "task_id", "file_name", "status", "stage", "error", "created_at",
             "updated_at", "completed_at", "retry_count", "risk_total", "risk_high",
+            "platform_profile_id",
         )
     }
 
@@ -832,6 +1031,7 @@ class TaskStore:
                     chat_id TEXT NOT NULL,
                     file_key TEXT NOT NULL,
                     file_name TEXT NOT NULL,
+                    platform_profile_id TEXT NOT NULL DEFAULT '',
                     status TEXT NOT NULL,
                     stage TEXT NOT NULL,
                     error TEXT NOT NULL DEFAULT '',
@@ -854,11 +1054,12 @@ class TaskStore:
                     created_at TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS pending_uploads (
+                    platform_profile_id TEXT NOT NULL DEFAULT '',
                     chat_id TEXT NOT NULL,
                     sender_id TEXT NOT NULL,
                     created_at TEXT NOT NULL,
                     expires_at TEXT NOT NULL,
-                    PRIMARY KEY(chat_id, sender_id)
+                    PRIMARY KEY(platform_profile_id, chat_id, sender_id)
                 );
                 CREATE TABLE IF NOT EXISTS knowledge_events (
                     event_id TEXT PRIMARY KEY,
@@ -878,6 +1079,45 @@ class TaskStore:
                 );
                 """
             )
+
+            task_columns = {
+                str(row["name"])
+                for row in connection.execute("PRAGMA table_info(tasks)").fetchall()
+            }
+            if "platform_profile_id" not in task_columns:
+                connection.execute(
+                    "ALTER TABLE tasks ADD COLUMN platform_profile_id TEXT NOT NULL DEFAULT ''"
+                )
+            legacy_profile_id = active_profile_id() or DEFAULT_PROFILE_ID
+            connection.execute(
+                "UPDATE tasks SET platform_profile_id=? WHERE platform_profile_id=''",
+                (legacy_profile_id,),
+            )
+            pending_columns = {
+                str(row["name"])
+                for row in connection.execute("PRAGMA table_info(pending_uploads)").fetchall()
+            }
+            if "platform_profile_id" not in pending_columns:
+                connection.executescript(
+                    """
+                    ALTER TABLE pending_uploads RENAME TO pending_uploads_legacy;
+                    CREATE TABLE pending_uploads (
+                        platform_profile_id TEXT NOT NULL DEFAULT '',
+                        chat_id TEXT NOT NULL,
+                        sender_id TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        expires_at TEXT NOT NULL,
+                        PRIMARY KEY(platform_profile_id, chat_id, sender_id)
+                    );
+                    """
+                )
+                connection.execute(
+                    """INSERT INTO pending_uploads
+                    (platform_profile_id,chat_id,sender_id,created_at,expires_at)
+                    SELECT ?,chat_id,sender_id,created_at,expires_at FROM pending_uploads_legacy""",
+                    (legacy_profile_id,),
+                )
+                connection.execute("DROP TABLE pending_uploads_legacy")
 
             # Additive migration for databases created before message-id deduplication.
             for table_name in ("knowledge_events", "conversation_events"):
@@ -943,13 +1183,29 @@ class TaskStore:
             )
             return cursor.rowcount == 1
 
-    def open_upload_window(self, chat_id: str, sender_id: str, minutes: int = UPLOAD_WINDOW_MINUTES) -> None:
+    def open_upload_window(
+        self,
+        chat_id: str,
+        sender_id: str,
+        minutes: int = UPLOAD_WINDOW_MINUTES,
+        *,
+        platform_profile_id: str | None = None,
+    ) -> None:
         now = datetime.now(timezone.utc)
+        profile_id = str(platform_profile_id or active_profile_id() or DEFAULT_PROFILE_ID).strip()
         with self._connect() as connection:
             connection.execute(
-                """INSERT INTO pending_uploads(chat_id,sender_id,created_at,expires_at) VALUES (?,?,?,?)
-                ON CONFLICT(chat_id,sender_id) DO UPDATE SET created_at=excluded.created_at,expires_at=excluded.expires_at""",
-                (chat_id, sender_id, now.isoformat(timespec="seconds"), (now + timedelta(minutes=minutes)).isoformat(timespec="seconds")),
+                """INSERT INTO pending_uploads
+                (platform_profile_id,chat_id,sender_id,created_at,expires_at) VALUES (?,?,?,?,?)
+                ON CONFLICT(platform_profile_id,chat_id,sender_id) DO UPDATE SET
+                created_at=excluded.created_at,expires_at=excluded.expires_at""",
+                (
+                    profile_id,
+                    chat_id,
+                    sender_id,
+                    now.isoformat(timespec="seconds"),
+                    (now + timedelta(minutes=minutes)).isoformat(timespec="seconds"),
+                ),
             )
 
     @staticmethod
@@ -958,16 +1214,21 @@ class TaskStore:
         chat_id: str,
         sender_id: str,
         reference_at: str,
+        platform_profile_id: str,
     ) -> sqlite3.Row | None:
+        profile_clause = "platform_profile_id=? AND " if platform_profile_id else ""
+        profile_parameters: tuple[Any, ...] = (platform_profile_id,) if platform_profile_id else ()
         if sender_id:
             candidates = connection.execute(
-                "SELECT sender_id,created_at,expires_at FROM pending_uploads WHERE chat_id=? AND sender_id=?",
-                (chat_id, sender_id),
+                "SELECT sender_id,platform_profile_id,created_at,expires_at FROM pending_uploads "
+                f"WHERE {profile_clause}chat_id=? AND sender_id=?",
+                (*profile_parameters, chat_id, sender_id),
             ).fetchall()
         else:
             candidates = connection.execute(
-                "SELECT sender_id,created_at,expires_at FROM pending_uploads WHERE chat_id=? ORDER BY created_at DESC LIMIT 2",
-                (chat_id,),
+                "SELECT sender_id,platform_profile_id,created_at,expires_at FROM pending_uploads "
+                f"WHERE {profile_clause}chat_id=? ORDER BY created_at DESC LIMIT 2",
+                (*profile_parameters, chat_id),
             ).fetchall()
         matches = [
             row for row in candidates
@@ -975,10 +1236,18 @@ class TaskStore:
         ]
         return matches[0] if len(matches) == 1 else None
 
-    def matches_upload_window(self, chat_id: str, sender_id: str, reference_at: str) -> bool:
+    def matches_upload_window(
+        self,
+        chat_id: str,
+        sender_id: str,
+        reference_at: str,
+        *,
+        platform_profile_id: str | None = None,
+    ) -> bool:
+        profile_id = str(platform_profile_id or "").strip()
         with self._connect() as connection:
             return self._matching_upload_window(
-                connection, chat_id, sender_id, reference_at,
+                connection, chat_id, sender_id, reference_at, profile_id,
             ) is not None
 
     def consume_upload_window(
@@ -987,34 +1256,66 @@ class TaskStore:
         sender_id: str,
         *,
         reference_at: str | None = None,
+        platform_profile_id: str | None = None,
     ) -> bool:
         reference = reference_at or utc_now()
+        profile_id = str(platform_profile_id or "").strip()
         with self._connect() as connection:
             row = self._matching_upload_window(
-                connection, chat_id, sender_id, reference,
+                connection, chat_id, sender_id, reference, profile_id,
             )
             if row:
-                connection.execute("DELETE FROM pending_uploads WHERE chat_id=? AND sender_id=?", (chat_id, row["sender_id"]))
+                matched_profile_id = str(row["platform_profile_id"] or "")
+                connection.execute(
+                    """DELETE FROM pending_uploads
+                    WHERE platform_profile_id=? AND chat_id=? AND sender_id=?""",
+                    (matched_profile_id, chat_id, row["sender_id"]),
+                )
         return bool(row)
 
-    def find_task(self, *, event_id: str, message_id: str, file_key: str) -> dict[str, Any] | None:
+    def find_task(
+        self,
+        *,
+        event_id: str,
+        message_id: str,
+        file_key: str,
+        platform_profile_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        profile_id = str(platform_profile_id or "").strip()
+        profile_filter = " AND platform_profile_id=?" if profile_id else ""
+        parameters: tuple[Any, ...] = (
+            (event_id, message_id, file_key, profile_id)
+            if profile_id
+            else (event_id, message_id, file_key)
+        )
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT * FROM tasks WHERE event_id=? OR (message_id=? AND file_key=?) ORDER BY created_at LIMIT 1",
-                (event_id, message_id, file_key),
+                "SELECT * FROM tasks WHERE (event_id=? OR (message_id=? AND file_key=?))"
+                f"{profile_filter} ORDER BY created_at LIMIT 1",
+                parameters,
             ).fetchone()
         return dict(row) if row else None
 
-    def enqueue(self, *, event_id: str, message_id: str, chat_id: str, file_key: str, file_name: str) -> tuple[dict[str, Any], bool]:
+    def enqueue(
+        self,
+        *,
+        event_id: str,
+        message_id: str,
+        chat_id: str,
+        file_key: str,
+        file_name: str,
+        platform_profile_id: str | None = None,
+    ) -> tuple[dict[str, Any], bool]:
         now = utc_now()
         task_id = f"FS-{datetime.now():%Y%m%d-%H%M%S}-{uuid4().hex[:6].upper()}"
+        profile_id = str(platform_profile_id or active_profile_id() or DEFAULT_PROFILE_ID).strip()
         with self._connect() as connection:
             try:
                 connection.execute(
                     """INSERT INTO tasks
-                    (task_id,event_id,message_id,chat_id,file_key,file_name,status,stage,created_at,updated_at)
-                    VALUES (?,?,?,?,?,?, 'queued','queued',?,?)""",
-                    (task_id, event_id, message_id, chat_id, file_key, file_name, now, now),
+                    (task_id,event_id,message_id,chat_id,file_key,file_name,platform_profile_id,status,stage,created_at,updated_at)
+                    VALUES (?,?,?,?,?,?,?, 'queued','queued',?,?)""",
+                    (task_id, event_id, message_id, chat_id, file_key, file_name, profile_id, now, now),
                 )
                 connection.execute(
                     "INSERT INTO task_logs(task_id,status,detail,created_at) VALUES (?, 'queued', '任务已入队', ?)",
@@ -1029,23 +1330,66 @@ class TaskStore:
             ).fetchone()
         return dict(row), created
 
-    def recover_interrupted(self) -> int:
+    def recover_interrupted(self, platform_profile_id: str | None = None) -> int:
         now = utc_now()
         placeholders = ",".join("?" for _ in ACTIVE_STATES)
+        profile_id = str(platform_profile_id or "").strip()
+        profile_filter = " AND platform_profile_id=?" if profile_id else ""
+        parameters: tuple[Any, ...] = (
+            (now, *sorted(ACTIVE_STATES), profile_id)
+            if profile_id
+            else (now, *sorted(ACTIVE_STATES))
+        )
         with self._connect() as connection:
             cursor = connection.execute(
-                f"UPDATE tasks SET status='retryable_failed',stage='recovered',error='进程中断，等待恢复',updated_at=? WHERE status IN ({placeholders})",
-                (now, *sorted(ACTIVE_STATES)),
+                f"UPDATE tasks SET status='retryable_failed',stage='recovered',"
+                f"error='进程中断，等待恢复',updated_at=? "
+                f"WHERE status IN ({placeholders}){profile_filter}",
+                parameters,
             )
             return cursor.rowcount
 
-    def claim_next(self) -> dict[str, Any] | None:
+    def claim_next(self, platform_profile_id: str | None = None) -> dict[str, Any] | None:
+        profile_id = str(platform_profile_id or "").strip()
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute(
-                "SELECT * FROM tasks WHERE status IN ('queued','retryable_failed') ORDER BY created_at LIMIT 1"
+            active_placeholders = ",".join("?" for _ in ACTIVE_STATES)
+            active = connection.execute(
+                f"SELECT 1 FROM tasks WHERE status IN ({active_placeholders}) LIMIT 1",
+                tuple(sorted(ACTIVE_STATES)),
             ).fetchone()
+            if active:
+                return None
+            profiles = credential_profiles()
+            known_profile_ids = {
+                str(profile["profile_id"])
+                for profile in profiles
+            }
+            enabled_profile_ids = [
+                str(profile["profile_id"])
+                for profile in profiles
+                if is_bot_enabled(str(profile["profile_id"]))
+            ]
+            if profile_id and profile_id in known_profile_ids and profile_id not in enabled_profile_ids:
+                return None
+            if profile_id and not profiles:
+                enabled_profile_ids.append(profile_id)
+            if profile_id and enabled_profile_ids:
+                enabled_placeholders = ",".join("?" for _ in enabled_profile_ids)
+                row = connection.execute(
+                    "SELECT * FROM tasks WHERE status IN ('queued','retryable_failed') "
+                    f"AND platform_profile_id IN ({enabled_placeholders}) "
+                    "ORDER BY created_at, rowid LIMIT 1",
+                    tuple(enabled_profile_ids),
+                ).fetchone()
+            else:
+                row = connection.execute(
+                    "SELECT * FROM tasks WHERE status IN ('queued','retryable_failed') "
+                    "ORDER BY created_at, rowid LIMIT 1"
+                ).fetchone()
             if not row:
+                return None
+            if profile_id and str(row["platform_profile_id"] or "") != profile_id:
                 return None
             now = utc_now()
             connection.execute(
@@ -1075,11 +1419,21 @@ class TaskStore:
             row = connection.execute("SELECT * FROM tasks WHERE task_id=?", (task_id,)).fetchone()
         return dict(row) if row else None
 
-    def get_for_chat(self, task_id: str, chat_id: str) -> dict[str, Any] | None:
+    def get_for_chat(
+        self,
+        task_id: str,
+        chat_id: str,
+        platform_profile_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        profile_id = str(platform_profile_id or "").strip()
+        profile_filter = " AND platform_profile_id=?" if profile_id else ""
+        parameters: tuple[Any, ...] = (
+            (task_id, chat_id, profile_id) if profile_id else (task_id, chat_id)
+        )
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT * FROM tasks WHERE task_id=? AND chat_id=?",
-                (task_id, chat_id),
+                f"SELECT * FROM tasks WHERE task_id=? AND chat_id=?{profile_filter}",
+                parameters,
             ).fetchone()
         return dict(row) if row else None
 
@@ -1088,33 +1442,72 @@ class TaskStore:
             rows = connection.execute("SELECT * FROM tasks ORDER BY created_at DESC LIMIT ?", (max(1, min(limit, 100)),)).fetchall()
         return [dict(row) for row in rows]
 
-    def list_tasks_for_chat(self, chat_id: str, limit: int = 5) -> list[dict[str, Any]]:
+    def list_tasks_for_chat(
+        self,
+        chat_id: str,
+        limit: int = 5,
+        platform_profile_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        profile_id = str(platform_profile_id or "").strip()
+        profile_filter = " AND platform_profile_id=?" if profile_id else ""
+        parameters: tuple[Any, ...] = (
+            (chat_id, profile_id, max(1, min(limit, 30)))
+            if profile_id
+            else (chat_id, max(1, min(limit, 30)))
+        )
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT * FROM tasks WHERE chat_id=? ORDER BY created_at DESC LIMIT ?",
-                (chat_id, max(1, min(limit, 30))),
+                f"SELECT * FROM tasks WHERE chat_id=?{profile_filter} ORDER BY created_at DESC LIMIT ?",
+                parameters,
             ).fetchall()
         return [dict(row) for row in rows]
 
-    def list_high_risk_tasks_for_chat(self, chat_id: str, limit: int = 5) -> list[dict[str, Any]]:
+    def list_high_risk_tasks_for_chat(
+        self,
+        chat_id: str,
+        limit: int = 5,
+        platform_profile_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        profile_id = str(platform_profile_id or "").strip()
+        profile_filter = " AND platform_profile_id=?" if profile_id else ""
+        parameters: tuple[Any, ...] = (
+            (chat_id, profile_id, max(1, min(limit, 30)))
+            if profile_id
+            else (chat_id, max(1, min(limit, 30)))
+        )
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT * FROM tasks WHERE chat_id=? AND risk_high>0 ORDER BY created_at DESC LIMIT ?",
-                (chat_id, max(1, min(limit, 30))),
+                f"SELECT * FROM tasks WHERE chat_id=? AND risk_high>0{profile_filter} "
+                "ORDER BY created_at DESC LIMIT ?",
+                parameters,
             ).fetchall()
         return [dict(row) for row in rows]
 
-    def counts(self) -> dict[str, int]:
+    def counts(self, platform_profile_id: str | None = None) -> dict[str, int]:
+        profile_id = str(platform_profile_id or "").strip()
+        profile_filter = " WHERE platform_profile_id=?" if profile_id else ""
+        parameters: tuple[Any, ...] = (profile_id,) if profile_id else ()
         with self._connect() as connection:
-            rows = connection.execute("SELECT status,COUNT(*) AS count FROM tasks GROUP BY status").fetchall()
+            rows = connection.execute(
+                f"SELECT status,COUNT(*) AS count FROM tasks{profile_filter} GROUP BY status",
+                parameters,
+            ).fetchall()
         return {str(row["status"]): int(row["count"]) for row in rows}
 
-    def current_task(self) -> dict[str, Any] | None:
+    def current_task(self, platform_profile_id: str | None = None) -> dict[str, Any] | None:
         placeholders = ",".join("?" for _ in ACTIVE_STATES)
+        profile_id = str(platform_profile_id or "").strip()
+        profile_filter = " AND platform_profile_id=?" if profile_id else ""
+        parameters: tuple[Any, ...] = (
+            (*sorted(ACTIVE_STATES), profile_id)
+            if profile_id
+            else tuple(sorted(ACTIVE_STATES))
+        )
         with self._connect() as connection:
             row = connection.execute(
-                f"SELECT * FROM tasks WHERE status IN ({placeholders}) ORDER BY updated_at LIMIT 1",
-                tuple(sorted(ACTIVE_STATES)),
+                f"SELECT * FROM tasks WHERE status IN ({placeholders}){profile_filter} "
+                "ORDER BY updated_at LIMIT 1",
+                parameters,
             ).fetchone()
         return dict(row) if row else None
 
@@ -1148,8 +1541,17 @@ def read_console_events(
 ) -> list[dict[str, Any]]:
     safe_limit = max(1, min(int(limit), 500))
     events = _read_runtime_events(Path(console_path or CONSOLE_EVENTS_PATH))
-    events.extend(_read_runner_connection_events(Path(runner_out_path or RUNNER_OUT_LOG_PATH)))
-    events.extend(_read_runner_connection_events(Path(runner_err_path or RUNNER_ERR_LOG_PATH)))
+    if runner_out_path is not None or runner_err_path is not None:
+        events.extend(_read_runner_connection_events(Path(runner_out_path or RUNNER_OUT_LOG_PATH)))
+        events.extend(_read_runner_connection_events(Path(runner_err_path or RUNNER_ERR_LOG_PATH)))
+    else:
+        events.extend(_read_runner_connection_events(RUNNER_OUT_LOG_PATH))
+        events.extend(_read_runner_connection_events(RUNNER_ERR_LOG_PATH))
+        for profile in credential_profiles():
+            profile_id = str(profile.get("profile_id") or "")
+            out_path, err_path = bot_runner_log_paths(profile_id)
+            events.extend(_read_runner_connection_events(out_path, profile_id))
+            events.extend(_read_runner_connection_events(err_path, profile_id))
     try:
         task_logs = TaskStore(db_path or DB_PATH).list_logs(limit=max(safe_limit, 200))
     except sqlite3.Error:
@@ -1293,6 +1695,7 @@ def delayed_file_matches_pending_window(
     store: TaskStore,
     *,
     received_at: str,
+    platform_profile_id: str | None = None,
     max_delivery_delay_seconds: int = DELAYED_FILE_MAX_AGE_SECONDS,
 ) -> bool:
     """Allow only delayed .xlsx events that were sent inside an existing one-minute window."""
@@ -1318,6 +1721,7 @@ def delayed_file_matches_pending_window(
         envelope.chat_id,
         envelope.sender_id,
         envelope.message_created_at,
+        platform_profile_id=platform_profile_id,
     )
 
 
@@ -1962,15 +2366,29 @@ def build_task_completion_card(
 
 
 class TaskWorker:
-    def __init__(self, store: TaskStore, feishu: FeishuApi, professional: ProfessionalApi):
+    def __init__(
+        self,
+        store: TaskStore,
+        feishu: FeishuApi,
+        professional: ProfessionalApi,
+        *,
+        platform_profile_id: str | None = None,
+    ):
         self.store = store
         self.feishu = feishu
         self.professional = professional
+        self.platform_profile_id = str(platform_profile_id or "").strip()
 
     def run_once(self) -> bool:
-        task = self.store.claim_next()
+        task = self.store.claim_next(self.platform_profile_id or None)
         if not task:
             return False
+        task_profile_id = str(
+            task.get("platform_profile_id")
+            or self.platform_profile_id
+            or active_profile_id()
+            or DEFAULT_PROFILE_ID
+        )
         task_id = task["task_id"]
         task_dir = TASKS_ROOT / task_id
         input_path = task_dir / "input" / safe_filename(task["file_name"])
@@ -2025,7 +2443,7 @@ class TaskWorker:
                     f"完成卡片发送失败，已降级为文字通知：{sanitize_error(exc)}",
                     level="warning",
                     task_id=task_id,
-                    profile_id=active_profile_id(),
+                    profile_id=task_profile_id,
                 )
                 try:
                     self.feishu.send_text(task["chat_id"], f"任务 {task_id} 已完成。结构化风险 {total} 项，其中高风险 {high} 项{degraded}。Excel 和 Word 成果文件已发送。")
@@ -2035,7 +2453,7 @@ class TaskWorker:
                         f"完成文字通知也发送失败，但成果文件已成功回传：{sanitize_error(fallback_exc)}",
                         level="warning",
                         task_id=task_id,
-                        profile_id=active_profile_id(),
+                        profile_id=task_profile_id,
                     )
             self.store.update(task_id, "completed", "成果已回传", stage="completed", output_excel=str(result["excel"]), output_report=str(result["report"]), risk_total=total, risk_high=high)
         except NeedsManual as exc:
@@ -2067,7 +2485,9 @@ def accept_event(
     *,
     bot_open_id: str | None = None,
     bot_name: str | None = None,
+    platform_profile_id: str | None = None,
 ) -> dict[str, Any] | None:
+    profile_id = str(platform_profile_id or active_profile_id() or DEFAULT_PROFILE_ID).strip()
     envelope = parse_message_envelope(payload)
     is_private = envelope.chat_type in {"p2p", "private", "single"}
     if not envelope.files:
@@ -2077,7 +2497,11 @@ def accept_event(
             raise IgnoreEvent("非机器人上传指令")
         if not envelope.sender_id:
             raise ValueError("无法识别发起人，请重新发送 @上传 或 @辅助审核")
-        store.open_upload_window(envelope.chat_id, envelope.sender_id)
+        store.open_upload_window(
+            envelope.chat_id,
+            envelope.sender_id,
+            platform_profile_id=profile_id,
+        )
         prompt = (
             "已进入辅助审核收件状态，请在 1 分钟内直接拖入并发送一个 .xlsx 文件。"
             if clean_bot_command_text(envelope.text) == "@辅助审核"
@@ -2091,6 +2515,7 @@ def accept_event(
         event_id=incoming.event_id,
         message_id=incoming.message_id,
         file_key=incoming.file_key,
+        platform_profile_id=profile_id,
     )
     if existing:
         return {"task_id": existing["task_id"], "created": False}
@@ -2098,6 +2523,7 @@ def accept_event(
         envelope.chat_id,
         envelope.sender_id,
         reference_at=envelope.message_created_at or None,
+        platform_profile_id=profile_id,
     ):
         if not is_private and not _mentions_current_bot(envelope, bot_open_id, bot_name):
             raise IgnoreEvent("非机器人任务消息")
@@ -2105,6 +2531,7 @@ def accept_event(
     task, created = store.enqueue(
         event_id=incoming.event_id, message_id=incoming.message_id, chat_id=incoming.chat_id,
         file_key=incoming.file_key, file_name=incoming.file_name,
+        platform_profile_id=profile_id,
     )
     if created:
         position = store.queue_position(task["task_id"])
@@ -2162,7 +2589,15 @@ def accept_knowledge_event(
     return {"handled": True, "duplicate": False, "chat_id": envelope.chat_id, "question": question}
 
 
-def answer_knowledge_event(chat_id: str, question: str, feishu: FeishuApi, professional: ProfessionalApi) -> None:
+def answer_knowledge_event(
+    chat_id: str,
+    question: str,
+    feishu: FeishuApi,
+    professional: ProfessionalApi,
+    *,
+    platform_profile_id: str | None = None,
+) -> None:
+    profile_id = str(platform_profile_id or active_profile_id() or DEFAULT_PROFILE_ID).strip()
     try:
         answer = professional.ask_knowledge(question)
         send_answer_with_table_card(
@@ -2172,10 +2607,11 @@ def answer_knowledge_event(chat_id: str, question: str, feishu: FeishuApi, profe
             title="造价智算 · 知识库回答",
             fallback_heading="知识库查询完成：",
             log_category="knowledge",
+            profile_id=profile_id,
         )
-        append_runtime_event("knowledge", "知识库问题查询完成并已回复", level="success", profile_id=active_profile_id())
+        append_runtime_event("knowledge", "知识库问题查询完成并已回复", level="success", profile_id=profile_id)
     except Exception as exc:
-        append_runtime_event("knowledge", f"知识库问题查询失败：{sanitize_error(exc)}", level="error", profile_id=active_profile_id())
+        append_runtime_event("knowledge", f"知识库问题查询失败：{sanitize_error(exc)}", level="error", profile_id=profile_id)
         feishu.send_text(chat_id, f"知识库查询暂时失败：{sanitize_error(exc)}。请稍后重试，或在造价智算“知识库问答”中查询。")
 
 
@@ -2237,8 +2673,16 @@ def format_high_risk_tasks(tasks: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def answer_task_result_event(chat_id: str, task_id: str, store: TaskStore, feishu: FeishuApi) -> None:
-    task = store.get_for_chat(task_id, chat_id)
+def answer_task_result_event(
+    chat_id: str,
+    task_id: str,
+    store: TaskStore,
+    feishu: FeishuApi,
+    *,
+    platform_profile_id: str | None = None,
+) -> None:
+    profile_id = str(platform_profile_id or active_profile_id() or DEFAULT_PROFILE_ID).strip()
+    task = store.get_for_chat(task_id, chat_id, profile_id)
     if not task:
         feishu.send_text(chat_id, "当前会话未找到该任务。请发送“任务”查看本会话可查询的任务编号。")
         return
@@ -2250,7 +2694,7 @@ def answer_task_result_event(chat_id: str, task_id: str, store: TaskStore, feish
         feishu.send_text(chat_id, f"任务 {task_id} 的历史成果文件已不存在，请在造价智算工作台重新处理原文件。")
         append_runtime_event(
             "task", "历史成果重发失败：成果文件不存在", level="warning",
-            task_id=task_id, profile_id=active_profile_id(),
+            task_id=task_id, profile_id=profile_id,
         )
         return
     try:
@@ -2270,7 +2714,7 @@ def answer_task_result_event(chat_id: str, task_id: str, store: TaskStore, feish
         except Exception as exc:
             append_runtime_event(
                 "task", f"历史成果完成卡片发送失败，已降级为文字通知：{sanitize_error(exc)}",
-                level="warning", task_id=task_id, profile_id=active_profile_id(),
+                level="warning", task_id=task_id, profile_id=profile_id,
             )
             feishu.send_text(
                 chat_id,
@@ -2279,13 +2723,13 @@ def answer_task_result_event(chat_id: str, task_id: str, store: TaskStore, feish
             )
         append_runtime_event(
             "task", "历史 Excel、Word 和完成通知已重新发送", level="success",
-            task_id=task_id, profile_id=active_profile_id(),
+            task_id=task_id, profile_id=profile_id,
         )
     except Exception as exc:
         error = sanitize_error(exc)
         append_runtime_event(
             "task", f"历史成果重发失败：{error}", level="error",
-            task_id=task_id, profile_id=active_profile_id(),
+            task_id=task_id, profile_id=profile_id,
         )
         feishu.send_text(chat_id, f"任务 {task_id} 的成果重新发送失败：{error}。原任务状态和成果记录未被修改。")
 
@@ -2297,7 +2741,9 @@ def accept_conversation_event(
     *,
     bot_open_id: str | None = None,
     bot_name: str | None = None,
+    platform_profile_id: str | None = None,
 ) -> dict[str, Any]:
+    profile_id = str(platform_profile_id or active_profile_id() or DEFAULT_PROFILE_ID).strip()
     envelope = parse_message_envelope(payload)
     is_private = envelope.chat_type in {"p2p", "private", "single"}
     if not is_private and not _mentions_current_bot(envelope, bot_open_id, bot_name):
@@ -2334,19 +2780,27 @@ def accept_conversation_event(
         feishu.send_text(envelope.chat_id, TASK_COMMAND_HELP)
         return {"handled": True, "duplicate": False, "kind": "help"}
     if task_action == "task_list":
-        feishu.send_text(envelope.chat_id, format_task_list(store.list_tasks_for_chat(envelope.chat_id)))
+        feishu.send_text(
+            envelope.chat_id,
+            format_task_list(store.list_tasks_for_chat(envelope.chat_id, platform_profile_id=profile_id)),
+        )
         return {"handled": True, "duplicate": False, "kind": "task_list"}
     if task_action == "high_risk":
         feishu.send_text(
             envelope.chat_id,
-            format_high_risk_tasks(store.list_high_risk_tasks_for_chat(envelope.chat_id)),
+            format_high_risk_tasks(
+                store.list_high_risk_tasks_for_chat(
+                    envelope.chat_id,
+                    platform_profile_id=profile_id,
+                )
+            ),
         )
         return {"handled": True, "duplicate": False, "kind": "high_risk"}
     if task_action == "task_usage":
         feishu.send_text(envelope.chat_id, f"请发送“{task_value} FS-任务编号”。发送“任务”可查看当前会话的任务编号。")
         return {"handled": True, "duplicate": False, "kind": "task_usage"}
     if task_action in {"progress", "risk", "result"}:
-        task = store.get_for_chat(task_value, envelope.chat_id)
+        task = store.get_for_chat(task_value, envelope.chat_id, profile_id)
         if not task:
             feishu.send_text(envelope.chat_id, "当前会话未找到该任务。请发送“任务”查看本会话可查询的任务编号。")
             return {"handled": True, "duplicate": False, "kind": "task_missing"}
@@ -2380,7 +2834,15 @@ def accept_conversation_event(
     }
 
 
-def answer_chat_event(chat_id: str, question: str, feishu: FeishuApi, professional: ProfessionalApi) -> None:
+def answer_chat_event(
+    chat_id: str,
+    question: str,
+    feishu: FeishuApi,
+    professional: ProfessionalApi,
+    *,
+    platform_profile_id: str | None = None,
+) -> None:
+    profile_id = str(platform_profile_id or active_profile_id() or DEFAULT_PROFILE_ID).strip()
     try:
         answer = professional.ask_chat(question)
         send_answer_with_table_card(
@@ -2389,10 +2851,11 @@ def answer_chat_event(chat_id: str, question: str, feishu: FeishuApi, profession
             feishu,
             title="造价智算 · 智能回答",
             log_category="message",
+            profile_id=profile_id,
         )
-        append_runtime_event("message", "大模型托底问答完成并已回复", level="success", profile_id=active_profile_id())
+        append_runtime_event("message", "大模型托底问答完成并已回复", level="success", profile_id=profile_id)
     except Exception as exc:
-        append_runtime_event("message", f"大模型托底问答失败：{sanitize_error(exc)}", level="error", profile_id=active_profile_id())
+        append_runtime_event("message", f"大模型托底问答失败：{sanitize_error(exc)}", level="error", profile_id=profile_id)
         feishu.send_text(chat_id, f"大模型问答暂时失败：{sanitize_error(exc)}。请稍后重试。")
 
 
@@ -2412,14 +2875,20 @@ def format_chat_members(payload: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def answer_group_members_event(chat_id: str, feishu: FeishuApi) -> None:
+def answer_group_members_event(
+    chat_id: str,
+    feishu: FeishuApi,
+    *,
+    platform_profile_id: str | None = None,
+) -> None:
+    profile_id = str(platform_profile_id or active_profile_id() or DEFAULT_PROFILE_ID).strip()
     try:
         result = feishu.list_chat_members(chat_id)
         feishu.send_text(chat_id, format_chat_members(result))
-        append_runtime_event("message", "群成员确定性查询完成并已回复", level="success", profile_id=active_profile_id())
+        append_runtime_event("message", "群成员确定性查询完成并已回复", level="success", profile_id=profile_id)
     except Exception as exc:
         error = sanitize_error(exc)
-        append_runtime_event("message", f"群成员查询失败：{error}", level="error", profile_id=active_profile_id())
+        append_runtime_event("message", f"群成员查询失败：{error}", level="error", profile_id=profile_id)
         feishu.send_text(chat_id, f"群成员查询暂时失败：{error}。请检查机器人是否具有读取群信息与群成员的权限。")
 
 

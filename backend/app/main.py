@@ -144,7 +144,7 @@ from .professional_skills import (
 from .report import append_risk_report, write_report
 
 
-APP_VERSION = "v5.16.2"
+APP_VERSION = "v5.17.0"
 OUTPUT_FILE_PREFIX = "【输出】"
 TEMP_FILE_PREFIX = "【临时】"
 PROCESS_STATE_FILENAME = "process-state.json"
@@ -630,28 +630,30 @@ def update_feishu_app_bot_settings(payload: dict[str, object] = Body(...)) -> di
         raise HTTPException(status_code=400, detail="enabled 必须是布尔值")
     enabled = bool(payload["enabled"])
     profile_id = payload.get("profile_id")
-    if profile_id is not None:
-        if not isinstance(profile_id, str) or not profile_id.strip():
-            raise HTTPException(status_code=400, detail="profile_id 必须是非空字符串")
+    if profile_id is None:
+        next_profile = feishu_app_bot.active_profile_id()
+    elif not isinstance(profile_id, str) or not profile_id.strip():
+        raise HTTPException(status_code=400, detail="profile_id 必须是非空字符串")
+    else:
         next_profile = profile_id.strip()
-        if next_profile not in {item["profile_id"] for item in feishu_app_bot.credential_profiles()}:
-            raise HTTPException(status_code=400, detail="未找到指定的飞书机器人配置")
-        if next_profile != feishu_app_bot.active_profile_id():
-            if feishu_app_bot.bot_process_running():
-                feishu_app_bot.save_bot_enabled(False)
-                if not feishu_app_bot.wait_for_bot_process_exit():
-                    raise HTTPException(status_code=409, detail="当前机器人仍在退出，暂时不能切换配置")
-            try:
-                feishu_app_bot.save_active_profile(next_profile)
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
-    feishu_app_bot.save_bot_enabled(enabled)
+    if next_profile not in {item["profile_id"] for item in feishu_app_bot.credential_profiles()}:
+        raise HTTPException(status_code=400, detail="未找到指定的飞书机器人配置")
+    feishu_app_bot.save_bot_enabled(enabled, next_profile)
     if enabled:
-        configuration_issue = feishu_app_bot.credential_configuration_issue()
+        configuration_issue = feishu_app_bot.credential_configuration_issue(next_profile)
         if configuration_issue:
-            feishu_app_bot.save_bot_enabled(False)
+            feishu_app_bot.save_bot_enabled(False, next_profile)
             raise HTTPException(status_code=409, detail=configuration_issue)
-        feishu_app_bot.start_bot_process()
+    try:
+        start_results = feishu_app_bot.start_enabled_bot_processes()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if enabled and not start_results.get(
+        next_profile,
+        feishu_app_bot.bot_process_running(next_profile),
+    ):
+        feishu_app_bot.save_bot_enabled(False, next_profile)
+        raise HTTPException(status_code=409, detail="该平台机器人凭证未配置完整或进程启动失败")
     return feishu_app_bot.bot_status()
 
 

@@ -95,7 +95,23 @@ def wait_for_bot_status(api_base_url: str, timeout_seconds: int = 30) -> dict[st
     latest: dict[str, object] = {}
     while True:
         latest = read_bot_status(api_base_url)
-        if not latest.get("enabled") or latest.get("running"):
+        profiles = latest.get("profiles")
+        profile_items = profiles if isinstance(profiles, list) else []
+        converged = bool(profile_items) and all(
+            isinstance(profile, dict)
+            and bool(profile.get("enabled")) == bool(profile.get("running"))
+            for profile in profile_items
+        )
+        has_configuration_error = any(
+            isinstance(profile, dict)
+            and bool(profile.get("enabled"))
+            and (
+                not profile.get("configured")
+                or not profile.get("profile_consistent")
+            )
+            for profile in profile_items
+        )
+        if converged or has_configuration_error:
             return latest
         if time.monotonic() >= deadline:
             return latest
@@ -135,18 +151,38 @@ def validate_cloud_runtime(service_states: dict[str, str], bot_status: dict[str,
             "zaojiazhisuan.service 当前状态不是 active："
             f"{service_states.get('zaojiazhisuan.service') or '未知'}"
         )
-    if not bot_status.get("configured"):
-        errors.append("第二层机器人凭证未配置")
-    if not bot_status.get("profile_consistent"):
-        errors.append("第二层机器人配置与项目登记不一致")
-    if bot_status.get("enabled"):
-        if service_states.get("zaojiazhisuan-feishu-bot.service") != "active":
-            errors.append(
-                "zaojiazhisuan-feishu-bot.service 当前状态不是 active："
-                f"{service_states.get('zaojiazhisuan-feishu-bot.service') or '未知'}"
-            )
-        if not bot_status.get("running"):
-            errors.append("第二层机器人已启用，但等待 30 秒后仍未进入 running 状态")
+    if service_states.get("zaojiazhisuan-feishu-bot.service") != "active":
+        errors.append(
+            "zaojiazhisuan-feishu-bot.service 双平台监督器当前状态不是 active："
+            f"{service_states.get('zaojiazhisuan-feishu-bot.service') or '未知'}"
+        )
+    profiles = bot_status.get("profiles")
+    profile_items = profiles if isinstance(profiles, list) else []
+    if not profile_items:
+        errors.append("第二层机器人状态缺少平台列表")
+        return errors
+    running_count = 0
+    for profile in profile_items:
+        if not isinstance(profile, dict):
+            errors.append("第二层机器人平台状态格式错误")
+            continue
+        label = str(profile.get("label") or profile.get("profile_id") or "未知平台")
+        enabled = bool(profile.get("enabled"))
+        running = bool(profile.get("running"))
+        running_count += int(running)
+        if enabled and not profile.get("configured"):
+            errors.append(f"{label}已启用，但凭证未配置")
+        if enabled and not profile.get("profile_consistent"):
+            errors.append(f"{label}已启用，但配置与项目登记不一致")
+        if enabled and not running:
+            errors.append(f"{label}已启用，但等待 30 秒后仍未进入 running 状态")
+        if not enabled and running:
+            errors.append(f"{label}已关闭，但运行器仍未退出")
+    reported_count = bot_status.get("running_profile_count")
+    if reported_count is not None and int(reported_count) != running_count:
+        errors.append(
+            f"运行平台计数不一致：接口={reported_count}，平台明细={running_count}"
+        )
     return errors
 
 
@@ -214,10 +250,9 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"[FAIL] {error}")
             return 1
         print(
-            "[OK] 第二层机器人运行态通过，"
-            f"enabled={bool(bot_status.get('enabled'))}，"
-            f"running={bool(bot_status.get('running'))}，"
-            f"active_profile={bot_status.get('active_profile') or '未选择'}"
+            "[OK] 双平台长连接运行态通过，"
+            f"running_profiles={int(bot_status.get('running_profile_count') or 0)}，"
+            f"connection_mode={bot_status.get('connection_mode') or '未知'}"
         )
     return 0
 

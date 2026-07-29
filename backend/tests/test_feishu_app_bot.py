@@ -230,8 +230,10 @@ def test_delayed_xlsx_sent_inside_pending_window_is_allowed(tmp_path):
     feishu = FakeFeishu()
     with store._connect() as connection:
         connection.execute(
-            "INSERT INTO pending_uploads(chat_id,sender_id,created_at,expires_at) VALUES (?,?,?,?)",
+            """INSERT INTO pending_uploads
+            (platform_profile_id,chat_id,sender_id,created_at,expires_at) VALUES (?,?,?,?,?)""",
             (
+                "default",
                 "chat-1",
                 "user-1",
                 "2026-07-15T04:30:30+00:00",
@@ -251,7 +253,7 @@ def test_delayed_xlsx_sent_inside_pending_window_is_allowed(tmp_path):
         store,
         received_at="2026-07-15T04:35:55+00:00",
     ) is True
-    result = feishu_app_bot.accept_event(payload, store, feishu)
+    result = feishu_app_bot.accept_event(payload, store, feishu, platform_profile_id="default")
     assert result["created"] is True
 
 
@@ -259,8 +261,10 @@ def test_delayed_file_outside_original_window_remains_blocked(tmp_path):
     store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
     with store._connect() as connection:
         connection.execute(
-            "INSERT INTO pending_uploads(chat_id,sender_id,created_at,expires_at) VALUES (?,?,?,?)",
+            """INSERT INTO pending_uploads
+            (platform_profile_id,chat_id,sender_id,created_at,expires_at) VALUES (?,?,?,?,?)""",
             (
+                "default",
                 "chat-1",
                 "user-1",
                 "2026-07-15T04:30:30+00:00",
@@ -377,6 +381,94 @@ def test_enqueue_is_idempotent_and_fifo(tmp_path):
     assert store.claim_next()["task_id"] == first["task_id"]
     store.update(first["task_id"], "completed", stage="completed")
     assert store.claim_next()["task_id"] == second["task_id"]
+
+
+def test_parallel_profiles_share_one_global_fifo_worker_slot(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        feishu_app_bot,
+        "credential_profiles",
+        lambda: [
+            {"profile_id": "default", "label": "普通飞书"},
+            {"profile_id": "weact_cost", "label": "WeAct"},
+        ],
+    )
+    monkeypatch.setattr(feishu_app_bot, "is_bot_enabled", lambda profile_id=None: True)
+    store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
+    feishu_task, _ = store.enqueue(
+        event_id="feishu-event",
+        message_id="feishu-message",
+        chat_id="feishu-chat",
+        file_key="feishu-file",
+        file_name="feishu.xlsx",
+        platform_profile_id="default",
+    )
+    weact_task, _ = store.enqueue(
+        event_id="weact-event",
+        message_id="weact-message",
+        chat_id="weact-chat",
+        file_key="weact-file",
+        file_name="weact.xlsx",
+        platform_profile_id="weact_cost",
+    )
+
+    assert store.claim_next("weact_cost") is None
+    claimed_feishu = store.claim_next("default")
+    assert claimed_feishu["task_id"] == feishu_task["task_id"]
+    assert claimed_feishu["platform_profile_id"] == "default"
+    assert store.claim_next("weact_cost") is None
+    store.update(feishu_task["task_id"], "completed", stage="completed")
+    claimed_weact = store.claim_next("weact_cost")
+    assert claimed_weact["task_id"] == weact_task["task_id"]
+    assert claimed_weact["platform_profile_id"] == "weact_cost"
+
+
+def test_upload_windows_and_tasks_are_isolated_by_platform(tmp_path):
+    store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
+    store.open_upload_window("shared-chat", "shared-user", platform_profile_id="default")
+    reference = feishu_app_bot.utc_now()
+
+    assert store.matches_upload_window(
+        "shared-chat",
+        "shared-user",
+        reference,
+        platform_profile_id="default",
+    )
+    assert not store.matches_upload_window(
+        "shared-chat",
+        "shared-user",
+        reference,
+        platform_profile_id="weact_cost",
+    )
+
+
+def test_task_query_cannot_cross_platform_even_with_same_chat_id(tmp_path):
+    store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
+    task, _ = store.enqueue(
+        event_id="feishu-event",
+        message_id="feishu-message",
+        chat_id="shared-chat",
+        file_key="feishu-file",
+        file_name="feishu.xlsx",
+        platform_profile_id="default",
+    )
+    feishu = FakeFeishu()
+    result = feishu_app_bot.accept_conversation_event(
+        event_payload(
+            event_id="weact-query-event",
+            message_id="weact-query-message",
+            files=[],
+            text=f"进度 {task['task_id']}",
+            chat_type="p2p",
+            chat_id="shared-chat",
+            mentions=[],
+        ),
+        store,
+        feishu,
+        platform_profile_id="weact_cost",
+    )
+
+    assert result["kind"] == "task_missing"
+    assert "未找到" in feishu.texts[-1][1]
 
 
 def test_accept_event_replies_once_for_duplicate(tmp_path):
@@ -1275,7 +1367,18 @@ def test_cleanup_only_removes_expired_terminal_task_files(tmp_path):
 
 def test_status_api_does_not_expose_credentials(tmp_path, monkeypatch):
     monkeypatch.setattr(feishu_app_bot, "DB_PATH", tmp_path / "tasks.sqlite3")
-    monkeypatch.setattr(feishu_app_bot, "load_credentials", lambda: {"app_id": "app", "app_secret": "secret"})
+    monkeypatch.setattr(
+        feishu_app_bot,
+        "credential_profiles",
+        lambda: [{"profile_id": "default", "label": "普通飞书", "app_id_suffix": "test"}],
+    )
+    monkeypatch.setattr(
+        feishu_app_bot,
+        "load_credentials",
+        lambda profile_id=None: {"profile_id": profile_id or "default", "app_id": "app", "app_secret": "secret"},
+    )
+    monkeypatch.setattr(feishu_app_bot, "is_bot_enabled", lambda profile_id=None: False)
+    monkeypatch.setattr(feishu_app_bot, "bot_process_running", lambda profile_id=None: False)
     monkeypatch.setattr(feishu_app_bot, "credential_configuration_issue", lambda *args, **kwargs: "")
     response = TestClient(app).get("/api/collaboration/feishu-app-bot/status")
     assert response.status_code == 200
@@ -1356,21 +1459,26 @@ def test_console_log_api_is_bounded_and_does_not_expose_raw_runner_url(tmp_path,
 
 
 def test_start_bot_process_records_child_pid_immediately(tmp_path, monkeypatch):
-    pid_path = tmp_path / "runner.pid"
-    monkeypatch.setattr(feishu_app_bot, "PID_PATH", pid_path)
-    monkeypatch.setattr(feishu_app_bot, "RUNTIME_ROOT", tmp_path / "runtime")
-    monkeypatch.setattr(feishu_app_bot, "is_bot_enabled", lambda: True)
-    monkeypatch.setattr(feishu_app_bot, "bot_process_running", lambda: False)
+    profile_root = tmp_path / "profiles"
+    monkeypatch.setattr(feishu_app_bot, "PROFILE_RUNTIME_ROOT", profile_root)
+    monkeypatch.setattr(feishu_app_bot, "is_bot_enabled", lambda profile_id=None: True)
+    monkeypatch.setattr(feishu_app_bot, "bot_process_running", lambda profile_id=None: False)
     monkeypatch.setattr(
         feishu_app_bot,
         "load_credentials",
-        lambda: {"app_id": "app", "app_secret": "secret", "domain": "https://open.weact.pipechina.com.cn"},
+        lambda profile_id=None: {
+            "profile_id": profile_id or "default",
+            "app_id": "app",
+            "app_secret": "secret",
+            "domain": "https://open.feishu.cn",
+        },
     )
+    monkeypatch.setattr(feishu_app_bot, "credential_profiles", lambda: [{"profile_id": "default", "label": "普通飞书"}])
     monkeypatch.setattr(feishu_app_bot, "credential_configuration_issue", lambda *args, **kwargs: "")
     monkeypatch.setattr(feishu_app_bot.subprocess, "Popen", lambda *args, **kwargs: SimpleNamespace(pid=4321))
 
-    assert feishu_app_bot.start_bot_process() is True
-    assert pid_path.read_text(encoding="utf-8") == "4321"
+    assert feishu_app_bot.start_bot_process("default") is True
+    assert feishu_app_bot.bot_pid_path("default").read_text(encoding="utf-8") == "4321"
 
 
 def test_credential_profiles_support_multiple_bots_without_exposing_secrets(tmp_path, monkeypatch):
@@ -1567,19 +1675,47 @@ def test_invalid_feishu_domain_falls_back_to_public_feishu(domain):
 
 
 def test_app_bot_switch_persists_and_starts_when_enabled(tmp_path, monkeypatch):
+    settings_path = tmp_path / "feishu-app-settings.json"
+    settings_path.write_text(json.dumps({
+        "active_profile": "default",
+        "profiles": {
+            "default": {
+                "label": "默认机器人（普通飞书）",
+                "app_id": "cli_default",
+                "app_secret": "secret-default",
+                "domain": "https://open.feishu.cn",
+            },
+        },
+    }), encoding="utf-8")
+    defaults_path = tmp_path / "project-default-settings.json"
+    defaults_path.write_text(json.dumps({"feishuAppBot": {"expectedProfiles": {
+        "default": {"appId": "cli_default", "domain": "https://open.feishu.cn"},
+    }}}), encoding="utf-8")
     control_path = tmp_path / "control.json"
+    profile_root = tmp_path / "profiles"
+    monkeypatch.setattr(feishu_app_bot, "SETTINGS_PATH", settings_path)
+    monkeypatch.setattr(feishu_app_bot, "PROJECT_DEFAULT_SETTINGS_PATH", defaults_path)
     monkeypatch.setattr(feishu_app_bot, "CONTROL_PATH", control_path)
+    monkeypatch.setattr(feishu_app_bot, "PROFILE_RUNTIME_ROOT", profile_root)
     monkeypatch.setattr(feishu_app_bot, "DB_PATH", tmp_path / "tasks.sqlite3")
-    monkeypatch.setattr(feishu_app_bot, "bot_process_running", lambda: False)
-    started: list[bool] = []
-    monkeypatch.setattr(feishu_app_bot, "start_bot_process", lambda: started.append(True) or True)
-    response = TestClient(app).post("/api/collaboration/feishu-app-bot/settings", json={"enabled": True})
+    monkeypatch.setattr(feishu_app_bot, "bot_process_running", lambda profile_id=None: profile_id == "default")
+    started: list[str] = []
+    monkeypatch.setattr(
+        feishu_app_bot,
+        "start_enabled_bot_processes",
+        lambda: started.append("default") or {"default": True},
+    )
+    response = TestClient(app).post(
+        "/api/collaboration/feishu-app-bot/settings",
+        json={"enabled": True, "profile_id": "default"},
+    )
     assert response.status_code == 200
-    assert json.loads(control_path.read_text(encoding="utf-8"))["enabled"] is True
-    assert started == [True]
+    assert json.loads(feishu_app_bot.bot_control_path("default").read_text(encoding="utf-8"))["enabled"] is True
+    assert response.json()["profiles"][0]["running"] is True
+    assert started == ["default"]
 
 
-def test_app_bot_profile_switch_persists_and_starts_selected_profile(tmp_path, monkeypatch):
+def test_app_bot_profiles_toggle_independently_without_switching_active_profile(tmp_path, monkeypatch):
     settings_path = tmp_path / "feishu-app-settings.json"
     settings_path.write_text(json.dumps({
         "active_profile": "default",
@@ -1596,10 +1732,16 @@ def test_app_bot_profile_switch_persists_and_starts_selected_profile(tmp_path, m
     monkeypatch.setattr(feishu_app_bot, "SETTINGS_PATH", settings_path)
     monkeypatch.setattr(feishu_app_bot, "PROJECT_DEFAULT_SETTINGS_PATH", defaults_path)
     monkeypatch.setattr(feishu_app_bot, "CONTROL_PATH", control_path)
+    monkeypatch.setattr(feishu_app_bot, "PROFILE_RUNTIME_ROOT", tmp_path / "profiles")
     monkeypatch.setattr(feishu_app_bot, "DB_PATH", tmp_path / "tasks.sqlite3")
-    monkeypatch.setattr(feishu_app_bot, "bot_process_running", lambda: False)
-    started: list[bool] = []
-    monkeypatch.setattr(feishu_app_bot, "start_bot_process", lambda: started.append(True) or True)
+    control_path.write_text('{"enabled": false}', encoding="utf-8")
+    monkeypatch.setattr(feishu_app_bot, "bot_process_running", lambda profile_id=None: profile_id == "weact_cost")
+    started: list[str] = []
+    monkeypatch.setattr(
+        feishu_app_bot,
+        "start_enabled_bot_processes",
+        lambda: started.append("weact_cost") or {"weact_cost": True},
+    )
 
     response = TestClient(app).post(
         "/api/collaboration/feishu-app-bot/settings",
@@ -1607,10 +1749,11 @@ def test_app_bot_profile_switch_persists_and_starts_selected_profile(tmp_path, m
     )
 
     assert response.status_code == 200
-    assert response.json()["active_profile"] == "weact_cost"
+    assert response.json()["active_profile"] == "default"
     assert response.json()["configured"] is True
-    assert json.loads(control_path.read_text(encoding="utf-8"))["enabled"] is True
-    assert started == [True]
+    assert json.loads(feishu_app_bot.bot_control_path("weact_cost").read_text(encoding="utf-8"))["enabled"] is True
+    assert feishu_app_bot.bot_control_path("default").exists() is False
+    assert started == ["weact_cost"]
 
 
 def test_app_bot_rejects_registered_profile_app_id_mismatch(tmp_path, monkeypatch):
@@ -1634,9 +1777,10 @@ def test_app_bot_rejects_registered_profile_app_id_mismatch(tmp_path, monkeypatc
     monkeypatch.setattr(feishu_app_bot, "SETTINGS_PATH", settings_path)
     monkeypatch.setattr(feishu_app_bot, "PROJECT_DEFAULT_SETTINGS_PATH", defaults_path)
     monkeypatch.setattr(feishu_app_bot, "CONTROL_PATH", control_path)
+    monkeypatch.setattr(feishu_app_bot, "PROFILE_RUNTIME_ROOT", tmp_path / "profiles")
     monkeypatch.setattr(feishu_app_bot, "DB_PATH", tmp_path / "tasks.sqlite3")
-    monkeypatch.setattr(feishu_app_bot, "bot_process_running", lambda: False)
-    monkeypatch.setattr(feishu_app_bot, "start_bot_process", lambda: pytest.fail("配置不一致时不应启动"))
+    monkeypatch.setattr(feishu_app_bot, "bot_process_running", lambda profile_id=None: False)
+    monkeypatch.setattr(feishu_app_bot, "start_enabled_bot_processes", lambda: pytest.fail("配置不一致时不应启动"))
 
     response = TestClient(app).post(
         "/api/collaboration/feishu-app-bot/settings",
@@ -1645,7 +1789,7 @@ def test_app_bot_rejects_registered_profile_app_id_mismatch(tmp_path, monkeypatc
 
     assert response.status_code == 409
     assert "cli_verified" in response.json()["detail"]
-    assert json.loads(control_path.read_text(encoding="utf-8"))["enabled"] is False
+    assert json.loads(feishu_app_bot.bot_control_path("weact_cost").read_text(encoding="utf-8"))["enabled"] is False
     status = TestClient(app).get("/api/collaboration/feishu-app-bot/status").json()
     assert status["configured"] is False
     assert status["profile_consistent"] is False
@@ -1679,15 +1823,32 @@ def test_app_bot_rejects_registered_profile_domain_mismatch(tmp_path, monkeypatc
 
 
 def test_app_bot_switch_can_disable_without_starting(tmp_path, monkeypatch):
+    settings_path = tmp_path / "feishu-app-settings.json"
+    settings_path.write_text(json.dumps({
+        "active_profile": "default",
+        "profiles": {
+            "default": {
+                "label": "默认机器人（普通飞书）",
+                "app_id": "cli_default",
+                "app_secret": "secret-default",
+            },
+        },
+    }), encoding="utf-8")
     control_path = tmp_path / "control.json"
+    monkeypatch.setattr(feishu_app_bot, "SETTINGS_PATH", settings_path)
     monkeypatch.setattr(feishu_app_bot, "CONTROL_PATH", control_path)
+    monkeypatch.setattr(feishu_app_bot, "PROFILE_RUNTIME_ROOT", tmp_path / "profiles")
     monkeypatch.setattr(feishu_app_bot, "DB_PATH", tmp_path / "tasks.sqlite3")
-    monkeypatch.setattr(feishu_app_bot, "bot_process_running", lambda: True)
-    monkeypatch.setattr(feishu_app_bot, "start_bot_process", lambda: pytest.fail("关闭时不应启动进程"))
-    response = TestClient(app).post("/api/collaboration/feishu-app-bot/settings", json={"enabled": False})
+    monkeypatch.setattr(feishu_app_bot, "bot_process_running", lambda profile_id=None: False)
+    monkeypatch.setattr(feishu_app_bot, "start_enabled_bot_processes", lambda: {})
+    monkeypatch.setattr(feishu_app_bot, "wait_for_bot_process_exit", lambda profile_id=None, timeout_seconds=5.0: True)
+    response = TestClient(app).post(
+        "/api/collaboration/feishu-app-bot/settings",
+        json={"enabled": False, "profile_id": "default"},
+    )
     assert response.status_code == 200
     assert response.json()["enabled"] is False
-    assert json.loads(control_path.read_text(encoding="utf-8"))["enabled"] is False
+    assert json.loads(feishu_app_bot.bot_control_path("default").read_text(encoding="utf-8"))["enabled"] is False
 
 
 def test_bot_process_running_detects_a_live_windows_process(tmp_path, monkeypatch):

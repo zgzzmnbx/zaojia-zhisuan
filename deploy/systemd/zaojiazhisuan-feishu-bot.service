@@ -1,0 +1,17 @@
+[Unit]
+Description=Zaojiazhisuan Feishu and WeAct Long-Connection Supervisor
+After=network-online.target zaojiazhisuan.service
+Wants=network-online.target
+Requires=zaojiazhisuan.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/zaojiazhisuan/current
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/zaojiazhisuan/venv/bin/python /opt/zaojiazhisuan/current/backend/feishu_bot_supervisor.py
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

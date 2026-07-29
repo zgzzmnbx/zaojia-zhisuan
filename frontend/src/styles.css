@@ -930,7 +930,7 @@ button {
   top: 0;
   z-index: 20;
   display: grid;
-  grid-template-columns: auto minmax(280px, 360px) minmax(0, 1fr) auto auto;
+  grid-template-columns: auto minmax(280px, 360px) minmax(0, 1fr) auto auto auto;
   gap: 12px;
   min-height: 54px;
   padding: 0 18px;
@@ -953,6 +953,47 @@ button {
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.shell.layout-daweiba .nav-bot-statuses {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.shell.layout-daweiba .nav-bot-status-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 26px;
+  padding: 0 8px;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.shell.layout-daweiba .nav-bot-status-tag i {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.shell.layout-daweiba .nav-bot-status-tag.is-running {
+  border-color: #1d4ed8;
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.shell.layout-daweiba .nav-bot-status-tag.is-starting {
+  border-color: #60a5fa;
+  background: #dbeafe;
+  color: #1e40af;
 }
 
 .shell.layout-daweiba .nav-text-button,
@@ -1527,11 +1568,16 @@ button {
 
 @media (max-width: 760px) {
   .shell.layout-daweiba .global-nav {
-    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    grid-template-columns: auto minmax(0, 1fr) auto auto auto;
   }
 
   .shell.layout-daweiba .global-nav .nav-status {
     display: none;
+  }
+
+  .shell.layout-daweiba .nav-bot-status-tag {
+    padding-inline: 6px;
+    font-size: 10px;
   }
 
   .shell.layout-daweiba .daweiba-nav,
@@ -13966,10 +14012,72 @@ tbody tr:hover .row-ai-cell {
   color: #b91c1c;
 }
 
+.shell.layout-daweiba .daweiba-collaboration-badge.is-info {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.shell.layout-daweiba .daweiba-app-bot-profile-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.shell.layout-daweiba .daweiba-app-bot-profile {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--db-border);
+  border-left: 3px solid #93c5fd;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.shell.layout-daweiba .daweiba-app-bot-profile.is-running {
+  border-color: #93c5fd;
+  border-left-color: #2563eb;
+  background: #f8fbff;
+}
+
+.shell.layout-daweiba .daweiba-app-bot-profile > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.shell.layout-daweiba .daweiba-app-bot-profile strong,
+.shell.layout-daweiba .daweiba-app-bot-profile small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell.layout-daweiba .daweiba-app-bot-profile strong {
+  color: var(--db-text-strong);
+  font-size: 14px;
+}
+
+.shell.layout-daweiba .daweiba-app-bot-profile small {
+  color: var(--db-text-muted);
+  font-size: 11px;
+}
+
 .shell.layout-daweiba .daweiba-feishu-app-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin:14px 0; }
 .shell.layout-daweiba .daweiba-feishu-app-metrics span { display:grid; gap:3px; padding:12px; border:1px solid var(--db-border-soft); border-radius:8px; background:#f8fafc; color:var(--db-text-muted); font-size:12px; }
 .shell.layout-daweiba .daweiba-feishu-app-metrics strong { color:var(--db-text-strong); font-size:20px; }
-@media (max-width:900px) { .shell.layout-daweiba .daweiba-feishu-app-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media (max-width:900px) {
+  .shell.layout-daweiba .daweiba-app-bot-profile-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .shell.layout-daweiba .daweiba-feishu-app-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
 
 .daweiba-bot-console-backdrop {
   z-index: 30;

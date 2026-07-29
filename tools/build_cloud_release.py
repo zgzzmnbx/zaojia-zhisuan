@@ -19,6 +19,7 @@ BASE_PATHS = (
     "backend/app",
     "backend/requirements-runtime.txt",
     "backend/feishu_bot_runner.py",
+    "backend/feishu_bot_supervisor.py",
     "frontend/dist",
     "business-skills",
     "config",
