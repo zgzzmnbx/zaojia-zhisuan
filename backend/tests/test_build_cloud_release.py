@@ -23,6 +23,7 @@ def create_project(tmp_path: Path) -> Path:
         "backend/app/main.py": 'APP_VERSION = "v1.2.3"',
         "backend/requirements-runtime.txt": "fastapi\n",
         "backend/feishu_bot_runner.py": "print('runner')\n",
+        "backend/feishu_bot_supervisor.py": "print('supervisor')\n",
         "frontend/dist/index.html": (
             '<script src="/assets/app.js"></script>'
             '<link href="/assets/app.css" rel="stylesheet">'

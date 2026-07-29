@@ -129,6 +129,7 @@ from .paths import (
     RUNTIME_DIR,
 )
 from .project_dashboard import backfill_project_ledger
+from .settlement_audit_api import router as settlement_audit_router
 from .project_ledger import (
     ProjectArtifactNotFoundError,
     ProjectLedger,
@@ -144,7 +145,7 @@ from .professional_skills import (
 from .report import append_risk_report, write_report
 
 
-APP_VERSION = "v5.17.0"
+APP_VERSION = "v5.18.0"
 OUTPUT_FILE_PREFIX = "【输出】"
 TEMP_FILE_PREFIX = "【临时】"
 PROCESS_STATE_FILENAME = "process-state.json"
@@ -237,6 +238,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(settlement_audit_router)
 
 
 @app.get("/api/health")

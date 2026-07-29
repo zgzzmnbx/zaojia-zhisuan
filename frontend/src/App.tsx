@@ -51,6 +51,7 @@ import {
 import { parseMarkdownTableAt } from "./utils/zhisuanMarkdownTable";
 
 const ProjectDashboard = lazy(() => import("./components/project-dashboard/ProjectDashboard"));
+const SettlementAuditWorkbench = lazy(() => import("./components/settlement-audit/SettlementAuditWorkbench"));
 const DEFAULT_API_BASE = import.meta.env.DEV ? "http://127.0.0.1:8000" : "";
 const API_BASE = import.meta.env.VITE_API_BASE ?? DEFAULT_API_BASE;
 const API_BASE_LABEL = API_BASE.replace(/^https?:\/\//, "") || window.location.host;
@@ -64,7 +65,7 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.17.0";
+const APP_VERSION = "v5.18.0";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const PRICE_KNOWLEDGE_ROW_COUNT = 560;
 const FORCE_KNOWLEDGE_PREFIXES = ["查库：", "查库:", "@知识库", "#知识库"] as const;
@@ -161,7 +162,7 @@ const ZHISUAN_QUICK_SETTINGS_VERSION = 2;
 const LEFT_COLUMN_COLLAPSED_STORAGE_KEY = "guankanzhisuan-left-column-collapsed";
 type MappingField = (typeof MAPPING_FIELDS)[number];
 type ColumnMapping = Record<MappingField, string>;
-type DaweibaModuleId = "agent" | "fill" | "preview" | "experience" | "workload" | "report" | "knowledge" | "collaboration" | "digital-project-assistant";
+type DaweibaModuleId = "agent" | "fill" | "preview" | "experience" | "workload" | "settlement" | "report" | "knowledge" | "collaboration" | "digital-project-assistant";
 type FillWorkspaceView = "dashboard" | "new";
 
 const UI_TUNER_TARGETS = [
@@ -8128,6 +8129,12 @@ function DaweibaApp() {
       icon: <Columns3 size={16} />,
     },
     {
+      id: "settlement",
+      name: "结算审核",
+      detail: "规则审核 · 双成果",
+      icon: <ShieldCheck size={16} />,
+    },
+    {
       id: "report",
       name: "Word 报告",
       detail: hasCurrentReport ? "可预览与下载" : isBatchMatchPending ? "等待批量匹配" : "等待转换",
@@ -8579,6 +8586,12 @@ function DaweibaApp() {
               新建填价
             </button>
           </nav>
+        ) : null}
+
+        {activeDaweibaModule === "settlement" ? (
+          <Suspense fallback={<div className="daweiba-project-dashboard-loading"><Loader2 className="spin" size={18} />正在载入结算审核工作台……</div>}>
+            <SettlementAuditWorkbench apiBase={API_BASE} />
+          </Suspense>
         ) : null}
 
         {hasOpenedProjectDashboard ? (
