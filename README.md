@@ -13,6 +13,7 @@
 - 产品名：造价智算
 - 定位：工程造价辅助智能体
 - 当前版本：v5.16.2
+- 当前云端版本：v5.16.2，发布目录 `/opt/zaojiazhisuan/releases/20260729-v5.16.2-cloud-release-r3`
 - 当前页面布局：`大尾巴主题 / daweiba` 唯一主界面
 - 当前 UI 基线：`大尾巴 Shadcn UI v1.0.0`，以 shadcn/ui preset `b1au7YYAi` 的 Rhea / Neutral / Blue / Lucide 为视觉输入，使用项目令牌和局部组件样式落地
 - 前端：React + TypeScript + Vite
