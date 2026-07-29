@@ -3436,7 +3436,113 @@ h2 {
 }
 
 .knowledge-candidate-modal {
-  width: min(760px, 100%);
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0;
+  width: min(780px, 100%);
+  max-height: min(88vh, 820px);
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--db-border);
+  background: #ffffff;
+  box-shadow: var(--db-shadow-dialog);
+}
+
+.knowledge-candidate-modal > .modal-title {
+  position: relative;
+  z-index: 2;
+  min-height: 74px;
+  padding: 15px 18px;
+  border-bottom: 1px solid var(--db-border-soft);
+  background: #ffffff;
+}
+
+.knowledge-candidate-modal__title {
+  display: flex !important;
+  align-items: center;
+  gap: 11px !important;
+  min-width: 0;
+}
+
+.knowledge-candidate-modal__title > span:last-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.knowledge-candidate-modal__title-icon {
+  display: inline-grid;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--db-primary-soft);
+  color: var(--db-primary);
+}
+
+.knowledge-candidate-modal > .modal-title strong {
+  color: var(--db-text-strong);
+  font-family: var(--font-ui);
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.knowledge-candidate-modal > .modal-title small {
+  color: var(--db-text-muted);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.knowledge-candidate-modal > .modal-title button {
+  display: inline-grid;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+  place-items: center;
+  border-color: transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--db-text-muted);
+}
+
+.knowledge-candidate-modal > .modal-title button:hover {
+  border-color: var(--db-border);
+  background: #f8fafc;
+  color: var(--db-text-strong);
+}
+
+.knowledge-candidate-modal__body {
+  display: grid;
+  gap: 16px;
+  min-height: 0;
+  padding: 18px 20px 20px;
+  overflow: auto;
+}
+
+.knowledge-candidate-modal__body > .knowledge-memory-modal-actions {
+  position: sticky;
+  bottom: 0;
+  margin: 0 -20px -20px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--db-border-soft);
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(8px);
+}
+
+.knowledge-candidate-modal label > span {
+  color: var(--db-text-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.knowledge-candidate-modal :is(input, select, textarea) {
+  border-color: var(--db-border);
+  color: var(--db-text);
+  font-size: 13px;
 }
 
 .knowledge-memory-modal {
@@ -3648,7 +3754,7 @@ h2 {
 .knowledge-evidence-summary {
   display: grid;
   gap: 8px;
-  margin-top: 12px;
+  margin-top: 20px;
   padding-top: 11px;
   border-top: 1px solid var(--line-soft);
 }
@@ -3670,7 +3776,7 @@ h2 {
 
 .zhisuan-answer-heading > strong {
   color: var(--ink);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   line-height: 1.35;
 }
@@ -3694,7 +3800,7 @@ h2 {
 
 .knowledge-evidence-summary__head strong {
   color: var(--ink);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.35;
 }
 
@@ -14056,8 +14162,8 @@ tbody tr:hover .row-ai-cell {
 .shell.layout-daweiba .daweiba-collaboration-body.is-tasks > .is-second-layer,
 .shell.layout-daweiba .daweiba-collaboration-body.is-dispatch > .is-external-dispatch,
 .shell.layout-daweiba .daweiba-collaboration-body.is-connections > .is-webhook-layer,
-.shell.layout-daweiba .daweiba-collaboration-body.is-connections > .daweiba-collaboration-inline-console,
-.shell.layout-daweiba .daweiba-collaboration-body.is-notifications > .is-notification-rules,
+.shell.layout-daweiba .daweiba-collaboration-body.is-connections > .is-notification-rules,
+.shell.layout-daweiba .daweiba-collaboration-body.is-notifications > .daweiba-collaboration-inline-console,
 .shell.layout-daweiba .daweiba-collaboration-body.is-notifications > .daweiba-collaboration-history {
   display: block;
 }
@@ -14679,10 +14785,19 @@ tbody tr:hover .row-ai-cell {
   gap: 12px;
 }
 
+.shell.layout-daweiba .daweiba-collaboration-settings.is-webhook-layer .daweiba-collaboration-form-grid {
+  row-gap: 18px;
+  padding-block: 4px 2px;
+}
+
 .shell.layout-daweiba .daweiba-collaboration-form-grid label {
   display: grid;
   gap: 6px;
   min-width: 0;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-settings.is-webhook-layer .daweiba-collaboration-form-grid label {
+  gap: 8px;
 }
 
 .shell.layout-daweiba .daweiba-collaboration-form-grid label.is-wide {
@@ -14708,6 +14823,11 @@ tbody tr:hover .row-ai-cell {
   font-size: 13px;
   outline: none;
   box-shadow: none;
+}
+
+.shell.layout-daweiba .daweiba-collaboration-settings.is-webhook-layer .daweiba-collaboration-form-grid input {
+  min-height: 42px;
+  padding-inline: 12px;
 }
 
 .shell.layout-daweiba .daweiba-collaboration-form-grid input:focus {

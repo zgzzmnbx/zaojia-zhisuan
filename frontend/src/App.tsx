@@ -10179,8 +10179,8 @@ function DaweibaApp() {
             {([
               ["tasks", "协同任务", "查看机器人状态和最近任务", MessageSquareText],
               ["dispatch", "新建派发", "创建外部任务并选择人员", Send],
-              ["connections", "连接设置", "管理机器人、Webhook 与控制台", MonitorUp],
-              ["notifications", "通知与记录", "设置通知规则并查看发送历史", Settings],
+              ["connections", "webhook机器人", "配置 Webhook 与通知规则", MonitorUp],
+              ["notifications", "调试设置", "查看运行控制台与发送记录", Settings],
             ] as const).map(([id, label, description, Icon]) => (
               <button
                 key={id}
@@ -11832,13 +11832,21 @@ function DaweibaApp() {
         <div className="modal-backdrop knowledge-memory-backdrop" role="presentation" onClick={() => setKnowledgeCandidateDraft(null)}>
           <div className="settings-modal knowledge-candidate-modal" role="dialog" aria-modal="true" aria-label="保存为知识候选" onClick={(event) => event.stopPropagation()}>
             <div className="modal-title">
-              <span>
-                <strong>{knowledgeCandidateDraft.id ? "编辑知识候选" : "保存为知识候选"}</strong>
-                <small>默认保存为通用知识；操作方法和通用解释可自动通过，价格系数、正式标准及冲突内容需人工确认。</small>
+              <span className="knowledge-candidate-modal__title">
+                <span className="knowledge-candidate-modal__title-icon" aria-hidden="true">
+                  <Database size={17} />
+                </span>
+                <span>
+                  <strong>{knowledgeCandidateDraft.id ? "编辑知识候选" : "保存为知识候选"}</strong>
+                  <small>默认保存为通用知识；操作方法和通用解释可自动通过，价格系数、正式标准及冲突内容需人工确认。</small>
+                </span>
               </span>
-              <button type="button" onClick={() => setKnowledgeCandidateDraft(null)}>关闭</button>
+              <button type="button" aria-label="关闭知识候选弹窗" onClick={() => setKnowledgeCandidateDraft(null)}>
+                <X size={17} />
+              </button>
             </div>
-            <div className="knowledge-memory-form-grid">
+            <div className="knowledge-candidate-modal__body">
+              <div className="knowledge-memory-form-grid">
               <label>
                 <span>知识范围名称</span>
                 <input
@@ -11924,29 +11932,29 @@ function DaweibaApp() {
                   onChange={(event) => setKnowledgeCandidateDraft((current) => current ? ({ ...current, expiresAt: event.target.value }) : current)}
                 />
               </label>
-            </div>
-            <label>
+              </div>
+              <label>
               <span>标题</span>
               <input
                 value={knowledgeCandidateDraft.title}
                 onChange={(event) => setKnowledgeCandidateDraft((current) => current ? ({ ...current, title: event.target.value }) : current)}
               />
-            </label>
-            <label>
+              </label>
+              <label>
               <span>原问题</span>
               <textarea
                 value={knowledgeCandidateDraft.question}
                 onChange={(event) => setKnowledgeCandidateDraft((current) => current ? ({ ...current, question: event.target.value }) : current)}
               />
-            </label>
-            <label>
+              </label>
+              <label>
               <span>待确认结论</span>
               <textarea
                 value={knowledgeCandidateDraft.conclusion}
                 onChange={(event) => setKnowledgeCandidateDraft((current) => current ? ({ ...current, conclusion: event.target.value }) : current)}
               />
-            </label>
-            <div className="knowledge-memory-form-grid">
+              </label>
+              <div className="knowledge-memory-form-grid">
               <label>
                 <span>适用条件</span>
                 <textarea
@@ -11961,27 +11969,28 @@ function DaweibaApp() {
                   onChange={(event) => setKnowledgeCandidateDraft((current) => current ? ({ ...current, exceptions: event.target.value }) : current)}
                 />
               </label>
-            </div>
-            <label>
+              </div>
+              <label>
               <span>来源定位</span>
               <textarea
                 value={knowledgeCandidateDraft.sourceReference}
                 onChange={(event) => setKnowledgeCandidateDraft((current) => current ? ({ ...current, sourceReference: event.target.value }) : current)}
               />
-            </label>
-            <label>
+              </label>
+              <label>
               <span>证据摘要</span>
               <textarea
                 value={knowledgeCandidateDraft.evidenceSummary}
                 onChange={(event) => setKnowledgeCandidateDraft((current) => current ? ({ ...current, evidenceSummary: event.target.value }) : current)}
               />
-            </label>
-            <div className="knowledge-memory-modal-actions">
-              <button className="ghost-button" type="button" onClick={() => setKnowledgeCandidateDraft(null)}>取消</button>
-              <button className="primary-button" type="button" disabled={isSavingKnowledgeCandidate} onClick={() => void saveKnowledgeCandidate()}>
-                {isSavingKnowledgeCandidate ? <Loader2 className="spin" size={16} /> : <Database size={16} />}
-                {knowledgeCandidateDraft.id ? "保存修改" : "创建候选"}
-              </button>
+              </label>
+              <div className="knowledge-memory-modal-actions">
+                <button className="ghost-button" type="button" onClick={() => setKnowledgeCandidateDraft(null)}>取消</button>
+                <button className="primary-button" type="button" disabled={isSavingKnowledgeCandidate} onClick={() => void saveKnowledgeCandidate()}>
+                  {isSavingKnowledgeCandidate ? <Loader2 className="spin" size={16} /> : <Database size={16} />}
+                  {knowledgeCandidateDraft.id ? "保存修改" : "创建候选"}
+                </button>
+              </div>
             </div>
           </div>
         </div>
