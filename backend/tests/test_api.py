@@ -57,7 +57,7 @@ def test_project_default_settings_include_zhisuan_window():
     assert payload["zhisuanWindow"]["showAssistantAvatar"] is False
     assert payload["zhisuanWindow"]["welcomeMessage"]
     assert payload["zhisuanWindow"]["quickSettings"]["autoHide"] is True
-    assert payload["zhisuanWindow"]["quickSettings"]["customPrompts"] == ["@知识库："]
+    assert payload["zhisuanWindow"]["quickSettings"]["customPrompts"] == ["#知识库："]
     assert payload["zhisuanWindow"]["commonQuestions"][0].startswith("表4水文地质勘察")
     assert len(payload["zhisuanWindow"]["commonQuestions"]) == 6
     assert payload["knowledgeMemory"]["autoApproveTypes"] == ["operation", "general_explanation"]
@@ -2667,7 +2667,7 @@ def test_knowledge_search_prioritizes_price_database_for_specific_price_question
     response = client.post(
         "/api/knowledge/search",
         json={
-            "question": "@知识库，地形图测绘（地形测量） 山岭隧道（洞身） 复杂 1:2000 一般单价多少？",
+            "question": "#知识库，地形图测绘（地形测量） 山岭隧道（洞身） 复杂 1:2000 一般单价多少？",
             "limit": 5,
         },
     )
@@ -2692,7 +2692,7 @@ def test_knowledge_search_keeps_space_separated_price_terms_for_gps_question(tmp
     response = client.post(
         "/api/knowledge/search",
         json={
-            "question": "@知识库，控制测量 首级控制测量 GPS测量E级 中等 多少钱？",
+            "question": "#知识库，控制测量 首级控制测量 GPS测量E级 中等 多少钱？",
             "limit": 5,
         },
     )
@@ -2718,7 +2718,7 @@ def test_knowledge_search_returns_price_database_candidates_for_vague_price_ques
     client = TestClient(app)
     response = client.post(
         "/api/knowledge/search",
-        json={"question": "@知识库，控制测量 GPS E级 多少钱？", "limit": 6},
+        json={"question": "#知识库，控制测量 GPS E级 多少钱？", "limit": 6},
     )
 
     assert response.status_code == 200
@@ -2755,7 +2755,7 @@ def test_knowledge_search_understands_physical_factor_shorthand_with_force_prefi
 
     monkeypatch.setattr(main_module, "DEFAULT_INDEX_PATH", tmp_path / "knowledge-index.json", raising=False)
     client = TestClient(app)
-    response = client.post("/api/knowledge/search", json={"question": "@知识库，实物工作系数如何确定", "limit": 5})
+    response = client.post("/api/knowledge/search", json={"question": "#知识库，实物工作系数如何确定", "limit": 5})
 
     assert response.status_code == 200
     payload = response.json()
@@ -2882,6 +2882,13 @@ def test_knowledge_ask_strips_force_knowledge_prefix(monkeypatch):
     assert "查库：" not in user_prompt
 
 
+def test_force_knowledge_prefix_uses_hash_not_legacy_at():
+    from app.knowledge_qa import strip_force_knowledge_prefix
+
+    assert strip_force_knowledge_prefix("#知识库：技术工作费依据") == ("技术工作费依据", True)
+    assert strip_force_knowledge_prefix("@知识库：技术工作费依据") == ("@知识库：技术工作费依据", False)
+
+
 def test_llm_chat_force_knowledge_prefix_uses_knowledge_path(monkeypatch):
     import app.main as main_module
 
@@ -2895,7 +2902,7 @@ def test_llm_chat_force_knowledge_prefix_uses_knowledge_path(monkeypatch):
     monkeypatch.setattr(main_module, "call_chat_completion", fake_call_chat_completion)
 
     client = TestClient(app)
-    response = client.post("/api/llm-chat", data={"message": "@知识库 0.22 是哪来的？", "model": "demo-model"})
+    response = client.post("/api/llm-chat", data={"message": "#知识库 0.22 是哪来的？", "model": "demo-model"})
 
     assert response.status_code == 200
     payload = response.json()
@@ -2907,7 +2914,7 @@ def test_llm_chat_force_knowledge_prefix_uses_knowledge_path(monkeypatch):
     user_prompt = captured["messages"][1]["content"]
     assert "只能基于【已检索资料】和【当前行上下文】回答" in system_prompt
     assert "0.22 是哪来的？" in user_prompt
-    assert "@知识库" not in user_prompt
+    assert "#知识库" not in user_prompt
 
 
 

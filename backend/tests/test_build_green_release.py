@@ -62,7 +62,7 @@ def test_copy_project_default_settings_generates_release_default_when_missing(tm
     assert generated_payload["previewColumns"]["maxDisplayChars"] == 8
     assert generated_payload["zhisuanWindow"]["dockWidth"] == 400
     assert generated_payload["zhisuanWindow"]["_说明"]
-    assert generated_payload["zhisuanWindow"]["quickSettings"]["customPrompts"] == ["@知识库："]
+    assert generated_payload["zhisuanWindow"]["quickSettings"]["customPrompts"] == ["#知识库："]
     assert generated_payload["inputMapping"]["headerRow"] == 4
     assert generated_payload["workloadCapture"]["writeMode"] == "conservative"
     assert generated_payload["professionalSkills"]["defaultSkillId"] == "survey-measurement-limit-price"

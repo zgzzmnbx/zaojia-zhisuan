@@ -68,7 +68,7 @@ const OLD_APP_SUBTITLES = [
 const APP_VERSION = "v5.18.0";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const PRICE_KNOWLEDGE_ROW_COUNT = 560;
-const FORCE_KNOWLEDGE_PREFIXES = ["查库：", "查库:", "@知识库", "#知识库"] as const;
+const FORCE_KNOWLEDGE_PREFIXES = ["查库：", "查库:", "#知识库"] as const;
 const GENERAL_KNOWLEDGE_NAME = "通用知识";
 const GENERAL_KNOWLEDGE_KEY = "通用知识";
 const KNOWLEDGE_PROJECT_NAME_STORAGE_KEY = "zaojiazhisuan-knowledge-project-name";
@@ -679,7 +679,7 @@ const ZHISUAN_QUICK_PROMPT_BLOCKLIST = new Set([
 ]);
 const DEFAULT_ZHISUAN_QUICK_SETTINGS: ZhisuanQuickSettings = {
   enabledIds: ZHISUAN_BUILTIN_QUICK_ITEMS.map((item) => item.id),
-  customPrompts: ["@知识库："],
+  customPrompts: ["#知识库："],
   autoHide: true,
   version: ZHISUAN_QUICK_SETTINGS_VERSION,
 };
@@ -3799,7 +3799,7 @@ function DaweibaApp() {
       appendUserCommand(item.prompt);
       setChatInput("");
       if (!forcedKnowledge.question) {
-        appendZhisuanMessage("请输入知识库问题，例如：@知识库：第二层经验提示是什么意思？", "command");
+        appendZhisuanMessage("请输入知识库问题，例如：#知识库：第二层经验提示是什么意思？", "command");
         return;
       }
       await askKnowledgeQuestion(forcedKnowledge.question, knowledgeRowContext(rowAiContext), "强制知识库问答", { forcedKnowledge: true });
@@ -6607,7 +6607,7 @@ function DaweibaApp() {
     if (forcedKnowledge.forced) {
       if (!forcedKnowledge.question) {
         setError("请输入查库问题");
-        appendZhisuanMessage("请输入知识库问题，例如：@知识库：第二层经验提示是什么意思？", "command");
+        appendZhisuanMessage("请输入知识库问题，例如：#知识库：第二层经验提示是什么意思？", "command");
         return;
       }
       await askKnowledgeQuestion(forcedKnowledge.question, knowledgeRowContext(rowAiContext), "强制知识库问答", { forcedKnowledge: true });
@@ -7905,7 +7905,7 @@ function DaweibaApp() {
     setActiveDaweibaModule("knowledge");
     setIsAiDockCollapsed(false);
     setIsChatOpen(true);
-    setChatInput((current) => current || "@知识库：");
+    setChatInput((current) => current || "#知识库：");
     window.requestAnimationFrame(() => chatInputRef.current?.focus());
   }
 
@@ -10171,7 +10171,7 @@ function DaweibaApp() {
                 <Bot size={24} />
                 <div>
                   <strong>随行助手联动</strong>
-                  <span>点击下方按钮会展开右侧智算，并预置“@知识库：”问题前缀。</span>
+                  <span>点击下方按钮会展开右侧智算，并预置“#知识库：”问题前缀。</span>
                 </div>
               </div>
             </div>

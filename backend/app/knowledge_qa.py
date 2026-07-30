@@ -21,7 +21,7 @@ ASSISTANT_TABLE_FORMAT_RULE = (
     "单一结论、连续解释、风险警告和操作步骤不强行表格化，必要时可在表格后补充简短说明。"
 )
 DEFAULT_INDEX_PATH = DEFAULT_KNOWLEDGE_QA_INDEX_PATH
-FORCE_KNOWLEDGE_PREFIXES = ("查库：", "查库:", "@知识库", "#知识库")
+FORCE_KNOWLEDGE_PREFIXES = ("查库：", "查库:", "#知识库")
 KNOWLEDGE_INDEX_VERSION = "2026-07-28-library-selector-v2"
 
 COMMON_STOP_TERMS = {
@@ -58,7 +58,7 @@ SYNONYM_RULES: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (("待复核", "标红", "红色"), ("待复核", "标红", "红色", "未命中", "人工复核")),
     (("预警", "经验池"), ("预警", "经验池预警", "偏离率", "阈值", "同类记录")),
     (("风险报告", "审查摘要", "输出风险报告", "生成风险报告"), ("风险报告", "审查摘要", "Word报告", "知识库依据", "处理结论", "主要风险", "复核建议")),
-    (("问问智算", "智算模式", "@知识库", "查库", "强制知识库"), ("问问智算", "强制知识库", "快捷指令", "自动知识库问答", "普通自由问答", "行级AI复核", "风险报告")),
+    (("问问智算", "智算模式", "#知识库", "查库", "强制知识库"), ("问问智算", "强制知识库", "快捷指令", "自动知识库问答", "普通自由问答", "行级AI复核", "风险报告")),
     (("导出", "下载", "输出excel", "输出word"), ("导出", "下载", "Excel", "Word", "原始输出", "大模型", "结构化规则引擎")),
     (("行级AI", "行级复核", "当前行复核"), ("行级AI复核", "当前行上下文", "匹配状态", "匹配说明", "预警参数", "预警细节")),
     (("地形测量", "地形图测绘"), ("地形测量", "地形图测绘", "地形图测绘(地形测量)")),
@@ -529,7 +529,7 @@ def _source_type(path: Path) -> str:
 
 def _module_for_text(text: str) -> str:
     clean = _normalize_text(text)
-    if "问问智算" in clean or "大模型" in clean or "@知识库" in clean or "强制知识库" in clean:
+    if "问问智算" in clean or "大模型" in clean or "#知识库" in clean or "强制知识库" in clean:
         return "问问智算"
     if "不能连乘" in clean or "实物工作费" in clean or "实物工作系数" in clean or "附加调整系数" in clean:
         return "实物工作费调整系数"

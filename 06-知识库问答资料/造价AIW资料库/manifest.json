@@ -3,7 +3,7 @@
   "library_id": "cost-aiw",
   "generated_at": "2026-07-28T11:25:30+08:00",
   "source_marker": "【AIW】",
-  "usage_scope": "仅用于@知识库检索与依据解释，不参与价格、系数或其他业务裁决。",
+  "usage_scope": "仅用于#知识库检索与依据解释，不参与价格、系数或其他业务裁决。",
   "asset_count": 13,
   "ready_count": 13,
   "assets": [

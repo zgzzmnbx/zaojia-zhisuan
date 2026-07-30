@@ -67,7 +67,7 @@ class AssetRecord:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Build reusable AIW-marked cost knowledge assets for @知识库.",
+        description="Build reusable AIW-marked cost knowledge assets for #知识库.",
     )
     parser.add_argument(
         "--source-root",
@@ -370,7 +370,7 @@ def frontmatter(
         f"# {spec.title}",
         "",
         "> 本文是面向 AI 检索的派生知识资产。原始文件保持不变；回答时应同时给出来源文件与定位信息。",
-        "> 本资料只进入 `@知识库` 解释链路，不能反向修改结构化计价、匹配规则、经验池或报告结果。",
+        "> 本资料只进入 `#知识库` 解释链路，不能反向修改结构化计价、匹配规则、经验池或报告结果。",
         "",
         "## 来源信息",
         "",
@@ -464,7 +464,7 @@ def inventory_markdown(records: list[AssetRecord], generated_at: str) -> str:
         f"- 已就绪：{ready_count}",
         f"- 待转换：{pending_count}",
         f"- 纳入条件：文件名必须包含完整人工标记 `{AIW_MARKER}`",
-        "- 使用边界：仅用于 `@知识库` 检索和依据解释，不参与价格、系数、匹配规则、经验池或报告裁决。",
+        "- 使用边界：仅用于 `#知识库` 检索和依据解释，不参与价格、系数、匹配规则、经验池或报告裁决。",
         "",
         "| 状态 | 知识资产 | 源类型 | 原始资料 | 输出文件 | SHA256（前12位） |",
         "|---|---|---|---|---|---|",
@@ -499,7 +499,7 @@ def write_outputs(
         "library_id": LIBRARY_ID,
         "generated_at": generated_at,
         "source_marker": AIW_MARKER,
-        "usage_scope": "仅用于@知识库检索与依据解释，不参与价格、系数或其他业务裁决。",
+        "usage_scope": "仅用于#知识库检索与依据解释，不参与价格、系数或其他业务裁决。",
         "asset_count": len(records),
         "ready_count": sum(record.status == "ready" for record in records),
         "assets": [asdict(record) for record in records],

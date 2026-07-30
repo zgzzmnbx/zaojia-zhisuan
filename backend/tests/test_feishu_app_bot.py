@@ -176,7 +176,7 @@ def test_group_mentions_of_other_people_are_ignored_by_all_message_routes(tmp_pa
         )
     with pytest.raises(feishu_app_bot.IgnoreEvent):
         feishu_app_bot.accept_knowledge_event(
-            event_payload(files=[], mentions=mentions, text="@_user_1 @知识库：系数如何确定"),
+            event_payload(files=[], mentions=mentions, text="@_user_1 #知识库：系数如何确定"),
             store,
             FakeFeishu(),
             **identity,
@@ -192,7 +192,7 @@ def test_group_mentions_of_other_people_are_ignored_by_all_message_routes(tmp_pa
 
 def test_describe_message_event_contains_business_context_and_marks_missing_ip():
     detail = feishu_app_bot.describe_message_event(
-        event_payload(text="@知识库：系数如何确定？"),
+        event_payload(text="#知识库：系数如何确定？"),
         FakeFeishu(),
     )
 
@@ -201,7 +201,7 @@ def test_describe_message_event_contains_business_context_and_marks_missing_ip()
     assert "消息 ID：msg-1" in detail
     assert "平台创建时间：未提供" in detail
     assert "本机接收时间：" in detail
-    assert "消息：@知识库：系数如何确定？；附件：控制价.xlsx" in detail
+    assert "消息：#知识库：系数如何确定？；附件：控制价.xlsx" in detail
     assert "来源 IP：飞书长连接事件未提供" in detail
 
 
@@ -547,7 +547,7 @@ def test_non_upload_text_is_not_treated_as_upload_command(tmp_path):
 
 @pytest.mark.parametrize(
     "command",
-    ["@上传", "@上传文件", "@辅助审核", "@_user_ @上传！", "@_user_1  @上传", "@_user_1 @辅助审核！"],
+    ["@上传", "@上传文件", "#辅助审核", "@_user_ @上传！", "@_user_1  @上传", "@_user_1 #辅助审核！"],
 )
 def test_only_explicit_upload_commands_open_one_minute_window(tmp_path, command):
     store = feishu_app_bot.TaskStore(tmp_path / f"{len(command)}-tasks.sqlite3")
@@ -562,7 +562,7 @@ def test_assisted_review_command_has_clear_receipt_prompt(tmp_path):
     feishu = FakeFeishu()
 
     result = feishu_app_bot.accept_event(
-        event_payload(files=[], text="@辅助审核"),
+        event_payload(files=[], text="#辅助审核"),
         store,
         feishu,
     )
@@ -571,10 +571,23 @@ def test_assisted_review_command_has_clear_receipt_prompt(tmp_path):
     assert "辅助审核收件状态" in feishu.texts[0][1]
 
 
-@pytest.mark.parametrize("text", ["上传", "请上传", "@上传一下", "我要@上传文件了", "辅助审核", "@辅助审核一下"])
+@pytest.mark.parametrize(
+    "text",
+    ["上传", "请上传", "@上传一下", "我要@上传文件了", "辅助审核", "@辅助审核", "#辅助审核一下"],
+)
 def test_similar_phrases_do_not_open_upload_window(tmp_path, text):
     store = feishu_app_bot.TaskStore(tmp_path / f"{len(text)}-tasks.sqlite3")
     assert feishu_app_bot.accept_event(event_payload(files=[], text=text), store, FakeFeishu()) is None
+
+
+def test_legacy_at_knowledge_command_no_longer_enters_knowledge_route(tmp_path):
+    store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
+
+    assert feishu_app_bot.accept_knowledge_event(
+        event_payload(chat_type="p2p", files=[], mentions=[], text="@知识库：系数如何确定？"),
+        store,
+        FakeFeishu(),
+    ) is None
 
 
 def test_greeting_returns_introduction_and_usage(tmp_path):
@@ -586,8 +599,8 @@ def test_greeting_returns_introduction_and_usage(tmp_path):
     assert result["kind"] == "greeting"
     assert "我是造价智算机器人" in feishu.texts[0][1]
     assert "@上传" in feishu.texts[0][1]
-    assert "@辅助审核" in feishu.texts[0][1]
-    assert "@知识库" in feishu.texts[0][1]
+    assert "#辅助审核" in feishu.texts[0][1]
+    assert "#知识库" in feishu.texts[0][1]
     assert "Excel 自动处理" in feishu.texts[0][1]
     assert "普通智能问答" in feishu.texts[0][1]
 
@@ -933,7 +946,7 @@ def test_group_knowledge_question_requires_bot_mention(tmp_path):
     store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
     feishu = FakeFeishu()
     result = feishu_app_bot.accept_knowledge_event(
-        event_payload(files=[], text="@知识库：第二层经验提示是什么意思？"), store, feishu,
+        event_payload(files=[], text="#知识库：第二层经验提示是什么意思？"), store, feishu,
     )
     assert result["handled"] is True
     assert result["question"] == "第二层经验提示是什么意思？"
@@ -944,14 +957,14 @@ def test_group_knowledge_question_without_bot_mention_is_ignored(tmp_path):
     store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
     with pytest.raises(feishu_app_bot.IgnoreEvent):
         feishu_app_bot.accept_knowledge_event(
-            event_payload(files=[], mentions=[], text="@知识库：第二层经验提示是什么意思？"), store, FakeFeishu(),
+            event_payload(files=[], mentions=[], text="#知识库：第二层经验提示是什么意思？"), store, FakeFeishu(),
         )
 
 
 def test_private_knowledge_question_does_not_require_bot_mention(tmp_path):
     store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
     result = feishu_app_bot.accept_knowledge_event(
-        event_payload(chat_type="p2p", files=[], mentions=[], text="@知识库：技术工作费依据是什么？"), store, FakeFeishu(),
+        event_payload(chat_type="p2p", files=[], mentions=[], text="#知识库：技术工作费依据是什么？"), store, FakeFeishu(),
     )
     assert result["question"] == "技术工作费依据是什么？"
 
@@ -960,10 +973,10 @@ def test_knowledge_question_is_idempotent(tmp_path):
     store = feishu_app_bot.TaskStore(tmp_path / "tasks.sqlite3")
     feishu = FakeFeishu()
     first = feishu_app_bot.accept_knowledge_event(
-        event_payload(files=[], text="@知识库：预警阈值怎么来的？"), store, feishu,
+        event_payload(files=[], text="#知识库：预警阈值怎么来的？"), store, feishu,
     )
     second = feishu_app_bot.accept_knowledge_event(
-        event_payload(files=[], text="@知识库：预警阈值怎么来的？"), store, feishu,
+        event_payload(files=[], text="#知识库：预警阈值怎么来的？"), store, feishu,
     )
     assert first["duplicate"] is False
     assert second["duplicate"] is True
@@ -975,12 +988,12 @@ def test_knowledge_reissued_with_new_event_id_same_message_id_is_idempotent(tmp_
     feishu = FakeFeishu()
 
     first = feishu_app_bot.accept_knowledge_event(
-        event_payload(event_id="evt-old", message_id="msg-same", files=[], text="@知识库：系数如何确定？"),
+        event_payload(event_id="evt-old", message_id="msg-same", files=[], text="#知识库：系数如何确定？"),
         store,
         feishu,
     )
     replay = feishu_app_bot.accept_knowledge_event(
-        event_payload(event_id="evt-reissued", message_id="msg-same", files=[], text="@知识库：系数如何确定？"),
+        event_payload(event_id="evt-reissued", message_id="msg-same", files=[], text="#知识库：系数如何确定？"),
         store,
         feishu,
     )

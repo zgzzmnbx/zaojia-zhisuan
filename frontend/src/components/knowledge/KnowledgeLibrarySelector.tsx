@@ -93,7 +93,7 @@ export default function KnowledgeLibrarySelector({
         <div className="knowledge-library-menu" role="menu" aria-label="选择本次问答使用的知识库">
           <div className="knowledge-library-menu-head">
             <strong>选择知识库</strong>
-            <span>至少保留一项，选择会用于后续所有 @知识库 问答。</span>
+            <span>至少保留一项，选择会用于后续所有 #知识库 问答。</span>
           </div>
           <div className="knowledge-library-options">
             {libraries.map((library) => {

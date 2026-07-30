@@ -42,20 +42,21 @@ const skills = [
   },
 ];
 
-test("completes a bare @ into the knowledge command on Space", () => {
-  assert.equal(agentComposerSpaceCompletion("@"), "@知识库：");
-  assert.equal(agentComposerSpaceCompletion("说明 @"), null);
-  assert.equal(agentComposerSpaceCompletion("@知识库"), null);
+test("completes a bare # into the knowledge command on Space", () => {
+  assert.equal(agentComposerSpaceCompletion("#"), "#知识库：");
+  assert.equal(agentComposerSpaceCompletion("说明 #"), null);
+  assert.equal(agentComposerSpaceCompletion("@"), null);
+  assert.equal(agentComposerSpaceCompletion("#知识库"), null);
   assert.equal(agentComposerSpaceCompletion(""), null);
 });
 
 test("shows maintainable knowledge questions only while the prefix is empty", () => {
-  assert.equal(shouldShowKnowledgeQuestionSuggestions("@知识库"), true);
-  assert.equal(shouldShowKnowledgeQuestionSuggestions("@知识库："), true);
-  assert.equal(shouldShowKnowledgeQuestionSuggestions("@知识库: "), true);
-  assert.equal(shouldShowKnowledgeQuestionSuggestions("@知识库：技术系数"), false);
+  assert.equal(shouldShowKnowledgeQuestionSuggestions("#知识库"), true);
+  assert.equal(shouldShowKnowledgeQuestionSuggestions("#知识库："), true);
+  assert.equal(shouldShowKnowledgeQuestionSuggestions("#知识库: "), true);
+  assert.equal(shouldShowKnowledgeQuestionSuggestions("#知识库：技术系数"), false);
   assert.equal(shouldShowKnowledgeQuestionSuggestions("普通问题"), false);
-  assert.equal(knowledgeQuestionPrompt("  第二层经验提示是什么意思？  "), "@知识库：第二层经验提示是什么意思？");
+  assert.equal(knowledgeQuestionPrompt("  第二层经验提示是什么意思？  "), "#知识库：第二层经验提示是什么意思？");
 });
 
 test("derives the deterministic task phase used by the workspace", () => {
