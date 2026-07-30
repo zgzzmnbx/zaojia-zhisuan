@@ -31,40 +31,12 @@ def deliver_external_review_bundle(
     feishu: FeishuApi,
 ) -> dict:
     dispatch_store = external_task_dispatch.ExternalDispatchStore()
-    task = dispatch_store.get_task(task_id)
-    if not task:
-        raise external_task_dispatch.DispatchValidationError("未找到外部派发任务", status_code=404)
-    result_path = Path(str(task.get("submission_excel_path") or ""))
-    if not result_path.is_file():
-        raise external_task_dispatch.DispatchValidationError("编制成果文件不存在，无法发起复核", status_code=409)
     try:
-        file_message_ids: list[str] = []
-        card_message_ids: list[str] = []
-        targets = external_task_dispatch.review_delivery_targets(task)
-        external_task_dispatch.enforce_outbound_audience_safety(
-            feishu,
-            targets,
-            explicit_named_recipients={
-                str(item.get("platform_user_id") or "").strip(): str(item.get("display_name") or "").strip()
-                for item in task.get("_reviewers") or []
-            },
-        )
-        for receive_id, receive_id_type in targets:
-            file_message_ids.append(feishu.send_file_to(receive_id, receive_id_type, result_path))
-            card_message_ids.append(
-                feishu.send_card_to(
-                    receive_id,
-                    receive_id_type,
-                    external_task_dispatch.build_external_review_card(task),
-                )
-            )
-        dispatch_store.record_attempt(task_id, "review_file", "sent")
-        dispatch_store.mark_submission_delivery(task_id, status="sent", message_ids=file_message_ids)
-        dispatch_store.record_attempt(task_id, "review_card", "sent")
-        task = dispatch_store.mark_review_card(
+        task = external_task_dispatch.deliver_review_bundle(
             task_id,
-            status="sent",
-            message_id=json.dumps([item for item in card_message_ids if item], ensure_ascii=False),
+            profile_id=profile_id,
+            feishu=feishu,
+            store=dispatch_store,
         )
         append_runtime_event(
             "task",

@@ -43,7 +43,74 @@ def test_health_endpoint():
 
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
-    assert response.json()["version"] == "v5.18.0"
+    assert response.json()["version"] == "v5.19.0"
+
+
+def test_web_result_review_endpoint_uses_backend_frozen_output(tmp_path, monkeypatch):
+    job_id = "0123456789abcdef0123456789abcdef"
+    job_dir = tmp_path / job_id
+    job_dir.mkdir(parents=True)
+    output_path = job_dir / "控制价计算表.xlsx"
+    workbook = Workbook()
+    workbook.active["A1"] = "网页成果"
+    workbook.save(output_path)
+    workbook.close()
+    (job_dir / "process-state.json").write_text(
+        json.dumps(
+            {
+                "input_filename": "测试输入.xlsx",
+                "output_excel": output_path.name,
+                "project_name": "网页测试项目",
+                "summary": {"matching_status": "completed"},
+                "skill_snapshot": {
+                    "id": "survey-measurement-limit-price",
+                    "version": "1.0.0",
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(main_module, "RUNTIME_DIR", tmp_path)
+    captured = {}
+
+    class FakeService:
+        profile_id = "weact_cost"
+
+        def create_web_result_review(self, **kwargs):
+            captured.update(kwargs)
+            return {
+                "task_id": "FS-WEB-REVIEW",
+                "status": "pending_review",
+                "status_label": "待复核",
+            }, True
+
+    monkeypatch.setattr(
+        main_module.external_task_dispatch,
+        "build_service",
+        lambda **kwargs: FakeService(),
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/collaboration/external-dispatch/web-review",
+        json={
+            "job_id": job_id,
+            "platform_profile_id": "weact_cost",
+            "reviewer_refs": ["PM-REVIEWER"],
+            "delivery_mode": "direct",
+            "deadline": "2026-08-01T18:00:00+08:00",
+            "instructions": "请复核当前网页填价成果。",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["task"]["task_id"] == "FS-WEB-REVIEW"
+    assert captured["job_id"] == job_id
+    assert captured["file_name"] == output_path.name
+    assert captured["file_bytes"] == output_path.read_bytes()
+    assert captured["project_name"] == "网页测试项目"
+    assert captured["reviewer_refs"] == ("PM-REVIEWER",)
 
 
 def test_project_default_settings_include_zhisuan_window():

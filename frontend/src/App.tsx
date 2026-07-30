@@ -65,7 +65,7 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.18.0";
+const APP_VERSION = "v5.19.0";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const PRICE_KNOWLEDGE_ROW_COUNT = 560;
 const FORCE_KNOWLEDGE_PREFIXES = ["查库：", "查库:", "#知识库"] as const;
@@ -443,6 +443,9 @@ type ExternalDispatchOptions = {
 type ExternalDispatchTask = {
   task_id: string;
   source_task_id: string;
+  source_system?: string;
+  source_job_id?: string;
+  is_web_result_review?: boolean;
   task_name: string;
   project_name: string;
   skill: { id: string; version: string };
@@ -1976,6 +1979,19 @@ function DaweibaApp() {
   const [isLoadingExternalDispatch, setIsLoadingExternalDispatch] = useState(false);
   const [isCreatingExternalDispatch, setIsCreatingExternalDispatch] = useState(false);
   const [retryingExternalDispatchTaskId, setRetryingExternalDispatchTaskId] = useState("");
+  const [isWebReviewOpen, setIsWebReviewOpen] = useState(false);
+  const [webReviewOptions, setWebReviewOptions] = useState<ExternalDispatchOptions | null>(null);
+  const [webReviewProfile, setWebReviewProfile] = useState("");
+  const [webReviewGroup, setWebReviewGroup] = useState("");
+  const [webReviewDeliveryMode, setWebReviewDeliveryMode] = useState<"group" | "direct">("direct");
+  const [webReviewReviewers, setWebReviewReviewers] = useState<string[]>([]);
+  const [webReviewDeadline, setWebReviewDeadline] = useState(defaultExternalDispatchDeadline);
+  const [webReviewInstructions, setWebReviewInstructions] = useState("请复核当前网页填价成果、匹配依据和风险项。");
+  const [webReviewAudienceConfirmed, setWebReviewAudienceConfirmed] = useState(false);
+  const [webReviewFeedback, setWebReviewFeedback] = useState("");
+  const [webReviewTask, setWebReviewTask] = useState<ExternalDispatchTask | null>(null);
+  const [isLoadingWebReview, setIsLoadingWebReview] = useState(false);
+  const [isSendingWebReview, setIsSendingWebReview] = useState(false);
   const [feishuBotConsoleEvents, setFeishuBotConsoleEvents] = useState<FeishuBotConsoleEvent[]>([]);
   const [activeCollaborationTab, setActiveCollaborationTab] = useState<"tasks" | "dispatch" | "connections" | "notifications">("tasks");
   const [isFeishuBotConsoleOpen, setIsFeishuBotConsoleOpen] = useState(false);
@@ -2345,6 +2361,26 @@ function DaweibaApp() {
     const timer = window.setInterval(() => void loadFeishuBotConsole(true), 3000);
     return () => window.clearInterval(timer);
   }, [activeDaweibaModule, isFeishuBotConsoleInlineOpen, isFeishuBotConsoleOpen, isFeishuBotConsoleLive]);
+
+  useEffect(() => {
+    if (!isWebReviewOpen || !result?.job_id) return undefined;
+    const refreshCurrentReview = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/api/collaboration/external-dispatch/tasks?limit=30`);
+        if (!response.ok) return;
+        const payload = await response.json() as { items?: ExternalDispatchTask[] };
+        const tasks = Array.isArray(payload.items) ? payload.items : [];
+        const currentTask = tasks.find((item) => item.is_web_result_review && item.source_job_id === result.job_id) ?? null;
+        setWebReviewTask(currentTask);
+        if (tasks.length) setExternalDispatchTasks(tasks.slice(0, 20));
+      } catch {
+        // 轮询失败不覆盖当前已显示的任务状态，用户仍可手动刷新或重试。
+      }
+    };
+    void refreshCurrentReview();
+    const timer = window.setInterval(() => void refreshCurrentReview(), 3000);
+    return () => window.clearInterval(timer);
+  }, [isWebReviewOpen, result?.job_id]);
 
   useEffect(() => {
     if (activeDaweibaModule !== "collaboration") return;
@@ -4248,6 +4284,233 @@ function DaweibaApp() {
       setExternalDispatchFeedback(err instanceof Error ? err.message : "重试投递失败");
     } finally {
       setRetryingExternalDispatchTaskId("");
+    }
+  }
+
+  function webReviewSelectedGroup(
+    options = webReviewOptions,
+    groupRef = webReviewGroup,
+  ) {
+    return options?.directory.groups.find((item) => item.group_ref === groupRef);
+  }
+
+  function webReviewPeople(
+    options = webReviewOptions,
+    mode = webReviewDeliveryMode,
+    groupRef = webReviewGroup,
+  ) {
+    if (!options) return [];
+    if (mode === "group") {
+      return options.directory.groups.find((item) => item.group_ref === groupRef)?.people ?? [];
+    }
+    return options.directory.people ?? [];
+  }
+
+  function resetWebReviewAudience() {
+    setWebReviewReviewers([]);
+    setWebReviewAudienceConfirmed(false);
+  }
+
+  function applyWebReviewDeliveryMode(mode: "group" | "direct", options = webReviewOptions) {
+    const nextMode = mode === "direct" && options?.direct_delivery.status !== "available" ? "group" : mode;
+    setWebReviewDeliveryMode(nextMode);
+    resetWebReviewAudience();
+  }
+
+  function applyWebReviewGroup(groupRef: string) {
+    setWebReviewGroup(groupRef);
+    resetWebReviewAudience();
+  }
+
+  function toggleWebReviewReviewer(personRef: string, checked: boolean) {
+    setWebReviewReviewers((current) => {
+      if (!checked) return current.filter((ref) => ref !== personRef);
+      if (current.includes(personRef)) return current;
+      if (current.length >= 10) {
+        setWebReviewFeedback("单次最多明确选择 10 名复核人。");
+        return current;
+      }
+      return [...current, personRef];
+    });
+    setWebReviewAudienceConfirmed(false);
+  }
+
+  async function loadWebReviewOptions(profileId?: string, refreshDirectory = false, silent = false) {
+    if (!silent) setIsLoadingWebReview(true);
+    try {
+      const selectedProfile = String(
+        profileId || webReviewProfile || externalDispatchProfile || feishuAppBotStatus?.active_profile || "",
+      ).trim();
+      const queryParameters = new URLSearchParams();
+      if (selectedProfile) queryParameters.set("profile_id", selectedProfile);
+      if (refreshDirectory) queryParameters.set("refresh_directory", "true");
+      const query = queryParameters.size ? `?${queryParameters.toString()}` : "";
+      const [optionsResponse, tasksResponse] = await Promise.all([
+        fetch(`${API_BASE}/api/collaboration/external-dispatch/options${query}`),
+        fetch(`${API_BASE}/api/collaboration/external-dispatch/tasks?limit=30`),
+      ]);
+      if (!optionsResponse.ok) {
+        const payload = await optionsResponse.json().catch(() => null);
+        throw new Error(apiErrorMessage(payload, `读取复核人员失败：${optionsResponse.status}`));
+      }
+      const options = await optionsResponse.json() as ExternalDispatchOptions;
+      const tasksPayload = tasksResponse.ok
+        ? await tasksResponse.json() as { items?: ExternalDispatchTask[] }
+        : { items: [] };
+      const tasks = Array.isArray(tasksPayload.items) ? tasksPayload.items : [];
+      const currentTask = tasks.find((item) => item.is_web_result_review && item.source_job_id === result?.job_id) ?? null;
+      setWebReviewOptions(options);
+      setExternalDispatchPlatforms(options.platforms);
+      setWebReviewProfile(options.active_profile);
+      setWebReviewTask(currentTask);
+      if (tasks.length) {
+        setExternalDispatchTasks(tasks.slice(0, 20));
+      }
+      const nextGroup = options.directory.groups.find((item) => item.group_ref === webReviewGroup)
+        ?? options.directory.groups.find((item) => item.authorized)
+        ?? options.directory.groups[0];
+      setWebReviewGroup(nextGroup?.group_ref ?? "");
+      const nextMode = webReviewDeliveryMode === "direct" && options.direct_delivery.status === "available"
+        ? "direct"
+        : "group";
+      setWebReviewDeliveryMode(nextMode);
+      if (!silent) {
+        resetWebReviewAudience();
+        if (refreshDirectory) {
+          setWebReviewFeedback(options.directory.refresh_error
+            ? `平台目录刷新失败，已使用上次缓存：${options.directory.refresh_error}`
+            : `已读取并临时保存 ${options.directory.groups.length} 个工作群、${options.directory.people.length} 名可选人员。请重新逐一勾选本次复核人。`);
+        } else {
+          setWebReviewFeedback(currentTask
+            ? `已找到当前成果的复核任务：${currentTask.status_label}。`
+            : "请选择投递平台、投递方式和本次明确复核人。");
+        }
+      }
+      return options;
+    } catch (err) {
+      if (!silent) {
+        setWebReviewOptions(null);
+        setWebReviewFeedback(err instanceof Error ? err.message : "读取复核人员失败");
+      }
+      return null;
+    } finally {
+      if (!silent) setIsLoadingWebReview(false);
+    }
+  }
+
+  async function openWebReviewDialog() {
+    if (!result || !canDownloadOutputs) {
+      setError("请先完成批量匹配并生成可下载的 Excel 成果。");
+      return;
+    }
+    setIsWebReviewOpen(true);
+    setWebReviewDeadline(defaultExternalDispatchDeadline());
+    setWebReviewInstructions("请复核当前网页填价成果、匹配依据和风险项；可在复核卡中填写评论后通过或退回。");
+    setWebReviewFeedback("正在读取智能协同中的平台、工作群和人员目录……");
+    setWebReviewTask(null);
+    resetWebReviewAudience();
+    await loadWebReviewOptions(
+      webReviewProfile || externalDispatchProfile || feishuAppBotStatus?.active_profile || "",
+    );
+  }
+
+  async function sendWebResultReview() {
+    if (!result || !webReviewOptions) {
+      setWebReviewFeedback("当前成果或复核人员目录尚未就绪。");
+      return;
+    }
+    const uniqueReviewers = [...new Set(webReviewReviewers)];
+    if (!uniqueReviewers.length || uniqueReviewers.length > 10) {
+      setWebReviewFeedback("请明确选择 1 至 10 名复核人。");
+      return;
+    }
+    const availablePeople = webReviewPeople();
+    if (uniqueReviewers.some((ref) => !availablePeople.some((person) => person.person_ref === ref))) {
+      setWebReviewFeedback("复核名单已与当前平台或工作群目录不一致，请重新勾选。");
+      return;
+    }
+    if (webReviewDeliveryMode === "direct" && webReviewOptions.direct_delivery.status !== "available") {
+      setWebReviewFeedback("当前平台尚未验证主动单聊能力，请改用明确工作群。");
+      return;
+    }
+    const selectedGroup = webReviewSelectedGroup();
+    if (webReviewDeliveryMode === "group" && (!selectedGroup || !selectedGroup.members_available)) {
+      setWebReviewFeedback("所选工作群成员尚未读取完成，不能安全投递。");
+      return;
+    }
+    if (webReviewDeliveryMode === "group" && selectedGroup && selectedGroup.member_count > 10) {
+      setWebReviewFeedback("所选工作群超过 10 人，已按安全铁律拒绝投递。");
+      return;
+    }
+    if (!webReviewAudienceConfirmed) {
+      setWebReviewFeedback("请先确认本次名单和投递范围。");
+      return;
+    }
+    if (!webReviewInstructions.trim()) {
+      setWebReviewFeedback("请填写复核说明。");
+      return;
+    }
+
+    setIsSendingWebReview(true);
+    setWebReviewFeedback("正在冻结当前 Excel 成果，并只向本次明确选择的复核人投递……");
+    try {
+      const response = await fetch(`${API_BASE}/api/collaboration/external-dispatch/web-review`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          job_id: result.job_id,
+          platform_profile_id: webReviewProfile,
+          reviewer_refs: uniqueReviewers,
+          delivery_mode: webReviewDeliveryMode,
+          target_group_ref: webReviewDeliveryMode === "group" ? webReviewGroup : "",
+          deadline: new Date(webReviewDeadline).toISOString(),
+          instructions: webReviewInstructions.trim(),
+          project_name: projectName.trim() || file?.name.replace(/\.xlsx$/i, "") || "",
+        }),
+      });
+      const payload = await response.json().catch(() => null) as {
+        created?: boolean;
+        task?: ExternalDispatchTask;
+        detail?: unknown;
+      } | null;
+      if (!response.ok || !payload?.task) {
+        throw new Error(apiErrorMessage(payload, `发起复核失败：${response.status}`));
+      }
+      setWebReviewTask(payload.task);
+      setExternalDispatchTasks((current) => [
+        payload.task!,
+        ...current.filter((item) => item.task_id !== payload.task!.task_id),
+      ].slice(0, 20));
+      setWebReviewFeedback(payload.created
+        ? `成果已冻结并进入多人复核：${payload.task.status_label}。`
+        : `当前成果已存在复核任务，未重复发送：${payload.task.status_label}。`);
+    } catch (err) {
+      setWebReviewFeedback(err instanceof Error ? err.message : "发起多人复核失败");
+    } finally {
+      setIsSendingWebReview(false);
+    }
+  }
+
+  async function retryWebReviewTask() {
+    if (!webReviewTask) return;
+    setIsSendingWebReview(true);
+    setWebReviewFeedback("正在仅重试上次未完成的文件或复核卡投递……");
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/collaboration/external-dispatch/tasks/${encodeURIComponent(webReviewTask.task_id)}/retry`,
+        { method: "POST" },
+      );
+      const payload = await response.json().catch(() => null) as { task?: ExternalDispatchTask; detail?: unknown } | null;
+      if (!response.ok || !payload?.task) {
+        throw new Error(apiErrorMessage(payload, `重试失败：${response.status}`));
+      }
+      setWebReviewTask(payload.task);
+      setExternalDispatchTasks((current) => current.map((item) => item.task_id === payload.task!.task_id ? payload.task! : item));
+      setWebReviewFeedback(`重试完成：${payload.task.status_label}。已成功的投递不会重复发送。`);
+    } catch (err) {
+      setWebReviewFeedback(err instanceof Error ? err.message : "重试投递失败");
+    } finally {
+      setIsSendingWebReview(false);
     }
   }
 
@@ -8983,6 +9246,15 @@ function DaweibaApp() {
                       <Download size={18} />
                       下载 Word
                     </a>
+                    <button
+                      className="download-button secondary web-review-launch-button"
+                      type="button"
+                      disabled={!canDownloadOutputs}
+                      onClick={() => void openWebReviewDialog()}
+                    >
+                      <Send size={18} />
+                      发给同事复核
+                    </button>
                   </div>
                 )}
               </>
@@ -11292,6 +11564,216 @@ function DaweibaApp() {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {isWebReviewOpen && (
+        <div className="modal-backdrop web-review-backdrop" role="presentation" onClick={() => setIsWebReviewOpen(false)}>
+          <section
+            className="settings-modal web-review-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="web-review-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="modal-title web-review-modal-title">
+              <span>
+                <strong id="web-review-title">发给同事复核</strong>
+                <small>冻结当前网页填价成果，沿用“智能协同”的平台目录和多人复核流程</small>
+              </span>
+              <button type="button" onClick={() => setIsWebReviewOpen(false)}>关闭</button>
+            </div>
+
+            <div className="web-review-result-summary">
+              <FileSpreadsheet size={20} aria-hidden="true" />
+              <span>
+                <strong>{result?.summary.output_excel.split(/[\\/]/).pop() || "当前填价成果.xlsx"}</strong>
+                <small>网页任务 {result?.job_id} · 当前成果将保存为只读复核快照</small>
+              </span>
+              <b>{result?.summary.review_rows ?? 0} 行待复核</b>
+            </div>
+
+            <div className="web-review-form-grid">
+              <label>
+                <span>投递平台</span>
+                <select
+                  value={webReviewProfile}
+                  disabled={isLoadingWebReview || isSendingWebReview}
+                  onChange={(event) => {
+                    setWebReviewProfile(event.target.value);
+                    resetWebReviewAudience();
+                    void loadWebReviewOptions(event.target.value);
+                  }}
+                >
+                  {(webReviewOptions?.platforms ?? externalDispatchPlatforms).map((platform) => (
+                    <option key={platform.profile_id} value={platform.profile_id} disabled={!platform.configuration_ok}>
+                      {platform.label}{platform.configuration_ok ? "" : "（配置异常）"}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                <span>投递方式</span>
+                <select
+                  value={webReviewDeliveryMode}
+                  disabled={isLoadingWebReview || isSendingWebReview}
+                  onChange={(event) => applyWebReviewDeliveryMode(event.target.value as "group" | "direct")}
+                >
+                  <option value="direct" disabled={webReviewOptions?.direct_delivery.status !== "available"}>
+                    个人私聊{webReviewOptions?.direct_delivery.status === "available" ? "" : "（当前平台未验证）"}
+                  </option>
+                  <option value="group">明确工作群</option>
+                </select>
+              </label>
+
+              {webReviewDeliveryMode === "group" && (
+                <label>
+                  <span>目标工作群</span>
+                  <select
+                    value={webReviewGroup}
+                    disabled={isLoadingWebReview || isSendingWebReview}
+                    onChange={(event) => applyWebReviewGroup(event.target.value)}
+                  >
+                    {webReviewOptions?.directory.groups.map((group) => (
+                      <option key={group.group_ref} value={group.group_ref} disabled={!group.members_available || !group.authorized}>
+                        {group.name} · {group.member_count} 人{group.authorized ? "" : "（仅人员来源）"}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+
+              <label>
+                <span>复核截止时间</span>
+                <input
+                  type="datetime-local"
+                  value={webReviewDeadline}
+                  disabled={isSendingWebReview}
+                  onChange={(event) => setWebReviewDeadline(event.target.value)}
+                />
+              </label>
+            </div>
+
+            <fieldset className="web-review-reviewers">
+              <legend>
+                <span>本次复核人</span>
+                <small>必须逐一明确勾选；切换平台、工作群或投递方式后名单自动清空</small>
+              </legend>
+              {webReviewPeople().length ? (
+                <div className="web-review-people-grid">
+                  {webReviewPeople().map((person) => (
+                    <label key={person.person_ref} className={webReviewReviewers.includes(person.person_ref) ? "is-selected" : ""}>
+                      <input
+                        type="checkbox"
+                        checked={webReviewReviewers.includes(person.person_ref)}
+                        disabled={isSendingWebReview}
+                        onChange={(event) => toggleWebReviewReviewer(person.person_ref, event.target.checked)}
+                      />
+                      <span>{person.display_name}</span>
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <p className="web-review-empty">
+                  {isLoadingWebReview ? "正在读取人员目录……" : "当前范围没有可选择且已完成平台映射的人员。"}
+                </p>
+              )}
+              <div className="web-review-audience-summary">
+                <strong>已选 {webReviewReviewers.length} / 10 人</strong>
+                <span>
+                  {webReviewDeliveryMode === "group"
+                    ? `工作群：${webReviewSelectedGroup()?.name ?? "未选择"}，群成员 ${webReviewSelectedGroup()?.member_count ?? 0} 人`
+                    : `${appBotProfileShortLabel(webReviewProfile)} 将只向已勾选人员逐一私聊`}
+                </span>
+              </div>
+            </fieldset>
+
+            <label className="web-review-instructions">
+              <span>复核说明</span>
+              <textarea
+                rows={3}
+                value={webReviewInstructions}
+                disabled={isSendingWebReview}
+                onChange={(event) => setWebReviewInstructions(event.target.value)}
+              />
+            </label>
+
+            <label className="web-review-safety-confirmation">
+              <input
+                type="checkbox"
+                checked={webReviewAudienceConfirmed}
+                disabled={!webReviewReviewers.length || isSendingWebReview}
+                onChange={(event) => setWebReviewAudienceConfirmed(event.target.checked)}
+              />
+              <span>
+                <strong>确认本次明确受众</strong>
+                我已逐一核对上述复核人；机器人不会扩展到未勾选人员，也不会向超过 10 人的工作群投递。
+              </span>
+            </label>
+
+            {webReviewTask && (
+              <section className="web-review-task-status" aria-label="当前复核任务状态">
+                <header>
+                  <span>
+                    <strong>{webReviewTask.status_label}</strong>
+                    <small>{webReviewTask.task_id} · {appBotProfileShortLabel(webReviewTask.platform)}</small>
+                  </span>
+                  {webReviewTask.review_round ? <b>第 {webReviewTask.review_round} 轮</b> : null}
+                </header>
+                <div>
+                  {webReviewTask.participants.map((person) => (
+                    <span key={`${person.role}-${person.name}`}>
+                      <b>{person.role}</b>
+                      {person.name} · {person.status}
+                      {person.comment ? <em>评论：{person.comment}</em> : null}
+                    </span>
+                  ))}
+                </div>
+                <footer>
+                  <span>成果文件 {webReviewTask.submission_delivery_status || "待投递"} · 复核卡 {webReviewTask.review_card_status || "待投递"}</span>
+                  {webReviewTask.can_retry && (
+                    <button className="ghost-button" type="button" disabled={isSendingWebReview} onClick={() => void retryWebReviewTask()}>
+                      <RefreshCw size={15} />
+                      仅重试失败步骤
+                    </button>
+                  )}
+                </footer>
+              </section>
+            )}
+
+            <p className={`web-review-feedback ${webReviewFeedback.includes("失败") || webReviewFeedback.includes("拒绝") ? "is-error" : ""}`} aria-live="polite">
+              {webReviewFeedback}
+            </p>
+
+            <div className="settings-modal-actions web-review-actions">
+              <button className="ghost-button" type="button" disabled={isSendingWebReview} onClick={() => setIsWebReviewOpen(false)}>取消</button>
+              <button
+                className="ghost-button"
+                type="button"
+                disabled={isLoadingWebReview || isSendingWebReview}
+                onClick={() => void loadWebReviewOptions(webReviewProfile, true)}
+              >
+                {isLoadingWebReview ? <Loader2 size={16} className="spin" /> : <RefreshCw size={16} />}
+                读取群与成员
+              </button>
+              <button
+                className="primary-button"
+                type="button"
+                disabled={
+                  isLoadingWebReview
+                  || isSendingWebReview
+                  || Boolean(webReviewTask)
+                  || !webReviewAudienceConfirmed
+                  || !webReviewReviewers.length
+                }
+                onClick={() => void sendWebResultReview()}
+              >
+                {isSendingWebReview ? <Loader2 size={16} className="spin" /> : <Send size={16} />}
+                {webReviewTask ? "已有复核任务" : "冻结成果并发起复核"}
+              </button>
+            </div>
+          </section>
         </div>
       )}
 

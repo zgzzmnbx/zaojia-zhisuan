@@ -511,6 +511,123 @@ def test_direct_delivery_records_permission_or_unreachable_failure(service, plat
     assert len(feishu.files) == 1
 
 
+def test_web_result_review_freezes_snapshot_and_only_sends_to_selected_reviewers(service):
+    dispatch, store, feishu, options = service
+    dispatch.direct_delivery_verified = True
+    reviewer = options["people"][0]
+    source = xlsx_bytes()
+
+    task, created = dispatch.create_web_result_review(
+        job_id="0123456789abcdef0123456789abcdef",
+        file_name="网页填价成果.xlsx",
+        file_bytes=source,
+        task_name="勘察测量限价成果复核",
+        project_name="测试项目",
+        skill_id="survey-measurement-limit-price",
+        skill_version="1.0.0",
+        reviewer_refs=(reviewer["person_ref"],),
+        deadline="2026-07-31T18:00:00+08:00",
+        instructions="请核对填价结果和风险项。",
+        delivery_mode="direct",
+    )
+
+    assert created is True
+    assert task["status"] == "pending_review"
+    assert task["review_round"] == 1
+    assert task["source_system"] == external_task_dispatch.WEB_REVIEW_SOURCE_SYSTEM
+    assert task["source_job_id"] == "0123456789abcdef0123456789abcdef"
+    assert task["submission_delivery_status"] == "sent"
+    assert task["review_card_status"] == "sent"
+    assert [(target, target_type) for target, target_type, _ in feishu.files] == [
+        ("ou-user-2", "open_id"),
+    ]
+    assert [(target, target_type) for target, target_type, _ in feishu.cards] == [
+        ("ou-user-2", "open_id"),
+    ]
+    stored = store.get_task(task["task_id"])
+    snapshot_path = Path(stored["submission_excel_path"])
+    assert snapshot_path.read_bytes() == source
+    assert len(stored["submission_hash"]) == 64
+    assert stored["assignee_user_id"] == ""
+    assert stored["_reviewers"][0]["status"] == "pending"
+
+    repeated, repeated_created = dispatch.create_web_result_review(
+        job_id="0123456789abcdef0123456789abcdef",
+        file_name="网页填价成果.xlsx",
+        file_bytes=source,
+        task_name="勘察测量限价成果复核",
+        project_name="测试项目",
+        skill_id="survey-measurement-limit-price",
+        skill_version="1.0.0",
+        reviewer_refs=(reviewer["person_ref"],),
+        deadline="2026-07-31T18:00:00+08:00",
+        instructions="请核对填价结果和风险项。",
+        delivery_mode="direct",
+    )
+    assert repeated_created is False
+    assert repeated["task_id"] == task["task_id"]
+    assert len(feishu.files) == len(feishu.cards) == 1
+
+
+def test_web_result_review_retry_skips_already_sent_file(service):
+    dispatch, _, feishu, options = service
+    dispatch.direct_delivery_verified = True
+    feishu.fail_card = True
+    reviewer = options["people"][0]
+
+    task, created = dispatch.create_web_result_review(
+        job_id="fedcba9876543210fedcba9876543210",
+        file_name="网页填价成果.xlsx",
+        file_bytes=xlsx_bytes(),
+        task_name="网页成果复核",
+        project_name="测试项目",
+        skill_id="survey-measurement-limit-price",
+        skill_version="1.0.0",
+        reviewer_refs=(reviewer["person_ref"],),
+        deadline="2026-07-31T18:00:00+08:00",
+        instructions="请复核。",
+        delivery_mode="direct",
+    )
+
+    assert created is True
+    assert task["status"] == "pending_review"
+    assert task["submission_delivery_status"] == "sent"
+    assert task["review_card_status"] == "failed"
+    assert task["can_retry"] is True
+    assert len(feishu.files) == 1
+
+    feishu.fail_card = False
+    retried = dispatch.retry(task["task_id"])
+    assert retried["review_card_status"] == "sent"
+    assert retried["can_retry"] is False
+    assert len(feishu.files) == 1
+    assert len(feishu.cards) == 1
+
+
+def test_web_result_review_completion_targets_do_not_invent_a_compiler_recipient(service):
+    dispatch, store, _, options = service
+    dispatch.direct_delivery_verified = True
+    reviewer = options["people"][0]
+    task, _ = dispatch.create_web_result_review(
+        job_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        file_name="网页填价成果.xlsx",
+        file_bytes=xlsx_bytes(),
+        task_name="网页成果复核",
+        project_name="测试项目",
+        skill_id="survey-measurement-limit-price",
+        skill_version="1.0.0",
+        reviewer_refs=(reviewer["person_ref"],),
+        deadline="2026-07-31T18:00:00+08:00",
+        instructions="请复核。",
+        delivery_mode="direct",
+    )
+    stored = store.get_task(task["task_id"])
+
+    assert external_task_dispatch.completion_delivery_targets(stored) == [
+        ("ou-user-2", "open_id"),
+    ]
+
+
 def test_inactive_skill_and_profile_mismatch_are_rejected(service):
     dispatch, _, _, options = service
     person = options["people"][0]["person_ref"]

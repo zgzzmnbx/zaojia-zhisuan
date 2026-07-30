@@ -25,6 +25,8 @@ MAX_OUTBOUND_RECIPIENTS = 10
 REVIEW_COMMENT_MAX_LENGTH = 500
 SOURCE_SYSTEM = "模拟造价系统"
 EVENT_TYPE = "task.assigned"
+WEB_REVIEW_SOURCE_SYSTEM = "造价智算网页"
+WEB_REVIEW_EVENT_TYPE = "result.review.requested"
 DELIVERY_MODES = {"group", "direct", "mixed"}
 DELIVERY_CHANNELS = {"group", "direct"}
 DELIVERY_STAGES = ("task_card", "task_file", "review_card", "completion_card")
@@ -382,15 +384,33 @@ class ExternalDispatchStore:
             raise RuntimeError("外部任务创建失败")
         return dict(row), created
 
-    def set_reviewers(self, task_id: str, reviewers: list[dict[str, Any]]) -> None:
+    def set_reviewers(
+        self,
+        task_id: str,
+        reviewers: list[dict[str, Any]],
+        *,
+        status: str = "waiting",
+        review_round: int = 0,
+    ) -> None:
         now = feishu_app_bot.utc_now()
         with self._connect() as connection:
             connection.execute("DELETE FROM dispatch_reviewers WHERE task_id=?", (task_id,))
             connection.executemany(
                 """INSERT INTO dispatch_reviewers
                 (task_id,mapping_id,platform_user_id,display_name,status,review_round,updated_at)
-                VALUES (?,?,?,?, 'waiting',0,?)""",
-                [(task_id, item["mapping_id"], item["platform_user_id"], item["display_name"], now) for item in reviewers],
+                VALUES (?,?,?,?,?,?,?)""",
+                [
+                    (
+                        task_id,
+                        item["mapping_id"],
+                        item["platform_user_id"],
+                        item["display_name"],
+                        status,
+                        review_round,
+                        now,
+                    )
+                    for item in reviewers
+                ],
             )
 
     def list_reviewers(self, task_id: str) -> list[dict[str, Any]]:
@@ -1049,6 +1069,167 @@ class ExternalTaskDispatchService:
             return self.resolve_selected_group(group_ref)
         return self.resolve_authorized_group()
 
+    def create_web_result_review(
+        self,
+        *,
+        job_id: str,
+        file_name: str,
+        file_bytes: bytes,
+        task_name: str,
+        project_name: str,
+        skill_id: str,
+        skill_version: str,
+        reviewer_refs: tuple[str, ...],
+        deadline: str,
+        instructions: str,
+        delivery_mode: str,
+        target_group_ref: str = "",
+    ) -> tuple[dict[str, Any], bool]:
+        """Freeze a completed web result and enter the existing multi-review state machine."""
+        clean_job_id = str(job_id or "").strip()
+        clean_task_name = str(task_name or "").strip()
+        clean_project_name = str(project_name or "").strip()
+        clean_instructions = str(instructions or "").strip()
+        clean_deadline = str(deadline or "").strip()
+        clean_mode = str(delivery_mode or "").strip()
+        unique_reviewer_refs = tuple(dict.fromkeys(str(item or "").strip() for item in reviewer_refs if str(item or "").strip()))
+        if not clean_job_id or not clean_task_name or not clean_project_name or not clean_deadline or not clean_instructions:
+            raise DispatchValidationError("网页成果复核缺少任务、项目、截止时间或复核说明")
+        if clean_mode not in {"group", "direct"}:
+            raise DispatchValidationError("网页成果复核投递方式必须是 group 或 direct")
+        if not unique_reviewer_refs:
+            raise DispatchValidationError("至少选择一名复核人")
+        if len(unique_reviewer_refs) > MAX_OUTBOUND_RECIPIENTS:
+            raise DispatchValidationError(
+                f"单个任务最多只能向 {MAX_OUTBOUND_RECIPIENTS} 名明确指定人员发送消息"
+            )
+        try:
+            datetime.fromisoformat(clean_deadline.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise DispatchValidationError("截止时间格式无效") from exc
+        self._validate_xlsx(file_name, file_bytes, label="网页填价成果")
+        try:
+            skill_snapshot = self.registry.resolve_for_task(skill_id, skill_version or None)
+        except ProfessionalSkillError as exc:
+            raise DispatchValidationError(exc.message, status_code=exc.status_code) from exc
+
+        reviewers: list[dict[str, Any]] = []
+        for reviewer_ref in unique_reviewer_refs:
+            reviewer = self.store.get_person(reviewer_ref, self.profile_id)
+            if not reviewer or not str(reviewer.get("display_name") or "").strip():
+                raise DispatchValidationError("存在未明确姓名或未完成平台映射的复核人", status_code=409)
+            reviewers.append(reviewer)
+        if clean_mode == "direct" and not self.direct_delivery_verified:
+            raise DispatchValidationError("当前机器人的主动单聊触达能力尚未完成验证", status_code=409)
+
+        target_chat_id = ""
+        target_chat_name = ""
+        if clean_mode == "group":
+            target_chat_id, target_chat_name = self.resolve_group_target(target_group_ref)
+            enforce_outbound_audience_safety(
+                self.feishu,
+                [(target_chat_id, "chat_id")],
+                explicit_named_recipients={},
+            )
+            member_payload = self.feishu.list_chat_members(target_chat_id)
+            member_ids = {
+                str(item.get("member_id") or item.get("open_id") or item.get("user_id") or "").strip()
+                for item in (member_payload.get("members") or [])
+                if isinstance(item, dict)
+            }
+            reviewer_ids = {str(item.get("platform_user_id") or "").strip() for item in reviewers}
+            if not reviewer_ids.issubset(member_ids):
+                raise DispatchValidationError("所选复核人不全在本次明确选择的工作群中，已拒绝投递", status_code=409)
+
+        result_hash = hashlib.sha256(file_bytes).hexdigest()
+        business_key = (
+            f"{WEB_REVIEW_SOURCE_SYSTEM}\n{clean_job_id}\n"
+            f"{WEB_REVIEW_EVENT_TYPE}:{result_hash}"
+        )
+        existing = self.store.find_business_task(business_key)
+        if existing:
+            if str(existing.get("submission_delivery_status") or "") == "failed" or str(
+                existing.get("review_card_status") or ""
+            ) == "failed":
+                return self.retry(str(existing["task_id"])), False
+            return public_dispatch_task(existing), False
+
+        task_id = f"FS-{datetime.now():%Y%m%d-%H%M%S}-{uuid4().hex[:6].upper()}"
+        safe_result_name = feishu_app_bot.safe_filename(file_name)
+        snapshot_dir = self.runtime_root / "external-dispatch" / task_id / "submissions" / "round-1"
+        snapshot_dir.mkdir(parents=True, exist_ok=True)
+        snapshot_path = snapshot_dir / safe_result_name
+        snapshot_path.write_bytes(file_bytes)
+        delivery_policy = normalize_delivery_policy(
+            {stage: [clean_mode] for stage in DELIVERY_STAGES},
+            legacy_mode=clean_mode,
+        )
+        now = feishu_app_bot.utc_now()
+        values = {
+            "task_id": task_id,
+            "event_id": f"web-review:{clean_job_id}:{result_hash[:12]}",
+            "message_id": f"web-review:{task_id}",
+            "chat_id": "",
+            "file_key": f"web-review:{task_id}:{result_hash[:12]}",
+            "file_name": safe_result_name,
+            "status": "pending_review",
+            "stage": "pending_review",
+            "created_at": now,
+            "updated_at": now,
+            "task_kind": TASK_KIND,
+            "event_type": f"{WEB_REVIEW_EVENT_TYPE}:{result_hash}",
+            "source_system": WEB_REVIEW_SOURCE_SYSTEM,
+            "source_task_id": clean_job_id,
+            "business_key": business_key,
+            "task_name": clean_task_name,
+            "project_name": clean_project_name,
+            "skill_id": str(skill_snapshot.get("id") or skill_id),
+            "skill_version": str(skill_snapshot.get("version") or skill_version),
+            "skill_snapshot_json": json.dumps(skill_snapshot, ensure_ascii=False, separators=(",", ":")),
+            "delivery_mode": clean_mode,
+            "delivery_policy_json": json.dumps(delivery_policy, ensure_ascii=False, separators=(",", ":")),
+            "delivery_state_json": "{}",
+            "platform_profile_id": self.profile_id,
+            "target_chat_id": target_chat_id,
+            "target_chat_name": target_chat_name,
+            "assignee_mapping_id": "",
+            "assignee_user_id": "",
+            "assignee_name": "网页填价用户",
+            "deadline": clean_deadline,
+            "instructions": clean_instructions,
+            "template_asset_id": safe_result_name,
+            "template_version": f"web-{result_hash[:12]}",
+            "template_hash": result_hash,
+            "template_source_path": self._runtime_relative(snapshot_path),
+            "task_excel_path": self._runtime_relative(snapshot_path),
+            "submission_file_name": safe_result_name,
+            "submission_excel_path": str(snapshot_path.resolve()),
+            "submission_hash": result_hash,
+            "submission_message_id": f"web:{clean_job_id}:{result_hash[:12]}",
+            "submission_received_at": now,
+            "submission_delivery_status": "pending",
+            "card_status": "not_required",
+            "file_status": "not_required",
+            "claimed_at": now,
+            "review_round": 1,
+            "review_card_status": "pending",
+        }
+        task, created = self.store.create_task(values)
+        if not created:
+            shutil.rmtree(self.runtime_root / "external-dispatch" / task_id, ignore_errors=True)
+            return public_dispatch_task(task), False
+        self.store.set_reviewers(task_id, reviewers, status="pending", review_round=1)
+        try:
+            task = deliver_review_bundle(
+                task_id,
+                profile_id=self.profile_id,
+                feishu=self.feishu,
+                store=self.store,
+            )
+        except Exception:
+            task = self.store.get_task(task_id) or task
+        return public_dispatch_task(task), True
+
     def create_and_deliver(self, envelope: TaskEnvelope, *, file_name: str, file_bytes: bytes) -> tuple[dict[str, Any], bool]:
         envelope.validate()
         delivery_policy = envelope.normalized_delivery_policy()
@@ -1226,6 +1407,20 @@ class ExternalTaskDispatchService:
         task = self.store.get_task(task_id)
         if not task:
             raise DispatchValidationError("未找到外部派发任务", status_code=404)
+        if task["status"] == "pending_review" and (
+            str(task.get("submission_delivery_status") or "") == "failed"
+            or str(task.get("review_card_status") or "") == "failed"
+        ):
+            try:
+                task = deliver_review_bundle(
+                    task_id,
+                    profile_id=self.profile_id,
+                    feishu=self.feishu,
+                    store=self.store,
+                )
+            except Exception:
+                task = self.store.get_task(task_id) or task
+            return public_dispatch_task(task)
         if task["status"] not in {"dispatch_failed", "pending_dispatch", "delivering"}:
             raise DispatchValidationError("当前任务没有可重试的投递步骤", status_code=409)
         return public_dispatch_task(self.deliver(task_id, retry=True))
@@ -1346,16 +1541,16 @@ class ExternalTaskDispatchService:
         return f"{task_id}-{project}-待填写.xlsx"
 
     @staticmethod
-    def _validate_xlsx(file_name: str, file_bytes: bytes) -> None:
+    def _validate_xlsx(file_name: str, file_bytes: bytes, *, label: str = "待填模板") -> None:
         if not str(file_name or "").lower().endswith(".xlsx"):
-            raise DispatchValidationError("待填模板仅允许 .xlsx 文件")
+            raise DispatchValidationError(f"{label}仅允许 .xlsx 文件")
         if not file_bytes:
-            raise DispatchValidationError("待填模板为空")
+            raise DispatchValidationError(f"{label}为空")
         try:
             workbook = load_workbook(BytesIO(file_bytes), read_only=True, data_only=False)
             workbook.close()
         except Exception as exc:
-            raise DispatchValidationError("待填模板不是可读取的 .xlsx 文件") from exc
+            raise DispatchValidationError(f"{label}不是可读取的 .xlsx 文件") from exc
 
 
 def build_external_task_card(task: dict[str, Any], *, app_url: str = "") -> dict[str, Any]:
@@ -1430,6 +1625,11 @@ def build_external_task_card(task: dict[str, Any], *, app_url: str = "") -> dict
 
 def build_external_review_card(task: dict[str, Any]) -> dict[str, Any]:
     status = str(task.get("status") or "")
+    card_title = (
+        "造价智算 · 网页成果多人复核"
+        if str(task.get("source_system") or "") == WEB_REVIEW_SOURCE_SYSTEM
+        else "造价智算 · 多人复核"
+    )
     labels = {"waiting": "待编制", "pending": "待复核", "approved": "已通过", "rejected": "已退回"}
     reviewer_lines = "\n".join(
         (
@@ -1495,9 +1695,135 @@ def build_external_review_card(task: dict[str, Any]) -> dict[str, Any]:
         })
     return {
         "config": {"wide_screen_mode": True},
-        "header": {"title": {"tag": "plain_text", "content": "造价智算 · 多人复核"}, "template": "green" if status == "completed" else ("yellow" if status == "returned" else "blue")},
+        "header": {"title": {"tag": "plain_text", "content": card_title}, "template": "green" if status == "completed" else ("yellow" if status == "returned" else "blue")},
         "elements": elements,
     }
+
+
+def _deliver_review_stage(
+    *,
+    store: ExternalDispatchStore,
+    task: dict[str, Any],
+    stage: str,
+    targets: list[tuple[str, str]],
+    sender: Callable[[str, str], str],
+) -> tuple[dict[str, Any], list[str]]:
+    try:
+        state = json.loads(str(task.get("delivery_state_json") or "{}"))
+    except (TypeError, ValueError):
+        state = {}
+    if not isinstance(state, dict):
+        state = {}
+    stage_state = state.get(stage) if isinstance(state.get(stage), dict) else {}
+    message_ids: list[str] = []
+    for receive_id, receive_id_type in targets:
+        target_key = f"{receive_id_type}:{hashlib.sha256(receive_id.encode('utf-8')).hexdigest()[:16]}"
+        current = stage_state.get(target_key) if isinstance(stage_state.get(target_key), dict) else {}
+        if current.get("status") == "sent":
+            if current.get("message_id"):
+                message_ids.append(str(current["message_id"]))
+            continue
+        try:
+            message_id = sender(receive_id, receive_id_type) or ""
+            stage_state[target_key] = {"status": "sent", "message_id": message_id, "error": ""}
+            store.record_attempt(str(task["task_id"]), f"{stage}:{receive_id_type}", "sent")
+            if message_id:
+                message_ids.append(message_id)
+        except Exception as exc:
+            stage_state[target_key] = {
+                "status": "failed",
+                "message_id": "",
+                "error": sanitize_dispatch_error(exc),
+            }
+            state[stage] = stage_state
+            task = store.update_delivery(
+                str(task["task_id"]),
+                delivery_state_json=json.dumps(state, ensure_ascii=False, separators=(",", ":")),
+            )
+            store.record_attempt(str(task["task_id"]), f"{stage}:{receive_id_type}", "failed", str(exc))
+            raise
+        state[stage] = stage_state
+        task = store.update_delivery(
+            str(task["task_id"]),
+            delivery_state_json=json.dumps(state, ensure_ascii=False, separators=(",", ":")),
+        )
+    return task, message_ids
+
+
+def deliver_review_bundle(
+    task_id: str,
+    *,
+    profile_id: str,
+    feishu: Any,
+    store: ExternalDispatchStore | None = None,
+) -> dict[str, Any]:
+    """Idempotently deliver the frozen result and review card to the task-bound platform."""
+    dispatch_store = store or ExternalDispatchStore()
+    task = dispatch_store.get_task(task_id)
+    if not task:
+        raise DispatchValidationError("未找到外部派发任务", status_code=404)
+    if str(task.get("platform_profile_id") or "") != str(profile_id or ""):
+        raise DispatchValidationError("当前机器人不能投递其他平台的复核任务", status_code=403)
+    result_path = Path(str(task.get("submission_excel_path") or ""))
+    if not result_path.is_file():
+        raise DispatchValidationError("编制成果文件不存在，无法发起复核", status_code=409)
+    targets = review_delivery_targets(task)
+    explicit_reviewers = {
+        str(item.get("platform_user_id") or "").strip(): str(item.get("display_name") or "").strip()
+        for item in task.get("_reviewers") or []
+    }
+    enforce_outbound_audience_safety(
+        feishu,
+        targets,
+        explicit_named_recipients=explicit_reviewers,
+    )
+    if str(task.get("submission_delivery_status") or "") != "sent":
+        try:
+            task, file_message_ids = _deliver_review_stage(
+                store=dispatch_store,
+                task=task,
+                stage="review_file",
+                targets=targets,
+                sender=lambda receive_id, receive_id_type: feishu.send_file_to(
+                    receive_id,
+                    receive_id_type,
+                    result_path,
+                ),
+            )
+            dispatch_store.record_attempt(task_id, "review_file", "sent")
+            task = dispatch_store.mark_submission_delivery(
+                task_id,
+                status="sent",
+                message_ids=file_message_ids,
+            )
+        except Exception as exc:
+            dispatch_store.record_attempt(task_id, "review_file", "failed", str(exc))
+            dispatch_store.mark_submission_delivery(task_id, status="failed", error=exc)
+            raise
+    if str(task.get("review_card_status") or "") != "sent":
+        try:
+            task, card_message_ids = _deliver_review_stage(
+                store=dispatch_store,
+                task=task,
+                stage="review_card",
+                targets=targets,
+                sender=lambda receive_id, receive_id_type: feishu.send_card_to(
+                    receive_id,
+                    receive_id_type,
+                    build_external_review_card(task),
+                ),
+            )
+            dispatch_store.record_attempt(task_id, "review_card", "sent")
+            task = dispatch_store.mark_review_card(
+                task_id,
+                status="sent",
+                message_id=json.dumps([item for item in card_message_ids if item], ensure_ascii=False),
+            )
+        except Exception as exc:
+            dispatch_store.record_attempt(task_id, "review_card", "failed", str(exc))
+            dispatch_store.mark_review_card(task_id, status="failed", error=str(exc))
+            raise
+    return dispatch_store.get_task(task_id) or task
 
 
 def review_delivery_targets(
@@ -1532,14 +1858,19 @@ def completion_delivery_targets(
     channels = stored_delivery_policy(task)["completion_card"]
     targets: list[tuple[str, str]] = []
     if "direct" in channels:
-        recipients = _explicit_named_recipients(
-            [
+        direct_people = [
+            item
+            for item in [
                 {
                     "platform_user_id": task.get("assignee_user_id"),
                     "display_name": task.get("assignee_name"),
                 },
                 *(task.get("_reviewers") or []),
-            ],
+            ]
+            if str(item.get("platform_user_id") or "").strip()
+        ]
+        recipients = _explicit_named_recipients(
+            direct_people,
             role="完结通知接收人",
         )
         if not recipients:
@@ -1625,6 +1956,8 @@ def stored_delivery_policy(task: dict[str, Any]) -> dict[str, list[str]]:
 
 def public_dispatch_task(task: dict[str, Any]) -> dict[str, Any]:
     status = str(task.get("status") or "")
+    source_system = str(task.get("source_system") or "")
+    is_web_result_review = source_system == WEB_REVIEW_SOURCE_SYSTEM
     claimed = bool(task.get("claimed_at")) or status in {"claimed", "pending_review", "returned", "completed"}
     reviewer_labels = {"waiting": "待编制", "pending": "待复核", "approved": "已通过", "rejected": "已退回"}
     participants = [{"role": "编制人", "name": str(task.get("assignee_name") or ""), "status": "已领取" if claimed else "待领取"}]
@@ -1637,6 +1970,9 @@ def public_dispatch_task(task: dict[str, Any]) -> dict[str, Any]:
     return {
         "task_id": str(task.get("task_id") or ""),
         "source_task_id": str(task.get("source_task_id") or ""),
+        "source_job_id": str(task.get("source_task_id") or "") if is_web_result_review else "",
+        "source_system": source_system,
+        "is_web_result_review": is_web_result_review,
         "task_name": str(task.get("task_name") or ""),
         "project_name": str(task.get("project_name") or ""),
         "skill": {
@@ -1658,7 +1994,13 @@ def public_dispatch_task(task: dict[str, Any]) -> dict[str, Any]:
         "template_version": str(task.get("template_version") or ""),
         "template_hash": str(task.get("template_hash") or "")[:12],
         "delivery_retry_count": int(task.get("delivery_retry_count") or 0),
-        "error": sanitize_dispatch_error(task.get("delivery_error") or task.get("error") or ""),
+        "error": sanitize_dispatch_error(
+            task.get("delivery_error")
+            or task.get("submission_error")
+            or task.get("review_error")
+            or task.get("error")
+            or ""
+        ),
         "created_at": str(task.get("created_at") or ""),
         "delivered_at": str(task.get("delivered_at") or ""),
         "claimed_at": str(task.get("claimed_at") or ""),
@@ -1669,7 +2011,16 @@ def public_dispatch_task(task: dict[str, Any]) -> dict[str, Any]:
         "completed_at": str(task.get("completed_at") or ""),
         "submission_file_name": str(task.get("submission_file_name") or ""),
         "submission_delivery_status": str(task.get("submission_delivery_status") or ""),
-        "can_retry": str(task.get("status") or "") == "dispatch_failed",
+        "can_retry": (
+            str(task.get("status") or "") == "dispatch_failed"
+            or (
+                str(task.get("status") or "") == "pending_review"
+                and (
+                    str(task.get("submission_delivery_status") or "") == "failed"
+                    or str(task.get("review_card_status") or "") == "failed"
+                )
+            )
+        ),
     }
 
 

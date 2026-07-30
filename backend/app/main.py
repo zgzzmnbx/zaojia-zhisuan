@@ -145,7 +145,7 @@ from .professional_skills import (
 from .report import append_risk_report, write_report
 
 
-APP_VERSION = "v5.18.0"
+APP_VERSION = "v5.19.0"
 OUTPUT_FILE_PREFIX = "【输出】"
 TEMP_FILE_PREFIX = "【临时】"
 PROCESS_STATE_FILENAME = "process-state.json"
@@ -766,6 +766,75 @@ async def create_external_dispatch_task(
         return {"created": created, "task": task}
     except external_task_dispatch.DispatchValidationError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@app.post("/api/collaboration/external-dispatch/web-review")
+def create_web_result_review(payload: dict[str, object] = Body(...)) -> dict[str, object]:
+    job_id = str(payload.get("job_id") or "").strip()
+    if not re.fullmatch(r"[0-9a-fA-F]{32}", job_id):
+        raise HTTPException(status_code=400, detail="网页填价任务编号格式无效")
+    job_dir = RUNTIME_DIR / job_id
+    if not job_dir.is_dir():
+        raise HTTPException(status_code=404, detail="未找到网页填价任务")
+    state = _load_process_state(job_dir)
+    summary = state.get("summary") if isinstance(state.get("summary"), dict) else {}
+    if str(summary.get("matching_status") or "") == "pending":
+        raise HTTPException(status_code=409, detail="请先完成批量匹配，再提交同事复核")
+    output_path = _state_path(job_dir, state, "output_excel")
+    if not output_path or not output_path.is_file():
+        raise HTTPException(status_code=404, detail="网页填价成果不存在，请重新生成")
+    max_bytes = int(feishu_app_bot.load_bot_defaults().get("maxFileSizeMb") or 50) * 1024 * 1024
+    file_bytes = output_path.read_bytes()
+    if len(file_bytes) > max_bytes:
+        raise HTTPException(status_code=413, detail=f"网页填价成果超过 {max_bytes // 1024 // 1024} MB 上限")
+
+    reviewer_refs = payload.get("reviewer_refs")
+    if not isinstance(reviewer_refs, list):
+        raise HTTPException(status_code=400, detail="复核人参数必须是列表")
+    platform_profile_id = str(payload.get("platform_profile_id") or "").strip()
+    if not platform_profile_id:
+        raise HTTPException(status_code=400, detail="请选择飞书或 WeAct 投递平台")
+    skill_snapshot = state.get("skill_snapshot") if isinstance(state.get("skill_snapshot"), dict) else {}
+    skill_id = str(skill_snapshot.get("id") or "").strip()
+    skill_version = str(skill_snapshot.get("version") or "").strip()
+    if not skill_id:
+        raise HTTPException(status_code=409, detail="当前网页任务缺少专业能力快照，不能发起复核")
+
+    input_name = str(state.get("input_filename") or output_path.name).strip()
+    project_name = (
+        str(payload.get("project_name") or "").strip()
+        or str(state.get("project_name") or "").strip()
+        or Path(input_name).stem
+        or "网页填价项目"
+    )
+    task_name = (
+        str(payload.get("task_name") or "").strip()
+        or f"{project_name}填价成果复核"
+    )
+    try:
+        service = external_task_dispatch.build_service(
+            registry=PROFESSIONAL_SKILL_REGISTRY,
+            profile_id=platform_profile_id,
+        )
+        task, created = service.create_web_result_review(
+            job_id=job_id,
+            file_name=output_path.name,
+            file_bytes=file_bytes,
+            task_name=task_name,
+            project_name=project_name,
+            skill_id=skill_id,
+            skill_version=skill_version,
+            reviewer_refs=tuple(str(item).strip() for item in reviewer_refs if str(item).strip()),
+            deadline=str(payload.get("deadline") or "").strip(),
+            instructions=str(payload.get("instructions") or "").strip(),
+            delivery_mode=str(payload.get("delivery_mode") or "").strip(),
+            target_group_ref=str(payload.get("target_group_ref") or "").strip(),
+        )
+        return {"created": created, "task": task}
+    except external_task_dispatch.DispatchValidationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    except (httpx.HTTPError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail=feishu_app_bot.sanitize_error(exc)) from exc
 
 
 @app.post("/api/collaboration/external-dispatch/tasks/{task_id}/retry")

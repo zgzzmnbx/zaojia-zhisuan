@@ -9076,6 +9076,383 @@ tbody tr:hover .row-ai-cell {
   min-height: 84px;
 }
 
+/* Web result -> explicitly selected Feishu / WeAct reviewers */
+.shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .brief-panel #daweiba-output.download-row {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+}
+
+.shell.layout-daweiba .web-review-launch-button {
+  border-color: #bfd4f8;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.shell.layout-daweiba .web-review-launch-button:hover:not(:disabled) {
+  border-color: #93b4ee;
+  background: #e4efff;
+  color: #1e40af;
+}
+
+.shell.layout-daweiba .settings-modal.web-review-modal {
+  width: min(820px, 100%);
+  max-height: min(90vh, 880px);
+  gap: 16px;
+  padding: 0;
+  overflow: auto;
+  border: 1px solid #d8e2ef;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.12);
+}
+
+.shell.layout-daweiba .web-review-modal > * {
+  margin-inline: 22px;
+}
+
+.shell.layout-daweiba .web-review-modal > .web-review-modal-title {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin: 0;
+  padding: 18px 22px 14px;
+  border-bottom: 1px solid #e5edf6;
+  background: #ffffff;
+}
+
+.shell.layout-daweiba .web-review-modal-title strong {
+  color: #172033;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.shell.layout-daweiba .web-review-modal-title small {
+  color: #64748b;
+  font-weight: 500;
+}
+
+.shell.layout-daweiba .web-review-result-summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid #d8e6f8;
+  border-radius: 10px;
+  background: #f7faff;
+  color: #315b9d;
+}
+
+.shell.layout-daweiba .web-review-result-summary > span {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.shell.layout-daweiba .web-review-result-summary strong,
+.shell.layout-daweiba .web-review-result-summary small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell.layout-daweiba .web-review-result-summary strong {
+  color: #172033;
+  font-size: 14px;
+}
+
+.shell.layout-daweiba .web-review-result-summary small {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.shell.layout-daweiba .web-review-result-summary b {
+  padding: 5px 9px;
+  border: 1px solid #cbdaf0;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #315b9d;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.shell.layout-daweiba .web-review-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.shell.layout-daweiba .web-review-form-grid label,
+.shell.layout-daweiba .web-review-instructions {
+  display: grid;
+  gap: 6px;
+}
+
+.shell.layout-daweiba .web-review-form-grid label > span,
+.shell.layout-daweiba .web-review-instructions > span {
+  color: #334155;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.shell.layout-daweiba .web-review-form-grid input,
+.shell.layout-daweiba .web-review-form-grid select,
+.shell.layout-daweiba .web-review-instructions textarea {
+  border-color: #d7e0eb;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.shell.layout-daweiba .web-review-reviewers {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  margin-block: 0;
+  padding: 14px;
+  border: 1px solid #d7e3f1;
+  border-radius: 10px;
+  background: #fbfdff;
+}
+
+.shell.layout-daweiba .web-review-reviewers legend {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding-inline: 5px;
+  color: #172033;
+}
+
+.shell.layout-daweiba .web-review-reviewers legend span {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.shell.layout-daweiba .web-review-reviewers legend small {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.shell.layout-daweiba .web-review-people-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.shell.layout-daweiba .web-review-people-grid label {
+  display: flex;
+  min-width: 0;
+  min-height: 38px;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid #dbe4ef;
+  border-radius: 8px;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.shell.layout-daweiba .web-review-people-grid label.is-selected {
+  border-color: #8db2eb;
+  background: #edf5ff;
+}
+
+.shell.layout-daweiba .web-review-people-grid input,
+.shell.layout-daweiba .web-review-safety-confirmation input {
+  width: 15px;
+  min-width: 15px;
+  height: 15px;
+  min-height: 15px;
+  margin: 0;
+  padding: 0;
+  accent-color: #2563eb;
+}
+
+.shell.layout-daweiba .web-review-people-grid span {
+  overflow: hidden;
+  color: #24324a;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell.layout-daweiba .web-review-empty {
+  margin: 0;
+  padding: 18px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  color: #64748b;
+  text-align: center;
+}
+
+.shell.layout-daweiba .web-review-audience-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.shell.layout-daweiba .web-review-audience-summary strong {
+  color: #1d4ed8;
+}
+
+.shell.layout-daweiba .web-review-safety-confirmation {
+  display: flex;
+  grid-template-columns: none;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid #f2d58b;
+  border-radius: 10px;
+  background: #fffbeb;
+  cursor: pointer;
+}
+
+.shell.layout-daweiba .web-review-safety-confirmation > span {
+  display: grid;
+  gap: 3px;
+  color: #7c5a16;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.shell.layout-daweiba .web-review-safety-confirmation strong {
+  color: #5f4512;
+  font-size: 13px;
+}
+
+.shell.layout-daweiba .web-review-task-status {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #cfe1d4;
+  border-radius: 10px;
+  background: #f6fbf7;
+}
+
+.shell.layout-daweiba .web-review-task-status header,
+.shell.layout-daweiba .web-review-task-status footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.shell.layout-daweiba .web-review-task-status header > span {
+  display: grid;
+  gap: 3px;
+}
+
+.shell.layout-daweiba .web-review-task-status header strong {
+  color: #166534;
+}
+
+.shell.layout-daweiba .web-review-task-status header small,
+.shell.layout-daweiba .web-review-task-status footer > span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.shell.layout-daweiba .web-review-task-status header b {
+  color: #166534;
+  font-size: 12px;
+}
+
+.shell.layout-daweiba .web-review-task-status > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.shell.layout-daweiba .web-review-task-status > div > span {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid #dce9df;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #475569;
+  font-size: 12px;
+}
+
+.shell.layout-daweiba .web-review-task-status > div b {
+  color: #315b9d;
+}
+
+.shell.layout-daweiba .web-review-task-status > div em {
+  color: #64748b;
+  font-style: normal;
+}
+
+.shell.layout-daweiba .web-review-feedback {
+  min-height: 20px;
+  margin-block: -4px 0;
+  color: #315b9d;
+  font-size: 12px;
+}
+
+.shell.layout-daweiba .web-review-feedback.is-error {
+  color: #b42318;
+}
+
+.shell.layout-daweiba .web-review-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 0;
+  padding: 14px 22px 18px;
+  border-top: 1px solid #e5edf6;
+  background: #ffffff;
+}
+
+@media (max-width: 760px) {
+  .shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .brief-panel #daweiba-output.download-row {
+    grid-template-columns: 1fr !important;
+  }
+
+  .shell.layout-daweiba .settings-modal.web-review-modal {
+    max-height: 94vh;
+    border-radius: 10px;
+  }
+
+  .shell.layout-daweiba .web-review-modal > * {
+    margin-inline: 14px;
+  }
+
+  .shell.layout-daweiba .web-review-modal > .web-review-modal-title,
+  .shell.layout-daweiba .web-review-actions {
+    margin: 0;
+    padding-inline: 14px;
+  }
+
+  .shell.layout-daweiba .web-review-result-summary,
+  .shell.layout-daweiba .web-review-form-grid,
+  .shell.layout-daweiba .web-review-task-status > div {
+    grid-template-columns: 1fr;
+  }
+
+  .shell.layout-daweiba .web-review-result-summary > svg,
+  .shell.layout-daweiba .web-review-result-summary > b {
+    display: none;
+  }
+
+  .shell.layout-daweiba .web-review-people-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .shell.layout-daweiba .web-review-audience-summary,
+  .shell.layout-daweiba .web-review-task-status header,
+  .shell.layout-daweiba .web-review-task-status footer,
+  .shell.layout-daweiba .web-review-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
 /* v5.16.0 Daweiba Shadcn settings dialogs */
 .daweiba-settings-backdrop {
   z-index: 42;
