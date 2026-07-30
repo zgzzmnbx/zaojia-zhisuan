@@ -178,17 +178,17 @@ def test_outbound_audience_rejects_group_larger_than_ten():
         external_task_dispatch.enforce_outbound_audience_safety(
             feishu,
             [("chat-test", "chat_id")],
-            named_recipients={},
+            explicit_named_recipients={},
         )
 
 
 def test_outbound_audience_rejects_unnamed_or_unselected_person():
     feishu = FakeFeishu()
-    with pytest.raises(external_task_dispatch.DispatchValidationError, match="未明确指定姓名"):
+    with pytest.raises(external_task_dispatch.DispatchValidationError, match="未在本次明确发送名单"):
         external_task_dispatch.enforce_outbound_audience_safety(
             feishu,
             [("ou-not-selected", "open_id")],
-            named_recipients={"ou-user-1": "石萌"},
+            explicit_named_recipients={"ou-user-1": "石萌"},
         )
 
 
@@ -197,8 +197,23 @@ def test_outbound_audience_allows_only_explicit_named_people():
     external_task_dispatch.enforce_outbound_audience_safety(
         feishu,
         [("ou-user-1", "open_id"), ("ou-user-2", "open_id")],
-        named_recipients={"ou-user-1": "石萌", "ou-user-2": "复核人"},
+        explicit_named_recipients={"ou-user-1": "石萌", "ou-user-2": "复核人"},
     )
+
+
+def test_group_directory_membership_never_becomes_a_direct_send_list():
+    feishu = FakeFeishu(
+        members_by_chat={
+            "chat-test": [{"member_id": "ou-directory-only", "name": "群成员"}],
+        }
+    )
+
+    with pytest.raises(external_task_dispatch.DispatchValidationError, match="未在本次明确发送名单"):
+        external_task_dispatch.enforce_outbound_audience_safety(
+            feishu,
+            [("ou-directory-only", "open_id")],
+            explicit_named_recipients={},
+        )
 
 
 def test_options_returns_names_but_not_platform_ids(service):

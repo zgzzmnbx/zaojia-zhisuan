@@ -44,7 +44,7 @@ def deliver_external_review_bundle(
         external_task_dispatch.enforce_outbound_audience_safety(
             feishu,
             targets,
-            named_recipients={
+            explicit_named_recipients={
                 str(item.get("platform_user_id") or "").strip(): str(item.get("display_name") or "").strip()
                 for item in task.get("_reviewers") or []
             },
@@ -96,7 +96,7 @@ def deliver_external_completion_notification(
         external_task_dispatch.enforce_outbound_audience_safety(
             feishu,
             targets,
-            named_recipients={
+            explicit_named_recipients={
                 str(item.get("platform_user_id") or "").strip(): str(item.get("display_name") or "").strip()
                 for item in [
                     {

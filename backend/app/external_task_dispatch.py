@@ -1083,7 +1083,7 @@ class ExternalTaskDispatchService:
             enforce_outbound_audience_safety(
                 self.feishu,
                 [(target_chat_id, "chat_id")],
-                named_recipients={},
+                explicit_named_recipients={},
             )
         self._validate_xlsx(file_name, file_bytes)
 
@@ -1286,7 +1286,7 @@ class ExternalTaskDispatchService:
         enforce_outbound_audience_safety(
             self.feishu,
             targets,
-            named_recipients={
+            explicit_named_recipients={
                 str(task.get("assignee_user_id") or "").strip(): str(task.get("assignee_name") or "").strip(),
             },
         )
@@ -1575,16 +1575,16 @@ def enforce_outbound_audience_safety(
     feishu: Any,
     targets: list[tuple[str, str]],
     *,
-    named_recipients: dict[str, str],
+    explicit_named_recipients: dict[str, str],
 ) -> None:
-    """Fail closed unless the complete outbound audience is named and no larger than the hard limit."""
+    """Fail closed unless every proactive direct target is on the current explicit send list."""
     audience: dict[str, str] = {}
     for receive_id, receive_id_type in dict.fromkeys(targets):
         normalized_id = str(receive_id or "").strip()
         if receive_id_type == "open_id":
-            name = str(named_recipients.get(normalized_id) or "").strip()
+            name = str(explicit_named_recipients.get(normalized_id) or "").strip()
             if not normalized_id or not name:
-                raise DispatchValidationError("已拒绝向未明确指定姓名的人员发送消息", status_code=409)
+                raise DispatchValidationError("已拒绝向未在本次明确发送名单中的人员发送单聊消息", status_code=409)
             audience[normalized_id] = name
             continue
         if receive_id_type != "chat_id" or not normalized_id:
