@@ -1585,6 +1585,47 @@ def test_feishu_api_sends_interactive_card_as_message_content():
     assert requests[-1].url.params["receive_id_type"] == "chat_id"
 
 
+def test_feishu_api_updates_exclusive_card_after_callback_for_current_operator():
+    requests: list[httpx.Request] = []
+    original_card = {
+        "config": {"wide_screen_mode": True},
+        "header": {"title": {"tag": "plain_text", "content": "造价智算 · 多人复核"}},
+        "elements": [],
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path.endswith("/auth/v3/tenant_access_token/internal"):
+            return httpx.Response(
+                200,
+                json={"code": 0, "tenant_access_token": "token", "expire": 7200},
+                request=request,
+            )
+        assert request.url.path == "/open-apis/interactive/v1/card/update"
+        assert request.headers["Authorization"] == "Bearer token"
+        body = json.loads(request.content.decode("utf-8"))
+        assert body["token"] == "callback-token"
+        assert body["card"]["open_ids"] == ["ou_reviewer"]
+        assert body["card"]["header"] == original_card["header"]
+        return httpx.Response(200, json={"code": 0, "msg": "success", "data": {}}, request=request)
+
+    api = feishu_app_bot.FeishuApi(
+        "cli_test",
+        "secret-test",
+        domain="https://open.weact.pipechina.com.cn",
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    api.update_card_after_callback(
+        "callback-token",
+        original_card,
+        open_ids=["ou_reviewer", "ou_reviewer"],
+    )
+
+    assert requests[-1].url.host == "open.weact.pipechina.com.cn"
+    assert "open_ids" not in original_card
+
+
 def test_feishu_api_reaction_error_keeps_platform_reason():
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/auth/v3/tenant_access_token/internal"):

@@ -111,6 +111,29 @@ def test_web_result_review_endpoint_uses_backend_frozen_output(tmp_path, monkeyp
     assert captured["file_bytes"] == output_path.read_bytes()
     assert captured["project_name"] == "网页测试项目"
     assert captured["reviewer_refs"] == ("PM-REVIEWER",)
+    assert captured["start_new_round"] is False
+    assert captured["existing_task_id"] == ""
+    assert captured["previous_review_round"] == 0
+
+    next_round_response = client.post(
+        "/api/collaboration/external-dispatch/web-review",
+        json={
+            "job_id": job_id,
+            "platform_profile_id": "weact_cost",
+            "reviewer_refs": ["PM-REVIEWER"],
+            "delivery_mode": "direct",
+            "deadline": "2026-08-01T18:00:00+08:00",
+            "instructions": "请发起新一轮复核。",
+            "start_new_round": True,
+            "existing_task_id": "FS-WEB-REVIEW",
+            "previous_review_round": 1,
+        },
+    )
+    assert next_round_response.status_code == 200
+    assert next_round_response.json()["started_new_round"] is True
+    assert captured["start_new_round"] is True
+    assert captured["existing_task_id"] == "FS-WEB-REVIEW"
+    assert captured["previous_review_round"] == 1
 
 
 def test_project_default_settings_include_zhisuan_window():

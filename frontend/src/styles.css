@@ -3817,7 +3817,9 @@ h2 {
   align-items: center;
   gap: 8px;
   min-width: 0;
-  margin: 0 0 10px;
+  margin: 0 0 11px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid var(--line-soft);
 }
 
 .zhisuan-answer-heading > strong {
@@ -3825,6 +3827,27 @@ h2 {
   font-size: 14px;
   font-weight: 700;
   line-height: 1.35;
+}
+
+.zhisuan-answer-heading.is-success > .knowledge-evidence-summary__icon {
+  background: #eaf8ef;
+  color: #15803d;
+}
+
+.zhisuan-answer-heading.is-warning > .knowledge-evidence-summary__icon {
+  background: #eaf2ff;
+  color: #2563eb;
+}
+
+.zhisuan-answer-heading.is-report > .knowledge-evidence-summary__icon {
+  background: #fff7df;
+  color: #b7791f;
+}
+
+.zhisuan-answer-heading.is-processing > .knowledge-evidence-summary__icon,
+.zhisuan-answer-heading.is-table > .knowledge-evidence-summary__icon {
+  background: #eaf2ff;
+  color: #2563eb;
 }
 
 .knowledge-evidence-summary__icon {
@@ -3835,6 +3858,41 @@ h2 {
   width: 27px;
   height: 27px;
   border-radius: 8px;
+  background: #eaf2ff;
+  color: #2563eb;
+}
+
+.zhisuan-section-heading__icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.zhisuan-message-heading.is-success .zhisuan-section-heading__icon {
+  background: #eaf8ef;
+  color: #15803d;
+}
+
+.zhisuan-message-heading.is-danger .zhisuan-section-heading__icon {
+  background: #fff0ed;
+  color: #b42318;
+}
+
+.zhisuan-message-heading.is-report .zhisuan-section-heading__icon {
+  background: #fff7df;
+  color: #b7791f;
+}
+
+.zhisuan-message-heading.is-knowledge .zhisuan-section-heading__icon,
+.zhisuan-message-heading.is-table .zhisuan-section-heading__icon,
+.zhisuan-message-heading.is-advice .zhisuan-section-heading__icon,
+.zhisuan-message-heading.is-guide .zhisuan-section-heading__icon {
   background: #eaf2ff;
   color: #2563eb;
 }
@@ -8810,23 +8868,37 @@ tbody tr:hover .row-ai-cell {
   display: inline-flex;
   align-items: center;
   justify-self: start;
-  gap: 4px;
-  min-height: 24px;
-  padding: 0 8px;
-  border: 1px solid var(--db-border);
-  border-radius: 999px;
-  background: #ffffff;
+  gap: 5px;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid rgba(37, 99, 235, 0.24);
+  border-radius: 7px;
+  background: var(--db-primary-soft);
   color: var(--db-primary);
   font: inherit;
   font-size: 12px;
   font-weight: 700;
   line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
 }
 
 .shell.layout-daweiba .zhisuan-warning-jump:hover {
-  border-color: rgba(37, 99, 235, 0.36);
-  background: #eff6ff;
+  border-color: rgba(37, 99, 235, 0.38);
+  background: var(--db-primary-weak);
+  color: var(--db-primary-hover);
+}
+
+.shell.layout-daweiba .zhisuan-warning-jump:active {
+  border-color: rgba(37, 99, 235, 0.5);
+  background: rgba(37, 99, 235, 0.12);
+}
+
+.shell.layout-daweiba .zhisuan-warning-jump:focus-visible {
+  outline: 2px solid rgba(37, 99, 235, 0.38);
+  outline-offset: 2px;
 }
 
 .shell.layout-daweiba .zhisuan-action-row {
@@ -9076,6 +9148,767 @@ tbody tr:hover .row-ai-cell {
   min-height: 84px;
 }
 
+/* Global color mode. Light mode remains the unmodified default; every override
+   below is isolated behind the explicit theme-dark class. */
+.shell.layout-daweiba .nav-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.shell.layout-daweiba .nav-theme-button {
+  transition:
+    color 160ms ease,
+    background-color 160ms ease,
+    border-color 160ms ease;
+}
+
+.shell.layout-daweiba.theme-dark {
+  --dws-neutral-0: #111827;
+  --dws-neutral-25: #141d2b;
+  --dws-neutral-50: #172033;
+  --dws-neutral-100: #1d293a;
+  --dws-neutral-200: #2a384d;
+  --dws-neutral-300: #3b4b62;
+  --dws-neutral-400: #8291a6;
+  --dws-neutral-500: #9aa8bc;
+  --dws-neutral-600: #b7c2d1;
+  --dws-neutral-700: #d8e1ed;
+  --dws-neutral-900: #f6f8fb;
+  --dws-blue-50: #102542;
+  --dws-blue-100: #15335c;
+  --dws-blue-200: #244d82;
+  --dws-blue-300: #4f83c7;
+  --dws-blue-400: #6ba8f7;
+  --dws-blue-500: #60a5fa;
+  --dws-blue-600: #4f94ed;
+  --dws-blue-700: #7db6fa;
+  --dws-blue-800: #a7cdfb;
+  --dws-color-background: #0c1320;
+  --dws-color-app-background: #0b111d;
+  --dws-color-surface: #111827;
+  --dws-color-surface-subtle: #141d2b;
+  --dws-color-muted: #172033;
+  --dws-color-foreground: #d8e1ed;
+  --dws-color-foreground-strong: #f6f8fb;
+  --dws-color-foreground-muted: #9aa8bc;
+  --dws-color-foreground-weak: #8291a6;
+  --dws-color-border: #2a384d;
+  --dws-color-border-soft: #202d40;
+  --dws-color-border-strong: #3b4b62;
+  --dws-color-primary: #60a5fa;
+  --dws-color-primary-hover: #7db6fa;
+  --dws-color-primary-active: #a7cdfb;
+  --dws-color-primary-soft: #102542;
+  --dws-color-primary-weak: #121f33;
+  --dws-color-focus: #60a5fa;
+  --dws-color-secondary: #5eead4;
+  --dws-color-secondary-soft: #102c2d;
+  --dws-color-accent: #fbbf24;
+  --dws-color-success: #4ade80;
+  --dws-color-success-soft: #10291d;
+  --dws-color-warning: #fbbf24;
+  --dws-color-warning-soft: #33260b;
+  --dws-color-danger: #f87171;
+  --dws-color-danger-soft: #35191e;
+  --dws-color-info: #60a5fa;
+  --dws-color-info-soft: #102542;
+  --dws-chart-blue-strong: #60a5fa;
+  --dws-chart-blue: #4f94ed;
+  --dws-chart-blue-soft: #4f83c7;
+  --dws-chart-blue-pale: #244d82;
+  --dws-chart-blue-wash: #102542;
+  --dws-chart-positive: rgb(94, 184, 132);
+  --dws-segmented-bg: #172033;
+  --dws-table-header-bg: #172033;
+  --dws-table-row-hover: #172033;
+  --dws-table-row-selected: #102542;
+  --dws-dialog-shadow: 0 24px 72px rgb(2 6 23 / 46%);
+  --db-bg: #0c1320;
+  --db-app-bg: #0b111d;
+  --db-bg-alt: #172033;
+  --db-surface: #111827;
+  --db-surface-tint: #141d2b;
+  --db-text-strong: #f6f8fb;
+  --db-text: #d8e1ed;
+  --db-text-muted: #9aa8bc;
+  --db-text-weak: #8291a6;
+  --db-border: #2a384d;
+  --db-border-soft: #202d40;
+  --db-border-strong: #3b4b62;
+  --canvas: #111827;
+  --parchment: #0c1320;
+  --pearl: #141d2b;
+  --line: #2a384d;
+  --line-soft: #202d40;
+  --surface-soft: #141d2b;
+  --surface-muted: #172033;
+  --surface-elevated: #111827;
+  --surface-code: #0b111d;
+  background: var(--db-bg);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .global-nav {
+  border-bottom-color: var(--db-border);
+  background: rgb(17 24 39 / 94%);
+  color: var(--db-text-strong);
+}
+
+.shell.layout-daweiba.theme-dark .welcome-screen.is-light {
+  background:
+    linear-gradient(180deg, rgb(27 52 78 / 72%), transparent 120px),
+    linear-gradient(90deg, rgb(148 163 184 / 8%) 1px, transparent 1px),
+    linear-gradient(180deg, rgb(148 163 184 / 8%) 1px, transparent 1px),
+    #0b111d;
+  background-size: auto, 90px 90px, 90px 90px, auto;
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .welcome-screen.is-light .welcome-shell {
+  border-color: var(--db-border);
+  background: transparent;
+}
+
+.shell.layout-daweiba.theme-dark .welcome-screen.is-light :is(
+  .welcome-copy h1,
+  .welcome-role,
+  .welcome-frame-main-head b,
+  .welcome-upload-preview strong,
+  .welcome-mini-grid strong,
+  .welcome-frame-menu strong,
+  .welcome-frame-ai strong
+) {
+  color: var(--db-text-strong);
+}
+
+.shell.layout-daweiba.theme-dark .welcome-screen.is-light :is(
+  .welcome-kicker,
+  .welcome-lead,
+  .welcome-check,
+  .welcome-frame-service,
+  .welcome-frame-main-head span,
+  .welcome-frame-main-head small,
+  .welcome-upload-preview small,
+  .welcome-mini-grid small,
+  .welcome-frame-menu span,
+  .welcome-frame-ai p
+) {
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark .welcome-screen.is-light :is(
+  .welcome-product-frame,
+  .welcome-frame-toolbar,
+  .welcome-frame-rail,
+  .welcome-frame-menu,
+  .welcome-frame-main,
+  .welcome-upload-preview,
+  .welcome-mini-grid span,
+  .welcome-table-preview,
+  .welcome-frame-ai
+) {
+  border-color: var(--db-border);
+  background: var(--db-surface);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .welcome-screen.is-light .welcome-frame-skill .professional-skill-selector__trigger {
+  border-color: var(--db-border);
+  background: var(--db-surface-tint);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .welcome-screen.is-light .welcome-frame-skill .professional-skill-selector__trigger:hover {
+  background: var(--db-primary-soft);
+}
+
+.shell.layout-daweiba.theme-dark .welcome-screen.is-light .welcome-frame-menu span.is-active {
+  background: var(--db-primary-soft);
+  color: var(--db-primary);
+}
+
+.shell.layout-daweiba.theme-dark .welcome-screen.is-light .welcome-table-preview :is(b, span) {
+  border-color: var(--db-border-soft);
+  background: var(--db-surface-tint);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .welcome-screen.is-light .welcome-primary {
+  background: var(--db-primary);
+  color: #07111f;
+}
+
+.shell.layout-daweiba.theme-dark .welcome-screen.is-light .welcome-shell::before,
+.shell.layout-daweiba.theme-dark .welcome-screen.is-light .welcome-shell::after {
+  border-color: var(--db-border);
+  background: var(--db-surface-tint);
+}
+
+.shell.layout-daweiba.theme-dark :is(.nav-text-button, .nav-settings-button) {
+  border-color: var(--db-border);
+  background: var(--db-surface);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark :is(.nav-text-button, .nav-settings-button):hover {
+  border-color: var(--db-primary);
+  background: var(--db-primary-soft);
+  color: var(--db-primary);
+}
+
+.shell.layout-daweiba.theme-dark .nav-theme-button[aria-pressed="true"] {
+  border-color: #355982;
+  background: #102542;
+  color: #fbbf24;
+}
+
+.shell.layout-daweiba.theme-dark :is(input, select, textarea) {
+  border-color: var(--db-border);
+  background: #0e1726;
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark :is(input, textarea)::placeholder {
+  color: var(--db-text-weak);
+}
+
+.shell.layout-daweiba.theme-dark :is(.ghost-button, .icon-button, .window-settings-button, .experience-settings-button):not(.is-danger) {
+  border-color: var(--db-border);
+  background: var(--db-surface);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark :is(.ghost-button, .icon-button, .window-settings-button, .experience-settings-button):not(.is-danger):hover {
+  border-color: var(--db-primary);
+  background: var(--db-primary-soft);
+  color: var(--db-primary);
+}
+
+.shell.layout-daweiba.theme-dark :is(
+  .daweiba-icon-rail,
+  .daweiba-nav,
+  .daweiba-module-rail,
+  .daweiba-nav-head,
+  .daweiba-nav-context,
+  .daweiba-status-panel,
+  .daweiba-rail-expand,
+  .daweiba-layout-shell,
+  .daweiba-workspace-frame,
+  .input-panel,
+  .brief-panel,
+  .mapping-panel,
+  .mapping-subpanel,
+  .preview-window,
+  .report-window,
+  .experience-panel,
+  .experience-preview,
+  .workload-section,
+  .workload-file-card,
+  .warning-card,
+  .ai-dock-panel,
+  .chat-window,
+  .llm-panel,
+  .llm-debug-window,
+  .settings-modal,
+  .preview-summary-footer,
+  .daweiba-fill-insight-panel,
+  .daweiba-fill-status-card,
+  .daweiba-fill-status-large,
+  .daweiba-fill-quality-card,
+  .daweiba-fill-system-card,
+  .daweiba-fill-mini-grid > div,
+  .daweiba-fill-workflow-progress,
+  .daweiba-collaboration-module,
+  .daweiba-collaboration-settings,
+  .daweiba-collaboration-rules,
+  .daweiba-collaboration-history,
+  .daweiba-collaboration-inline-console,
+  .daweiba-digital-project-assistant-frame
+) {
+  border-color: var(--db-border);
+  background: var(--db-surface);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark :is(
+  .window-bar,
+  .preview-tabs,
+  .sheet-tabs,
+  .settings-modal-head,
+  .settings-modal-actions,
+  .daweiba-collaboration-tabs,
+  .daweiba-report-toolbar,
+  .daweiba-report-preview-head,
+  .quick-command-row
+) {
+  border-color: var(--db-border);
+  background: var(--db-surface-tint);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark :is(.daweiba-module-item, .daweiba-icon-link):hover,
+.shell.layout-daweiba.theme-dark .daweiba-module-item.is-active {
+  border-color: var(--db-border);
+  background: var(--db-primary-soft);
+  color: var(--db-primary);
+}
+
+.shell.layout-daweiba.theme-dark :is(.preview-tabs, .sheet-tabs) button {
+  border-color: var(--db-border);
+  background: var(--db-surface);
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark :is(.preview-tabs, .sheet-tabs) button:hover,
+.shell.layout-daweiba.theme-dark :is(.preview-tabs, .sheet-tabs) button.is-active {
+  border-color: var(--db-primary);
+  background: var(--db-primary-soft);
+  color: var(--db-primary);
+}
+
+.shell.layout-daweiba.theme-dark :is(.preview-tabs, .sheet-tabs) button span {
+  color: inherit;
+}
+
+.shell.layout-daweiba.theme-dark :is(table, th, td) {
+  border-color: var(--db-border-soft);
+}
+
+.shell.layout-daweiba.theme-dark th {
+  background: var(--db-bg-alt);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark td,
+.shell.layout-daweiba.theme-dark .row-ai-cell {
+  background: var(--db-surface);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark tbody tr:hover > td {
+  background: var(--db-primary-soft);
+}
+
+.shell.layout-daweiba.theme-dark .preview-cell-edit-input {
+  border-color: var(--db-primary);
+  background: #0e1726;
+  color: var(--db-text-strong);
+}
+
+.shell.layout-daweiba.theme-dark .table-scroll {
+  scrollbar-color: #64748b #172033;
+}
+
+.shell.layout-daweiba.theme-dark :is(.table-scroll, .preview-tabs)::-webkit-scrollbar-track {
+  background: #172033;
+}
+
+.shell.layout-daweiba.theme-dark :is(.table-scroll, .preview-tabs)::-webkit-scrollbar-thumb {
+  border-color: #172033;
+  background: #64748b;
+}
+
+.shell.layout-daweiba.theme-dark :is(.chat-message.assistant .chat-message-body, .ai-row-current, .row-ai-answer) {
+  border-color: var(--db-border);
+  background: var(--db-surface-tint);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .chat-message.user .chat-message-body {
+  background: #17345c;
+  color: #eff6ff;
+}
+
+.shell.layout-daweiba.theme-dark .chat-message.user :is(
+  .zhisuan-message-heading,
+  .zhisuan-message-heading strong,
+  .zhisuan-message-paragraph,
+  .zhisuan-message-paragraph strong,
+  .zhisuan-message-list,
+  .zhisuan-message-list li,
+  .zhisuan-message-list strong
+) {
+  color: #eff6ff;
+}
+
+.shell.layout-daweiba.theme-dark :is(
+  .summary-hero,
+  .metric,
+  .daweiba-fill-output-meta,
+  .daweiba-fill-summary-metrics span
+) {
+  border-color: var(--db-border);
+  background: var(--db-surface);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-fill-quality-card .widescreen-ring {
+  background:
+    radial-gradient(circle at center, var(--db-surface) 0 52%, transparent 53%),
+    conic-gradient(
+      #73a77c 0 var(--wide-ok),
+      #c8a96a var(--wide-ok) var(--wide-low),
+      #a55f66 var(--wide-low) 100%
+    );
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-fill-workflow-progress__track,
+.shell.layout-daweiba.theme-dark .preview-horizontal-scrollbar::-webkit-slider-runnable-track {
+  background: #213049;
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-fill-workflow-progress li i {
+  border-color: var(--db-border);
+  background: var(--db-surface-tint);
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark :is(.modal-backdrop, .professional-skill-modal, .professional-skill-selector__menu-backdrop) {
+  background: rgb(2 6 23 / 68%);
+}
+
+.shell.layout-daweiba.theme-dark .project-dashboard {
+  --pd-surface: var(--db-surface);
+  --pd-canvas: var(--db-bg);
+  --pd-control: var(--db-bg-alt);
+  --pd-alt: var(--db-surface-tint);
+  --pd-border: var(--db-border);
+  --pd-border-soft: var(--db-border-soft);
+  --pd-strong: var(--db-text-strong);
+  --pd-text: var(--db-text);
+  --pd-muted: var(--db-text-muted);
+  background: var(--pd-canvas);
+  color: var(--pd-text);
+}
+
+.shell.layout-daweiba.theme-dark .project-dashboard :is(
+  .project-dashboard__filter-dialog,
+  .project-dashboard__metric,
+  .project-dashboard__lifecycle,
+  .project-dashboard__analysis,
+  .project-dashboard__history,
+  .project-dashboard__drawer,
+  .project-dashboard__empty,
+  .project-dashboard__error
+) {
+  border-color: var(--pd-border);
+  background: var(--pd-surface);
+  color: var(--pd-text);
+}
+
+.shell.layout-daweiba.theme-dark .project-dashboard :is(button, input, select) {
+  border-color: var(--pd-border);
+  background: var(--pd-control);
+  color: var(--pd-text);
+}
+
+.shell.layout-daweiba.theme-dark .project-dashboard :is(button:hover, button.is-active) {
+  background: var(--db-primary-soft);
+  color: var(--db-primary);
+}
+
+.shell.layout-daweiba.theme-dark .agent-workspace {
+  --agent-ink: var(--db-text-strong);
+  --agent-body: var(--db-text);
+  --agent-muted: var(--db-text-muted);
+  --agent-soft: var(--db-surface-tint);
+  --agent-soft-hover: var(--db-bg-alt);
+  --agent-line: var(--db-border-soft);
+  --agent-line-strong: var(--db-border);
+  background: var(--db-surface);
+  color: var(--agent-body);
+}
+
+.shell.layout-daweiba.theme-dark .agent-workspace__header {
+  border-color: var(--agent-line);
+  background: rgb(17 24 39 / 96%);
+}
+
+.shell.layout-daweiba.theme-dark .agent-workspace :is(
+  .agent-workspace__empty-prompts span,
+  .agent-composer,
+  .agent-composer__menu,
+  .agent-file-card,
+  .agent-artifact-card
+) {
+  border-color: var(--agent-line);
+  background: var(--db-surface-tint);
+  color: var(--agent-body);
+}
+
+.shell.layout-daweiba.theme-dark .agent-workspace .agent-message.user .agent-message__body {
+  background: #17345c;
+  color: #eff6ff;
+}
+
+.shell.layout-daweiba.theme-dark .agent-workspace .agent-turn + .agent-turn,
+.shell.layout-daweiba.theme-dark .agent-workspace .agent-turn.has-user > .agent-message.assistant + .agent-message.assistant::before {
+  border-color: var(--agent-line);
+}
+
+.shell.layout-daweiba.theme-dark :is(
+  .knowledge-library-trigger,
+  .knowledge-library-menu,
+  .knowledge-library-option,
+  .professional-skill-selector__menu,
+  .professional-skill-card,
+  .professional-skill-modal__dialog,
+  .professional-skill-modal__close,
+  .professional-skill-modal__subskills,
+  .professional-skill-center__recommendation,
+  .professional-skill-center__inventory > div
+) {
+  border-color: var(--db-border);
+  background: var(--db-surface);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark :is(
+  .knowledge-library-trigger:hover,
+  .knowledge-library-option:hover,
+  .knowledge-library-option.is-selected,
+  .professional-skill-selector__trigger:hover,
+  .professional-skill-selector.is-open .professional-skill-selector__trigger,
+  .professional-skill-card.is-disabled,
+  .professional-skill-modal__subskill,
+  .professional-skill-center__recommendation.is-recommended,
+  .professional-skill-center__plan
+) {
+  border-color: var(--db-border);
+  background: var(--db-surface-tint);
+}
+
+.shell.layout-daweiba.theme-dark :is(
+  .knowledge-library-trigger,
+  .knowledge-library-trigger strong,
+  .knowledge-library-menu-head strong,
+  .knowledge-library-copy strong,
+  .professional-skill-selector__trigger strong,
+  .professional-skill-selector__heading h3,
+  .professional-skill-card__content strong,
+  .professional-skill-modal__hero h2,
+  .professional-skill-modal__section-heading strong
+) {
+  color: var(--db-text-strong);
+}
+
+.shell.layout-daweiba.theme-dark :is(
+  .knowledge-library-trigger small,
+  .knowledge-library-menu-head span,
+  .knowledge-library-copy span,
+  .professional-skill-selector__trigger,
+  .professional-skill-selector__chevron,
+  .professional-skill-card__topline,
+  .professional-skill-card__meta
+) {
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark .settlement-audit {
+  background: var(--db-bg);
+}
+
+.shell.layout-daweiba.theme-dark .settlement-audit__view-tabs button:hover {
+  background: var(--db-surface-tint);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-collaboration-tabs button:hover,
+.shell.layout-daweiba.theme-dark .daweiba-collaboration-tabs button.is-active,
+.shell.layout-daweiba.theme-dark .daweiba-external-dispatch-table > .is-header,
+.shell.layout-daweiba.theme-dark .daweiba-collaboration-history-table > .is-header {
+  background: var(--db-primary-soft);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .word-report-preview-canvas {
+  --file-viewer-bg: #0b111d;
+  --file-viewer-text: var(--db-text);
+  --file-viewer-toolbar-bg: var(--db-surface);
+  --file-viewer-button-color: var(--db-text);
+  background: #0b111d;
+}
+
+.shell.layout-daweiba.theme-dark .word-report-preview-loading {
+  background: rgb(12 19 32 / 94%);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-report-preview-note {
+  border-color: var(--db-border);
+  background: var(--db-surface);
+}
+
+/* The rendered DOCX page intentionally stays paper-white in both modes so the
+   preview remains faithful to the exported Word document. */
+.shell.layout-daweiba.theme-dark .word-report-file-viewer :is(.page, [data-page]) {
+  color-scheme: light;
+}
+
+/* High-specificity module surfaces. These selectors mirror the production
+   module roots so later light-mode component rules cannot leak into dark mode. */
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame,
+.shell.layout-daweiba.theme-dark .daweiba-main-content,
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-fill,
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-preview,
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-experience,
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-workload,
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-report,
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-knowledge,
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration {
+  background: var(--db-bg);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-fill :is(
+  .input-panel,
+  .brief-panel,
+  .daweiba-fill-insight-panel,
+  .summary-hero,
+  .metric,
+  .daweiba-fill-status-large,
+  .daweiba-fill-quality-card,
+  .daweiba-fill-status-card,
+  .daweiba-fill-system-card,
+  .daweiba-fill-mini-grid > div,
+  .daweiba-fill-workflow-progress,
+  .mapping-panel,
+  .mapping-subpanel
+) {
+  border-color: var(--db-border);
+  background: var(--db-surface);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-preview :is(
+  .daweiba-preview-section,
+  .preview-window,
+  .preview-tabs,
+  .preview-empty
+) {
+  border-color: var(--db-border);
+  background: var(--db-surface);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-preview .preview-empty {
+  background: var(--db-surface-tint);
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-experience :is(
+  .experience-section,
+  .experience-panel,
+  .experience-preview,
+  .warning-panel,
+  .warning-card,
+  .mapping-panel,
+  .mapping-subpanel
+),
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-workload :is(
+  .workload-section,
+  .experience-panel,
+  .workload-file-card,
+  .workload-mapping-card,
+  .mapping-panel,
+  .mapping-subpanel
+) {
+  border-color: var(--db-border);
+  background: var(--db-surface);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-report :is(
+  .daweiba-report-module,
+  .daweiba-module-surface,
+  .daweiba-module-empty,
+  .daweiba-report-toolbar,
+  .daweiba-report-preview,
+  .daweiba-report-preview-head,
+  .daweiba-report-preview-note,
+  .word-report-preview-state
+) {
+  border-color: var(--db-border);
+  background: var(--db-surface);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame .daweiba-module-empty {
+  border-color: var(--db-border);
+  background: var(--db-surface-tint);
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-knowledge :is(
+  .knowledge-window,
+  .knowledge-panel,
+  .knowledge-memory-panel,
+  .knowledge-memory-card,
+  .knowledge-evidence-card
+) {
+  border-color: var(--db-border);
+  background: var(--db-surface);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-layout-shell > .ai-dock,
+.shell.layout-daweiba.theme-dark .daweiba-layout-shell > .ai-dock .ai-dock-head,
+.shell.layout-daweiba.theme-dark .daweiba-layout-shell > .ai-dock .chat-compose,
+.shell.layout-daweiba.theme-dark .daweiba-layout-shell > .ai-dock .quick-command-drawer,
+.shell.layout-daweiba.theme-dark .daweiba-layout-shell > .ai-dock .quick-command-row {
+  border-color: var(--db-border);
+  background: var(--db-surface);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-layout-shell > .ai-dock .chat-compose {
+  background: var(--db-surface-tint);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-layout-shell > .ai-dock :is(
+  .chat-log,
+  .chat-compose-footer,
+  .chat-toggle,
+  .llm-window-toggle,
+  .quick-command-handle
+) {
+  border-color: var(--db-border);
+  background: var(--db-surface);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-layout-shell > .ai-dock :is(
+  .chat-toggle,
+  .llm-window-toggle,
+  .quick-command-handle
+):hover {
+  background: var(--db-primary-soft);
+  color: var(--db-primary);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-layout-shell > .ai-dock .chat-compose textarea {
+  border-color: var(--db-border);
+  background: #0e1726;
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration > .daweiba-collaboration-module,
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration :is(
+  .daweiba-collaboration-settings,
+  .daweiba-collaboration-rules,
+  .daweiba-collaboration-history,
+  .daweiba-collaboration-inline-console,
+  .daweiba-external-dispatch-form,
+  .daweiba-external-dispatch-file,
+  .daweiba-external-delivery-strategy,
+  .daweiba-external-delivery-channels label,
+  .daweiba-collaboration-rule,
+  .daweiba-collaboration-history-table,
+  .daweiba-external-dispatch-table
+) {
+  border-color: var(--db-border);
+  background: var(--db-surface);
+  color: var(--db-text);
+}
+
 /* Web result -> explicitly selected Feishu / WeAct reviewers */
 .shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill .brief-panel #daweiba-output.download-row {
   grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
@@ -9094,58 +9927,95 @@ tbody tr:hover .row-ai-cell {
 }
 
 .shell.layout-daweiba .settings-modal.web-review-modal {
-  width: min(820px, 100%);
-  max-height: min(90vh, 880px);
-  gap: 16px;
+  width: min(780px, 100%);
+  max-height: min(88vh, 820px);
+  gap: 12px;
   padding: 0;
   overflow: auto;
-  border: 1px solid #d8e2ef;
-  border-radius: 14px;
-  background: #ffffff;
-  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.12);
+  scrollbar-gutter: stable;
+  border: 1px solid var(--db-border);
+  border-radius: 10px;
+  background: var(--db-surface);
+  color: var(--db-text);
+  font-size: 13px;
+  line-height: 1.45;
+  box-shadow: var(--db-shadow-dialog);
 }
 
 .shell.layout-daweiba .web-review-modal > * {
-  margin-inline: 22px;
+  margin-inline: 20px;
 }
 
 .shell.layout-daweiba .web-review-modal > .web-review-modal-title {
   position: sticky;
   top: 0;
   z-index: 2;
+  min-height: 64px;
   margin: 0;
-  padding: 18px 22px 14px;
-  border-bottom: 1px solid #e5edf6;
-  background: #ffffff;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--db-border-soft);
+  background: var(--db-surface);
+}
+
+.shell.layout-daweiba .web-review-modal-title > span {
+  min-width: 0;
+  gap: 3px;
 }
 
 .shell.layout-daweiba .web-review-modal-title strong {
-  color: #172033;
-  font-size: 20px;
+  color: var(--db-text-strong);
+  font-family: inherit;
+  font-size: 16px;
   font-weight: 700;
+  line-height: 1.35;
 }
 
 .shell.layout-daweiba .web-review-modal-title small {
-  color: #64748b;
-  font-weight: 500;
+  overflow: hidden;
+  color: var(--db-text-muted);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell.layout-daweiba .web-review-modal-title button {
+  display: inline-grid;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba .web-review-modal-title button:hover {
+  border-color: var(--db-border);
+  background: var(--db-bg-alt);
+  color: var(--db-text-strong);
 }
 
 .shell.layout-daweiba .web-review-result-summary {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 12px;
-  padding: 14px 16px;
-  border: 1px solid #d8e6f8;
-  border-radius: 10px;
-  background: #f7faff;
-  color: #315b9d;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--db-border);
+  border-radius: 8px;
+  background: var(--db-surface-tint);
+  color: var(--db-primary);
 }
 
 .shell.layout-daweiba .web-review-result-summary > span {
   display: grid;
   min-width: 0;
-  gap: 4px;
+  gap: 2px;
 }
 
 .shell.layout-daweiba .web-review-result-summary strong,
@@ -9156,29 +10026,36 @@ tbody tr:hover .row-ai-cell {
 }
 
 .shell.layout-daweiba .web-review-result-summary strong {
-  color: #172033;
-  font-size: 14px;
+  color: var(--db-text-strong);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
 }
 
 .shell.layout-daweiba .web-review-result-summary small {
-  color: #64748b;
+  color: var(--db-text-muted);
   font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+  font-variant-numeric: tabular-nums;
 }
 
 .shell.layout-daweiba .web-review-result-summary b {
-  padding: 5px 9px;
-  border: 1px solid #cbdaf0;
-  border-radius: 999px;
-  background: #ffffff;
-  color: #315b9d;
+  padding: 4px 8px;
+  border: 1px solid #bfdbfe;
+  border-radius: 7px;
+  background: var(--db-surface);
+  color: var(--db-primary);
   font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
   white-space: nowrap;
 }
 
 .shell.layout-daweiba .web-review-form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: 10px 12px;
 }
 
 .shell.layout-daweiba .web-review-form-grid label,
@@ -9189,46 +10066,71 @@ tbody tr:hover .row-ai-cell {
 
 .shell.layout-daweiba .web-review-form-grid label > span,
 .shell.layout-daweiba .web-review-instructions > span {
-  color: #334155;
-  font-size: 13px;
-  font-weight: 650;
+  color: var(--db-text);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
 }
 
 .shell.layout-daweiba .web-review-form-grid input,
 .shell.layout-daweiba .web-review-form-grid select,
 .shell.layout-daweiba .web-review-instructions textarea {
-  border-color: #d7e0eb;
+  min-height: 38px;
+  border-color: var(--db-border);
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--db-surface);
+  color: var(--db-text-strong);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+.shell.layout-daweiba .web-review-form-grid input,
+.shell.layout-daweiba .web-review-form-grid select {
+  padding-inline: 11px;
+}
+
+.shell.layout-daweiba .web-review-instructions textarea {
+  min-height: 76px;
+  padding: 10px 11px;
 }
 
 .shell.layout-daweiba .web-review-reviewers {
   display: grid;
-  gap: 12px;
+  gap: 10px;
   min-width: 0;
   margin-block: 0;
-  padding: 14px;
-  border: 1px solid #d7e3f1;
-  border-radius: 10px;
-  background: #fbfdff;
+  padding: 12px 14px;
+  border: 1px solid var(--db-border);
+  border-radius: 8px;
+  background: var(--db-surface);
 }
 
 .shell.layout-daweiba .web-review-reviewers legend {
   display: flex;
   align-items: baseline;
-  gap: 10px;
-  padding-inline: 5px;
-  color: #172033;
+  gap: 8px;
+  max-width: calc(100% - 12px);
+  padding-inline: 4px;
+  color: var(--db-text-strong);
 }
 
 .shell.layout-daweiba .web-review-reviewers legend span {
-  font-size: 14px;
-  font-weight: 700;
+  flex: 0 0 auto;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
 }
 
 .shell.layout-daweiba .web-review-reviewers legend small {
-  color: #64748b;
+  overflow: hidden;
+  color: var(--db-text-muted);
   font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .shell.layout-daweiba .web-review-people-grid {
@@ -9240,19 +10142,19 @@ tbody tr:hover .row-ai-cell {
 .shell.layout-daweiba .web-review-people-grid label {
   display: flex;
   min-width: 0;
-  min-height: 38px;
+  min-height: 36px;
   align-items: center;
   gap: 8px;
-  padding: 8px 10px;
-  border: 1px solid #dbe4ef;
+  padding: 7px 10px;
+  border: 1px solid var(--db-border);
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--db-surface);
   cursor: pointer;
 }
 
 .shell.layout-daweiba .web-review-people-grid label.is-selected {
-  border-color: #8db2eb;
-  background: #edf5ff;
+  border-color: #93c5fd;
+  background: var(--db-primary-soft);
 }
 
 .shell.layout-daweiba .web-review-people-grid input,
@@ -9268,19 +10170,22 @@ tbody tr:hover .row-ai-cell {
 
 .shell.layout-daweiba .web-review-people-grid span {
   overflow: hidden;
-  color: #24324a;
+  color: var(--db-text);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
+  line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .shell.layout-daweiba .web-review-empty {
   margin: 0;
-  padding: 18px;
-  border: 1px dashed #cbd5e1;
+  padding: 14px;
+  border: 1px dashed var(--db-border-strong);
   border-radius: 8px;
-  color: #64748b;
+  color: var(--db-text-muted);
+  font-size: 12px;
+  line-height: 1.45;
   text-align: center;
 }
 
@@ -9289,12 +10194,14 @@ tbody tr:hover .row-ai-cell {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  color: #64748b;
+  color: var(--db-text-muted);
   font-size: 12px;
+  line-height: 1.45;
 }
 
 .shell.layout-daweiba .web-review-audience-summary strong {
-  color: #1d4ed8;
+  color: var(--db-primary);
+  font-weight: 600;
 }
 
 .shell.layout-daweiba .web-review-safety-confirmation {
@@ -9302,9 +10209,9 @@ tbody tr:hover .row-ai-cell {
   grid-template-columns: none;
   align-items: flex-start;
   gap: 10px;
-  padding: 12px 14px;
+  padding: 10px 12px;
   border: 1px solid #f2d58b;
-  border-radius: 10px;
+  border-radius: 8px;
   background: #fffbeb;
   cursor: pointer;
 }
@@ -9320,14 +10227,16 @@ tbody tr:hover .row-ai-cell {
 .shell.layout-daweiba .web-review-safety-confirmation strong {
   color: #5f4512;
   font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
 }
 
 .shell.layout-daweiba .web-review-task-status {
   display: grid;
-  gap: 12px;
-  padding: 14px;
+  gap: 10px;
+  padding: 12px 14px;
   border: 1px solid #cfe1d4;
-  border-radius: 10px;
+  border-radius: 8px;
   background: #f6fbf7;
 }
 
@@ -9346,12 +10255,18 @@ tbody tr:hover .row-ai-cell {
 
 .shell.layout-daweiba .web-review-task-status header strong {
   color: #166534;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
 }
 
 .shell.layout-daweiba .web-review-task-status header small,
 .shell.layout-daweiba .web-review-task-status footer > span {
-  color: #64748b;
+  color: var(--db-text-muted);
   font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+  font-variant-numeric: tabular-nums;
 }
 
 .shell.layout-daweiba .web-review-task-status header b {
@@ -9371,25 +10286,30 @@ tbody tr:hover .row-ai-cell {
   padding: 8px 10px;
   border: 1px solid #dce9df;
   border-radius: 8px;
-  background: #ffffff;
-  color: #475569;
+  background: var(--db-surface);
+  color: var(--db-text);
   font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
 }
 
 .shell.layout-daweiba .web-review-task-status > div b {
-  color: #315b9d;
+  color: var(--db-primary);
+  font-weight: 600;
 }
 
 .shell.layout-daweiba .web-review-task-status > div em {
-  color: #64748b;
+  color: var(--db-text-muted);
   font-style: normal;
 }
 
 .shell.layout-daweiba .web-review-feedback {
-  min-height: 20px;
-  margin-block: -4px 0;
-  color: #315b9d;
+  min-height: 18px;
+  margin-block: 0;
+  color: var(--db-primary);
   font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
 }
 
 .shell.layout-daweiba .web-review-feedback.is-error {
@@ -9404,9 +10324,109 @@ tbody tr:hover .row-ai-cell {
   justify-content: flex-end;
   gap: 8px;
   margin: 0;
-  padding: 14px 22px 18px;
-  border-top: 1px solid #e5edf6;
-  background: #ffffff;
+  padding: 12px 20px;
+  border-top: 1px solid var(--db-border-soft);
+  background: var(--db-surface);
+}
+
+.shell.layout-daweiba .web-review-actions button {
+  min-height: 36px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.shell.layout-daweiba .web-review-round-confirm-backdrop {
+  z-index: 24;
+  background: rgb(15 23 42 / 42%);
+  backdrop-filter: blur(2px);
+}
+
+.shell.layout-daweiba .settings-modal.web-review-round-confirm-modal {
+  width: min(460px, 100%);
+  max-height: calc(100vh - 36px);
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 10px;
+  box-shadow: var(--db-shadow-dialog);
+}
+
+.shell.layout-daweiba .web-review-round-confirm-modal > header {
+  display: grid;
+  gap: 6px;
+  padding: 20px 20px 16px;
+  border-bottom: 1px solid var(--db-border-soft);
+}
+
+.shell.layout-daweiba .web-review-round-confirm-kicker {
+  color: var(--db-primary);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.shell.layout-daweiba .web-review-round-confirm-modal header strong {
+  color: var(--db-text-strong);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.shell.layout-daweiba .web-review-round-confirm-modal header p {
+  margin: 0;
+  color: var(--db-text-muted);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.6;
+}
+
+.shell.layout-daweiba .web-review-round-confirm-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  margin: 16px 20px;
+  padding: 12px;
+  border: 1px solid var(--db-border-soft);
+  border-radius: 8px;
+  background: var(--db-bg-alt);
+}
+
+.shell.layout-daweiba .web-review-round-confirm-summary > span {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.shell.layout-daweiba .web-review-round-confirm-summary small {
+  color: var(--db-text-muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.shell.layout-daweiba .web-review-round-confirm-summary b {
+  overflow: hidden;
+  color: var(--db-text);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell.layout-daweiba .web-review-round-confirm-modal > footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--db-border-soft);
+}
+
+.shell.layout-daweiba .web-review-round-confirm-modal > footer button {
+  min-height: 36px;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 @media (max-width: 760px) {
@@ -9450,6 +10470,15 @@ tbody tr:hover .row-ai-cell {
   .shell.layout-daweiba .web-review-actions {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .shell.layout-daweiba .web-review-round-confirm-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .shell.layout-daweiba .web-review-round-confirm-modal > footer {
+    align-items: stretch;
+    flex-direction: column-reverse;
   }
 }
 
@@ -13422,6 +14451,37 @@ tbody tr:hover .row-ai-cell {
   color: var(--db-primary);
 }
 
+.shell.layout-daweiba .ai-dock .chat-message.assistant .zhisuan-answer-heading {
+  gap: 6px;
+  margin-bottom: 8px;
+  padding-bottom: 7px;
+}
+
+.shell.layout-daweiba .ai-dock .chat-message.assistant .zhisuan-answer-heading > .knowledge-evidence-summary__icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+}
+
+.shell.layout-daweiba .ai-dock .chat-message.assistant .zhisuan-answer-heading > strong {
+  line-height: 1.35;
+}
+
+.shell.layout-daweiba .ai-dock .chat-message.assistant .zhisuan-message-heading {
+  gap: 6px;
+  margin: 10px 0 5px;
+}
+
+.shell.layout-daweiba .ai-dock .chat-message.assistant .zhisuan-message-heading > .zhisuan-section-heading__icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+}
+
+.shell.layout-daweiba .ai-dock .chat-message.assistant .zhisuan-message-heading > span:last-child {
+  line-height: 1.35;
+}
+
 .shell.layout-daweiba .quick-command-drawer {
   padding: 8px 18px;
   border-top: 1px solid var(--db-border-soft);
@@ -16400,4 +17460,691 @@ tbody tr:hover .row-ai-cell {
 
 .shell.layout-daweiba .daweiba-fill-system-card {
   min-height: 84px;
+}
+
+/* Dark-mode final cascade seal. Keep this at EOF. */
+.shell.layout-daweiba.theme-dark :is(
+  .daweiba-main-content,
+  .daweiba-workspace-frame,
+  .daweiba-workspace-frame .daweiba-module-surface,
+  .daweiba-workspace-frame .daweiba-module-empty,
+  .daweiba-workspace-frame .experience-section,
+  .daweiba-workspace-frame .experience-panel,
+  .daweiba-workspace-frame .experience-preview,
+  .daweiba-workspace-frame .workload-section,
+  .daweiba-workspace-frame .workload-file-card,
+  .daweiba-workspace-frame .mapping-panel,
+  .daweiba-workspace-frame .mapping-subpanel,
+  .daweiba-workspace-frame .preview-window,
+  .daweiba-workspace-frame .report-window,
+  .daweiba-workspace-frame .daweiba-report-module,
+  .daweiba-workspace-frame .daweiba-collaboration-module,
+  .daweiba-workspace-frame .daweiba-collaboration-settings,
+  .daweiba-workspace-frame .daweiba-collaboration-rules,
+  .daweiba-workspace-frame .daweiba-collaboration-history,
+  .daweiba-layout-shell > .ai-dock,
+  .daweiba-layout-shell > .ai-dock .ai-dock-panel,
+  .daweiba-layout-shell > .ai-dock .ai-dock-head,
+  .daweiba-layout-shell > .ai-dock .chat-window,
+  .daweiba-layout-shell > .ai-dock .chat-log
+) {
+  border-color: var(--db-border);
+  background: var(--db-surface);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark :is(
+  .daweiba-workspace-frame .preview-empty,
+  .daweiba-workspace-frame .warning-empty,
+  .daweiba-layout-shell > .ai-dock .chat-compose,
+  .daweiba-layout-shell > .ai-dock .chat-compose-footer
+) {
+  border-color: var(--db-border);
+  background: var(--db-surface-tint);
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-experience > .experience-section {
+  border-color: var(--db-border);
+  background: var(--db-surface);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark #experience-section {
+  --experience-border: var(--db-border);
+  --experience-border-soft: var(--db-border-soft);
+  --experience-surface-muted: var(--db-surface-tint);
+  --experience-text: var(--db-text-strong);
+  --experience-text-secondary: var(--db-text);
+  --experience-text-muted: var(--db-text-muted);
+  border-color: var(--experience-border);
+  background: var(--db-surface);
+  color: var(--experience-text);
+}
+
+.shell.layout-daweiba.theme-dark #experience-section :is(
+  .daweiba-warning-module,
+  .experience-panel-head,
+  .experience-settings-button,
+  .warning-progress-card,
+  .governance-report-panel,
+  .warning-panel,
+  .warning-item,
+  .warning-item.severity-high,
+  .warning-item.severity-low,
+  .governance-issue,
+  .daweiba-experience-import-module
+) {
+  border-color: var(--experience-border);
+  background: var(--db-surface);
+  color: var(--experience-text-secondary);
+}
+
+.shell.layout-daweiba.theme-dark #experience-section :is(
+  .warning-metric-cluster span,
+  .warning-values span,
+  .warning-item em,
+  .daweiba-experience-import-module
+) {
+  border-color: var(--experience-border-soft);
+  background: var(--experience-surface-muted);
+  color: var(--experience-text-secondary);
+}
+
+/* Dark-mode harmony pass.
+   This block must remain theme-scoped: the established light palette above is
+   the source of truth and must not be changed by dark-mode maintenance. */
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-fill {
+  --fill-ref-border: var(--db-border);
+  --fill-ref-border-soft: var(--db-border-soft);
+  --fill-ref-muted: var(--db-surface-tint);
+  --fill-ref-muted-strong: var(--db-bg-alt);
+  --fill-ref-foreground: var(--db-text-strong);
+  --fill-ref-secondary: var(--db-text);
+  --fill-ref-subtle: var(--db-text-muted);
+  --fill-ref-primary: var(--db-primary);
+  --fill-ref-primary-hover: #7db6fa;
+  --fill-ref-primary-soft: var(--db-primary-soft);
+  background: var(--db-bg);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-fill > .daweiba-fill-view-tabs {
+  border-color: var(--db-border);
+  background: var(--db-bg-alt);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-fill > .daweiba-fill-view-tabs button {
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-fill > .daweiba-fill-view-tabs button:hover {
+  background: var(--db-surface-tint);
+  color: var(--db-text-strong);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-fill > .daweiba-fill-view-tabs button.is-active {
+  border-color: var(--db-border-strong);
+  background: var(--db-surface);
+  color: var(--db-text-strong);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-fill :is(
+  .input-panel,
+  .brief-panel,
+  .daweiba-fill-insight-panel,
+  .daweiba-fill-status-large,
+  .daweiba-fill-quality-card,
+  .daweiba-fill-status-card,
+  .daweiba-fill-workflow-progress,
+  .daweiba-fill-system-grid,
+  .daweiba-fill-mini-grid,
+  .daweiba-fill-system-card,
+  .daweiba-fill-mini-grid > div,
+  .brief-panel .stats
+) {
+  border-color: var(--db-border);
+  background: var(--db-surface);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-fill :is(
+  .summary-hero,
+  .empty-summary,
+  .process-stages
+) {
+  border-color: var(--db-border);
+  background: var(--db-surface-tint);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-fill .drop-zone,
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-fill .drop-zone.has-file {
+  border-color: var(--db-border-strong);
+  background: #0e1726;
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-fill .drop-zone:hover,
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-fill .drop-zone.is-dragging {
+  border-color: var(--db-primary);
+  background: var(--db-primary-soft);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-fill :is(
+  .drop-icon,
+  .uploaded-file-icon,
+  .section-heading > span,
+  .daweiba-fill-system-card__icon
+) {
+  border-color: #244d82;
+  background: var(--db-primary-soft);
+  color: var(--db-primary);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-fill .uploaded-file-card {
+  border-color: var(--db-border);
+  background: transparent;
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-fill :is(
+  .drop-title,
+  .section-heading h2,
+  .uploaded-file-content strong,
+  .summary-hero strong,
+  .brief-panel .metric strong,
+  .brief-panel .metric.ok strong,
+  .brief-panel .metric.warn strong,
+  .daweiba-fill-quality-card > div:last-child > strong,
+  .daweiba-fill-system-card strong,
+  .daweiba-fill-mini-grid strong
+) {
+  color: var(--db-text-strong);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-fill :is(
+  .drop-subtitle,
+  .uploaded-file-meta li,
+  .uploaded-file-content > small,
+  .summary-hero p,
+  .empty-summary p,
+  .brief-panel .metric span,
+  .daweiba-fill-status-large > span,
+  .daweiba-fill-status-large small,
+  .daweiba-fill-status-card > span,
+  .daweiba-fill-status-card p,
+  .daweiba-fill-quality-card span,
+  .daweiba-fill-system-card span,
+  .daweiba-fill-system-card small,
+  .daweiba-fill-mini-grid span
+) {
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-fill #daweiba-input > .action-row > .ghost-button,
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-fill .brief-panel .download-button.secondary,
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-fill .project-name-disclosure__trigger {
+  border-color: var(--db-border);
+  background: var(--db-surface-tint);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-fill #daweiba-input > .action-row > .ghost-button:hover:not(:disabled),
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-fill .brief-panel .download-button.secondary:hover {
+  border-color: var(--db-primary);
+  background: var(--db-primary-soft);
+  color: var(--db-primary);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-fill .brief-panel .download-button.is-disabled,
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-fill #daweiba-input > .action-row > button:disabled {
+  border-color: var(--db-border-soft);
+  background: var(--db-bg-alt);
+  color: var(--db-text-weak);
+  opacity: 1;
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-fill .brief-panel .metric {
+  border-right-color: var(--db-border);
+  background: transparent;
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-workflow-progress__track,
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-fill .meter-track {
+  background: var(--db-border-strong);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-workflow-progress li {
+  color: var(--db-text-weak);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-workflow-progress li i {
+  border-color: var(--db-border-strong);
+  background: var(--db-surface);
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-workflow-progress li.is-current i {
+  border-color: var(--db-primary);
+  background: var(--db-primary-soft);
+  box-shadow: 0 0 0 2px rgb(96 165 250 / 14%);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-quality-card .widescreen-ring.is-empty {
+  background:
+    radial-gradient(circle at center, var(--db-surface) 0 52%, transparent 53%),
+    conic-gradient(var(--db-border-strong) 0 100%) !important;
+  box-shadow: inset 0 0 0 1px rgb(148 163 184 / 12%) !important;
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-preview .table-scroll .row-number-th,
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-preview .table-scroll .preview-row-number-cell {
+  border-color: var(--db-border);
+  background: var(--db-surface-tint);
+  color: var(--db-text-muted);
+  box-shadow: 8px 0 14px -14px rgb(2 6 23 / 80%);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-preview .table-scroll tbody tr:hover .preview-row-number-cell {
+  background: var(--db-primary-soft);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-preview .row-ai-button {
+  border-color: #244d82;
+  background: var(--db-primary-soft);
+  color: var(--db-primary);
+  box-shadow: none;
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-preview .row-ai-button:hover {
+  border-color: var(--db-primary);
+  background: #15335c;
+  color: #a7cdfb;
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-preview .preview-tabs button {
+  border-color: var(--db-border);
+  background: var(--db-surface-tint);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-preview .preview-tabs button:is(:hover, .is-active) {
+  border-color: var(--db-primary);
+  background: var(--db-primary-soft);
+  color: var(--db-primary);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-workload > .workload-section,
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-workload > .workload-section > .experience-panel {
+  border-color: var(--db-border);
+  background: var(--db-surface);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-workload :is(
+  .workload-workflow,
+  .workload-file-card,
+  .workload-control-stack,
+  .workload-target-summary,
+  .workload-field-row,
+  .mapping-panel,
+  .mapping-subpanel,
+  .experience-result
+) {
+  border-color: var(--db-border);
+  background: var(--db-surface-tint);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-workload .workload-file-card {
+  border-color: var(--db-border-strong);
+  background: #0e1726;
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-workload .workload-workflow > div + div::before {
+  background: var(--db-border);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-workload .workload-workflow > div > span {
+  border-color: var(--db-border-strong);
+  background: var(--db-surface);
+  color: inherit;
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-workload .workload-workflow > div.is-current > span {
+  border-color: var(--db-primary);
+  background: var(--db-primary-soft);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-workload :is(
+  .workload-target-summary > strong,
+  .workload-field-row strong,
+  .mapping-panel strong,
+  .mapping-subpanel strong
+) {
+  color: var(--db-text-strong);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-workload :is(
+  .workload-target-summary > small,
+  .workload-field-row,
+  .mapping-panel,
+  .mapping-subpanel
+) {
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-workload .primary-button:disabled {
+  border-color: var(--db-border);
+  background: #29466f;
+  color: var(--db-text-weak);
+  opacity: 1;
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-question-suggestions {
+  border-color: var(--db-border);
+  background: var(--db-surface);
+  color: var(--db-text);
+  box-shadow: 0 18px 48px rgb(2 6 23 / 42%);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-question-suggestions > header {
+  border-color: var(--db-border);
+  background: var(--db-surface-tint);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-question-suggestions > header > span {
+  border-color: #244d82;
+  background: var(--db-primary-soft);
+  color: var(--db-primary);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-question-suggestions > header strong,
+.shell.layout-daweiba.theme-dark .knowledge-question-suggestions__list button > strong {
+  color: var(--db-text-strong);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-question-suggestions > header small,
+.shell.layout-daweiba.theme-dark .knowledge-question-suggestions__list button > svg {
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-question-suggestions__close {
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-question-suggestions__close:hover,
+.shell.layout-daweiba.theme-dark .knowledge-question-suggestions__close:focus-visible {
+  background: var(--db-bg-alt);
+  color: var(--db-text-strong);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-question-suggestions__list button {
+  border-color: var(--db-border);
+  background: var(--db-surface);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-question-suggestions__list button > span {
+  background: var(--db-bg-alt);
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-question-suggestions__list button:hover,
+.shell.layout-daweiba.theme-dark .knowledge-question-suggestions__list button:focus-visible {
+  background: var(--db-primary-soft);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-question-suggestions__list button:hover > span,
+.shell.layout-daweiba.theme-dark .knowledge-question-suggestions__list button:focus-visible > span {
+  background: #244d82;
+  color: #dbeafe;
+}
+
+.shell.layout-daweiba.theme-dark .agent-workspace .zhisuan-file-attachment {
+  border-color: var(--db-border);
+  background: var(--db-surface-tint);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .agent-workspace .zhisuan-file-attachment__content strong {
+  color: var(--db-text-strong);
+}
+
+.shell.layout-daweiba.theme-dark .agent-workspace .zhisuan-file-attachment__content small {
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark .agent-workspace :is(
+  .agent-composer,
+  .agent-composer__action-panel,
+  .agent-composer__skill-panel,
+  .agent-workspace__action-strip button,
+  .agent-workspace__artifacts a,
+  .agent-composer__stop
+) {
+  border-color: var(--db-border);
+  background: var(--db-surface);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .agent-workspace .agent-composer textarea {
+  color: var(--db-text-strong);
+}
+
+.shell.layout-daweiba.theme-dark .agent-workspace .agent-composer__skill-menu > summary > strong,
+.shell.layout-daweiba.theme-dark .agent-workspace .agent-composer__skill-option strong {
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .agent-workspace .agent-composer__skill-menu > summary > em {
+  background: var(--db-bg-alt);
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark .agent-workspace .agent-composer__skill-option {
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .agent-workspace .agent-composer__skill-option:is(:hover, .is-selected) {
+  background: var(--db-primary-soft);
+}
+
+.shell.layout-daweiba.theme-dark .agent-workspace .agent-composer__drop-overlay {
+  background: rgb(20 29 43 / 96%);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration > .daweiba-collaboration-module,
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration .daweiba-collaboration-settings {
+  border-color: var(--db-border);
+  background: var(--db-surface);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration .daweiba-collaboration-tabs {
+  border-color: var(--db-border);
+  background: var(--db-surface-tint);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration .daweiba-collaboration-tabs button:hover {
+  background: var(--db-bg-alt);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration .daweiba-collaboration-tabs button.is-active {
+  border-color: #244d82;
+  background: var(--db-primary-soft);
+  color: var(--db-primary);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration :is(
+  .daweiba-collaboration-settings.is-external-dispatch,
+  .daweiba-collaboration-settings.is-second-layer,
+  .daweiba-collaboration-settings.is-webhook-layer
+) > .daweiba-collaboration-section-title {
+  border-bottom-color: var(--db-border);
+  background: linear-gradient(100deg, #102542 0%, #141d2b 58%, #111827 100%);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration :is(
+  .daweiba-collaboration-settings.is-external-dispatch,
+  .daweiba-collaboration-settings.is-second-layer,
+  .daweiba-collaboration-settings.is-webhook-layer
+) > .daweiba-collaboration-section-title h3 {
+  color: #93c5fd;
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration :is(
+  .daweiba-app-bot-profile,
+  .daweiba-app-bot-profile.is-running,
+  .daweiba-feishu-app-metrics span,
+  .daweiba-external-dispatch-file-control,
+  .daweiba-external-dispatch-reviewers,
+  .daweiba-external-delivery-strategy,
+  .daweiba-external-delivery-grid,
+  .daweiba-external-delivery-grid > div,
+  .daweiba-external-dispatch-table,
+  .daweiba-collaboration-history-table
+) {
+  border-color: var(--db-border);
+  background: var(--db-surface-tint);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration .daweiba-app-bot-profile.is-running {
+  border-left-color: var(--db-primary);
+  background: var(--db-primary-soft);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration :is(
+  .daweiba-external-dispatch-form input,
+  .daweiba-external-dispatch-form select,
+  .daweiba-external-dispatch-form textarea,
+  .daweiba-collaboration-form-grid input,
+  .daweiba-collaboration-bot-picker select,
+  .daweiba-external-delivery-strategy-head select
+) {
+  border-color: var(--db-border);
+  background: #0e1726;
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration .daweiba-external-dispatch-form input[readonly] {
+  background: var(--db-bg-alt);
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration .daweiba-external-dispatch-reviewers legend,
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration .daweiba-external-delivery-strategy > legend,
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration .daweiba-external-delivery-strategy-head strong {
+  color: var(--db-text-strong);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration .daweiba-external-dispatch-reviewers > div label,
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration .daweiba-external-dispatch-file-control label,
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration .daweiba-external-delivery-channels label {
+  border-color: var(--db-border-strong);
+  background: var(--db-surface);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration .daweiba-external-dispatch-file-control label:hover {
+  border-color: var(--db-primary);
+  background: var(--db-primary-soft);
+  color: var(--db-primary);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration .daweiba-external-dispatch-file-control strong,
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration .daweiba-external-delivery-summary {
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration .daweiba-external-delivery-grid > div {
+  border-bottom-color: var(--db-border);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration .daweiba-external-delivery-grid > div.is-header,
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration .daweiba-external-dispatch-table > .is-header,
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration .daweiba-collaboration-history-table > .is-header {
+  background: #17345c;
+  color: #bfdbfe;
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration .daweiba-external-delivery-grid > div:not(.is-header) > span:first-child strong {
+  color: var(--db-text-strong);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration .daweiba-external-delivery-channels label:has(input:checked) {
+  border-color: var(--db-primary);
+  background: var(--db-primary-soft);
+  color: var(--db-primary);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration .daweiba-collaboration-badge {
+  border-color: var(--db-border-strong);
+  background: var(--db-bg-alt);
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration .daweiba-collaboration-badge.is-success {
+  border-color: #1d5b3a;
+  background: #10291d;
+  color: #86efac;
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration .daweiba-collaboration-badge.is-warning {
+  border-color: #6b4f13;
+  background: #33260b;
+  color: #fcd34d;
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration .daweiba-collaboration-badge.is-error {
+  border-color: #6f2b35;
+  background: #35191e;
+  color: #fca5a5;
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration .daweiba-collaboration-badge.is-info {
+  border-color: #244d82;
+  background: var(--db-primary-soft);
+  color: #93c5fd;
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration .daweiba-external-dispatch-table b.is-success {
+  color: #86efac;
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration .daweiba-external-dispatch-table b.is-error {
+  color: #fca5a5;
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration .daweiba-external-dispatch-table .daweiba-external-dispatch-person b {
+  background: var(--db-primary-soft);
+  color: #93c5fd;
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration .daweiba-external-dispatch-table .daweiba-external-dispatch-person em {
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration .daweiba-collaboration-boundary {
+  border-color: #6b4f13;
+  background: #33260b;
+  color: #fcd34d;
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-layout-shell > .ai-dock .ai-collapse-button,
+.shell.layout-daweiba.theme-dark .daweiba-layout-shell > .ai-dock .zhisuan-module-links button {
+  border-color: var(--db-border);
+  background: var(--db-surface-tint);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-layout-shell > .ai-dock .ai-collapse-button:hover,
+.shell.layout-daweiba.theme-dark .daweiba-layout-shell > .ai-dock .zhisuan-module-links button:hover {
+  border-color: var(--db-primary);
+  background: var(--db-primary-soft);
+  color: var(--db-primary);
 }

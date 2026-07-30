@@ -15,7 +15,9 @@ from app.knowledge_libraries import (
 from app.knowledge_qa import (
     KnowledgeSearchResult,
     _build_snippet,
+    _normalize_text,
     build_knowledge_answer_prompt,
+    ensure_knowledge_answer,
     search_knowledge,
 )
 
@@ -106,6 +108,75 @@ def test_dictionary_lookup_prompt_requests_one_concise_markdown_table():
     user_prompt = messages[1]["content"]
     assert "只输出一个简洁的 Markdown 表格" in user_prompt
     assert "不要在表格外重复输出" in user_prompt
+
+
+def test_roman_numeral_class_is_normalized_for_exact_retrieval():
+    assert _normalize_text("级别-Ⅱ类") == _normalize_text("级别-II 类")
+
+
+def test_price_search_ranks_exact_roman_class_before_neighboring_classes(tmp_path):
+    project_root = tmp_path / "project"
+    source = project_root / "03-知识库-二维数据库制作" / "【数据库】【导入】.xlsx"
+    source.parent.mkdir(parents=True)
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "【母表】"
+    sheet.append(["要素1", "要素2", "要素4", "要素5", "单位", "基价"])
+    sheet.append(["走向图编制", "地图编制", "级别-Ⅰ类", "比例-1:50000", "幅", 3645.35])
+    sheet.append(["走向图编制", "地图编制", "级别-Ⅱ类", "比例-1:50000", "幅", 4983.36])
+    sheet.append(["走向图编制", "地图编制", "级别-Ⅲ类", "比例-1:50000", "幅", 7533.19])
+    workbook.save(source)
+
+    results = search_knowledge(
+        "走向图编制 地图编制 II 类 1:50000 价格如何确定？",
+        project_root=project_root,
+        index_path=tmp_path / "index.json",
+        sources=[source],
+    )
+
+    assert results
+    assert "级别-Ⅱ类" in results[0].snippet
+    assert "基价：4983.36" in results[0].snippet
+
+
+def test_empty_model_answer_falls_back_to_exact_structured_price_candidate():
+    results = [
+        KnowledgeSearchResult(
+            id="row-132",
+            source_file="03-知识库-二维数据库制作/【数据库】【导入】.xlsx",
+            source_type="rule_card",
+            title_path="【母表】 / 第132行规则卡片",
+            snippet=(
+                "要素1：走向图编制\n要素2：地图编制\n要素4：级别-Ⅰ类\n"
+                "要素5：比例-1:50000\n单位：幅\n基价：3645.35"
+            ),
+            score=106.04,
+            module="基价匹配",
+        ),
+        KnowledgeSearchResult(
+            id="row-133",
+            source_file="03-知识库-二维数据库制作/【数据库】【导入】.xlsx",
+            source_type="rule_card",
+            title_path="【母表】 / 第133行规则卡片",
+            snippet=(
+                "要素1：走向图编制\n要素2：地图编制\n要素4：级别-Ⅱ类\n"
+                "要素5：比例-1:50000\n单位：幅\n基价：4983.36"
+            ),
+            score=100.24,
+            module="基价匹配",
+        ),
+    ]
+
+    answer = ensure_knowledge_answer(
+        "**智算解释：**\n\n**正式依据：**\n\n**提示：** 本回答只解释依据，不改变程序填价结果。",
+        "走向图编制 地图编制 II 类 1:50000 价格如何确定？",
+        results,
+    )
+
+    assert "4983.36" in answer
+    assert "第133行规则卡片" in answer
+    assert "3645.35" not in answer
+    assert "最终是否采用" in answer
 
 
 def test_library_selection_isolates_static_sources_and_memory(tmp_path):

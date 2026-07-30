@@ -14,7 +14,7 @@ import {
   UploadCloud,
   X,
 } from "lucide-react";
-import { ChangeEvent, DragEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, DragEvent, KeyboardEvent, useEffect, useMemo, useState } from "react";
 import "./settlement-audit.css";
 
 
@@ -80,6 +80,7 @@ type SettlementAuditResult = {
 };
 
 type RiskFilter = "all" | "high" | "adjusted" | "manual";
+type SettlementView = "workbench" | "findings";
 
 type Props = {
   apiBase: string;
@@ -127,6 +128,7 @@ export default function SettlementAuditWorkbench({ apiBase }: Props) {
   const [result, setResult] = useState<SettlementAuditResult | null>(null);
   const [filter, setFilter] = useState<RiskFilter>("all");
   const [selectedRiskId, setSelectedRiskId] = useState("");
+  const [activeView, setActiveView] = useState<SettlementView>("workbench");
 
   useEffect(() => {
     let cancelled = false;
@@ -237,6 +239,7 @@ export default function SettlementAuditWorkbench({ apiBase }: Props) {
       setResult(nextResult);
       setFilter("all");
       setSelectedRiskId(nextResult.risks[0]?.id ?? "");
+      setActiveView("findings");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "辅助审核失败，请检查文件后重试。");
     } finally {
@@ -250,41 +253,82 @@ export default function SettlementAuditWorkbench({ apiBase }: Props) {
     setProjectName("");
     setFilter("all");
     setSelectedRiskId("");
+    setActiveView("workbench");
     setError("");
+  }
+
+  function handleViewTabKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const nextView: SettlementView = activeView === "workbench" ? "findings" : "workbench";
+    setActiveView(nextView);
+    requestAnimationFrame(() => {
+      document.getElementById(`settlement-audit-tab-${nextView}`)?.focus();
+    });
   }
 
   return (
     <section className="settlement-audit dabawei-shadcn-ui" aria-label="结算审核助手">
-      <header className="settlement-audit__masthead">
-        <div>
-          <div className="settlement-audit__eyebrow">
-            <ShieldCheck size={15} />
-            新专业场景 · 结算辅助审核
-          </div>
-          <h1>结算审核助手</h1>
-          <p>把前辈经验、统一报价模板和确定性规则组织成可演示、可追溯的勘察测量结算审核闭环。</p>
-        </div>
-        <div className="settlement-audit__trust">
-          <span><CheckCircle2 size={14} />规则驱动</span>
-          <span><Scale size={14} />人工定案</span>
-          <small>规则版本 {profile?.rule_version ?? "1.0.0"}</small>
-        </div>
-      </header>
+      <nav className="settlement-audit__view-tabs" role="tablist" aria-label="结算审核视图">
+        <button
+          id="settlement-audit-tab-workbench"
+          className={activeView === "workbench" ? "is-active" : ""}
+          type="button"
+          role="tab"
+          aria-controls="settlement-audit-panel-workbench"
+          aria-selected={activeView === "workbench"}
+          tabIndex={activeView === "workbench" ? 0 : -1}
+          onClick={() => setActiveView("workbench")}
+          onKeyDown={handleViewTabKeyDown}
+        >
+          审核工作台
+        </button>
+        <button
+          id="settlement-audit-tab-findings"
+          className={activeView === "findings" ? "is-active" : ""}
+          type="button"
+          role="tab"
+          aria-controls="settlement-audit-panel-findings"
+          aria-selected={activeView === "findings"}
+          tabIndex={activeView === "findings" ? 0 : -1}
+          onClick={() => setActiveView("findings")}
+          onKeyDown={handleViewTabKeyDown}
+        >
+          审核发现
+          {result ? <span>{result.summary.risk_count}</span> : null}
+        </button>
+      </nav>
 
-      <ol className="settlement-audit__steps" aria-label="审核流程">
-        {[
-          ["01", "上传结算表", "统一模板"],
-          ["02", "结构化审核", "参数与算术"],
-          ["03", "风险复核", "规则与证据"],
-          ["04", "成果交付", "Excel + Word"],
-        ].map(([index, title, detail], stepIndex) => (
-          <li key={index} className={result ? "is-complete" : stepIndex === 0 ? "is-current" : ""}>
-            <span>{result ? <Check size={14} /> : index}</span>
-            <div><strong>{title}</strong><small>{detail}</small></div>
-            {stepIndex < 3 ? <ArrowRight size={15} aria-hidden="true" /> : null}
-          </li>
-        ))}
-      </ol>
+      {activeView === "workbench" ? (
+        <header className="settlement-audit__masthead">
+          <div>
+            <h1>结算审核助手</h1>
+            <p>把前辈经验、统一报价模板和确定性规则组织成可演示、可追溯的勘察测量结算审核闭环。</p>
+          </div>
+          <div className="settlement-audit__trust">
+            <span><CheckCircle2 size={14} />规则驱动</span>
+            <span><Scale size={14} />人工定案</span>
+            <small>规则版本 {profile?.rule_version ?? "1.0.0"}</small>
+          </div>
+        </header>
+      ) : null}
+
+      {activeView === "workbench" ? (
+        <ol className="settlement-audit__steps" aria-label="审核流程">
+          {[
+            ["01", "上传结算表", "统一模板"],
+            ["02", "结构化审核", "参数与算术"],
+            ["03", "风险复核", "规则与证据"],
+            ["04", "成果交付", "Excel + Word"],
+          ].map(([index, title, detail], stepIndex) => (
+            <li key={index} className={result ? "is-complete" : stepIndex === 0 ? "is-current" : ""}>
+              <span>{result ? <Check size={14} /> : index}</span>
+              <div><strong>{title}</strong><small>{detail}</small></div>
+              {stepIndex < 3 ? <ArrowRight size={15} aria-hidden="true" /> : null}
+            </li>
+          ))}
+        </ol>
+      ) : null}
 
       {error ? (
         <div className="settlement-audit__error" role="alert">
@@ -295,7 +339,13 @@ export default function SettlementAuditWorkbench({ apiBase }: Props) {
       ) : null}
 
       {!result ? (
-        <section className="settlement-audit__start">
+        activeView === "workbench" ? (
+        <section
+          id="settlement-audit-panel-workbench"
+          className="settlement-audit__start"
+          role="tabpanel"
+          aria-labelledby="settlement-audit-tab-workbench"
+        >
           <div className="settlement-audit__upload-column">
             <div className="settlement-audit__section-heading">
               <div>
@@ -308,7 +358,9 @@ export default function SettlementAuditWorkbench({ apiBase }: Props) {
                 disabled={isLoadingSample || isReviewing || profile?.sample_available === false}
                 onClick={() => void loadSample()}
               >
-                {isLoadingSample ? <Loader2 className="spin" size={15} /> : <FileSpreadsheet size={15} />}
+                {isLoadingSample
+                  ? <Loader2 className="spin" size={16} data-icon="inline-start" />
+                  : <FileSpreadsheet size={16} data-icon="inline-start" />}
                 使用演示样例
               </button>
             </div>
@@ -356,7 +408,9 @@ export default function SettlementAuditWorkbench({ apiBase }: Props) {
                 disabled={!file || isReviewing}
                 onClick={() => void startReview()}
               >
-                {isReviewing ? <Loader2 className="spin" size={17} /> : <ShieldCheck size={17} />}
+                {isReviewing
+                  ? <Loader2 className="spin" size={17} data-icon="inline-start" />
+                  : <ShieldCheck size={17} data-icon="inline-start" />}
                 {isReviewing ? "正在生成审核成果…" : "开始辅助审核"}
               </button>
               <a href={`${apiBase}/api/settlement-audit/sample`} download>
@@ -403,8 +457,31 @@ export default function SettlementAuditWorkbench({ apiBase }: Props) {
             </footer>
           </aside>
         </section>
+        ) : (
+          <section
+            id="settlement-audit-panel-findings"
+            className="settlement-audit__findings-empty"
+            role="tabpanel"
+            aria-labelledby="settlement-audit-tab-findings"
+          >
+            <span><FileCheck2 size={22} /></span>
+            <div>
+              <strong>暂无审核发现</strong>
+              <p>请先在“审核工作台”上传统一结算报价表并完成辅助审核，具体问题、规则依据和处置建议将在这里逐项展示。</p>
+            </div>
+            <button type="button" onClick={() => setActiveView("workbench")}>
+              <ShieldCheck size={16} data-icon="inline-start" />
+              返回审核工作台
+            </button>
+          </section>
+        )
       ) : (
-        <section className="settlement-audit__result">
+        <section
+          id={`settlement-audit-panel-${activeView}`}
+          className={`settlement-audit__result is-${activeView}-view`}
+          role="tabpanel"
+          aria-labelledby={`settlement-audit-tab-${activeView}`}
+        >
           <div className="settlement-audit__result-bar">
             <div>
               <span className="settlement-audit__success-mark"><Check size={18} /></span>
@@ -414,9 +491,18 @@ export default function SettlementAuditWorkbench({ apiBase }: Props) {
               </div>
             </div>
             <div className="settlement-audit__result-actions">
-              <button type="button" onClick={resetReview}><RefreshCw size={15} />新建审核</button>
-              <a href={downloadHref(apiBase, result.downloads.excel)}><FileSpreadsheet size={16} />审核后 Excel</a>
-              <a className="is-primary" href={downloadHref(apiBase, result.downloads.report)}><FileText size={16} />审核报告</a>
+              <button type="button" onClick={resetReview}>
+                <RefreshCw size={15} data-icon="inline-start" />
+                新建审核
+              </button>
+              <a href={downloadHref(apiBase, result.downloads.excel)}>
+                <FileSpreadsheet size={16} data-icon="inline-start" />
+                审核后 Excel
+              </a>
+              <a className="is-primary" href={downloadHref(apiBase, result.downloads.report)}>
+                <FileText size={16} data-icon="inline-start" />
+                审核报告
+              </a>
             </div>
           </div>
 

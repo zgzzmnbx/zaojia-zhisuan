@@ -36,6 +36,7 @@ from .knowledge_qa import (
     ASSISTANT_TABLE_FORMAT_RULE,
     NO_EVIDENCE_ANSWER,
     build_knowledge_answer_prompt,
+    ensure_knowledge_answer,
     is_knowledge_question,
     search_knowledge,
     strip_force_knowledge_prefix,
@@ -773,6 +774,15 @@ def create_web_result_review(payload: dict[str, object] = Body(...)) -> dict[str
     job_id = str(payload.get("job_id") or "").strip()
     if not re.fullmatch(r"[0-9a-fA-F]{32}", job_id):
         raise HTTPException(status_code=400, detail="网页填价任务编号格式无效")
+    start_new_round = payload.get("start_new_round", False)
+    if not isinstance(start_new_round, bool):
+        raise HTTPException(status_code=400, detail="新一轮复核参数格式无效")
+    existing_task_id = str(payload.get("existing_task_id") or "").strip()
+    previous_review_round = payload.get("previous_review_round", 0)
+    if isinstance(previous_review_round, bool) or not isinstance(previous_review_round, int):
+        raise HTTPException(status_code=400, detail="上一轮复核轮次格式无效")
+    if start_new_round and (not existing_task_id or previous_review_round < 1):
+        raise HTTPException(status_code=400, detail="请先刷新并确认上一轮复核任务")
     job_dir = RUNTIME_DIR / job_id
     if not job_dir.is_dir():
         raise HTTPException(status_code=404, detail="未找到网页填价任务")
@@ -829,8 +839,15 @@ def create_web_result_review(payload: dict[str, object] = Body(...)) -> dict[str
             instructions=str(payload.get("instructions") or "").strip(),
             delivery_mode=str(payload.get("delivery_mode") or "").strip(),
             target_group_ref=str(payload.get("target_group_ref") or "").strip(),
+            start_new_round=start_new_round,
+            existing_task_id=existing_task_id,
+            previous_review_round=previous_review_round,
         )
-        return {"created": created, "task": task}
+        return {
+            "created": created,
+            "started_new_round": bool(start_new_round and created),
+            "task": task,
+        }
     except external_task_dispatch.DispatchValidationError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     except (httpx.HTTPError, RuntimeError, ValueError) as exc:
@@ -2248,9 +2265,10 @@ async def knowledge_ask(payload: dict[str, Any] = Body(...)) -> dict[str, object
         )
     except (ValueError, RuntimeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    answer = ensure_knowledge_answer(answer, question, results)
 
     return {
-        "answer": answer or NO_EVIDENCE_ANSWER,
+        "answer": answer,
         "sources": [_knowledge_source_payload(result, selection) for result in results],
         "project_memories": project_memories,
         "project_key": project_key or None,

@@ -152,7 +152,14 @@ def test_reviewed_workbook_preserves_inputs_and_writes_audit_columns(tmp_path):
     assert survey["AC200"].value == pytest.approx(1.2)
     assert other["X4"].value == pytest.approx(1300)
     assert "文件编号缺失" in other["Y5"].value
-    assert workbook["审核结果"]["A1"].value == "勘察测量结算辅助审核结果"
+    result_sheet = workbook["审核结果"]
+    assert result_sheet["A1"].value == "勘察测量结算辅助审核结果"
+    for cell in result_sheet[9]:
+        assert cell.font.name == "等线"
+        assert cell.font.sz == 9
+    assert result_sheet["D9"].hyperlink is not None
+    assert result_sheet["D9"].font.color.rgb == "002563EB"
+    assert result_sheet["D9"].font.underline == "single"
     workbook.close()
 
 

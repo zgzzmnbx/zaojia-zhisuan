@@ -15,6 +15,7 @@ import {
   Loader2,
   MessageSquareText,
   MonitorUp,
+  Moon,
   PanelTop,
   PanelLeftClose,
   PanelLeftOpen,
@@ -23,6 +24,7 @@ import {
   Send,
   ShieldCheck,
   Sparkles,
+  Sun,
   Upload,
   X,
 } from "lucide-react";
@@ -158,12 +160,22 @@ const OUTPUT_ROW_FILTER_STORAGE_KEY = "guankanzhisuan-output-row-filter-settings
 const WELCOME_SCREEN_HIDDEN_STORAGE_KEY = "guankanzhisuan-welcome-screen-hidden";
 const WELCOME_SCREEN_VERSION_STORAGE_KEY = "guankanzhisuan-welcome-screen-version";
 const WELCOME_SCREEN_VERSION = "brand-v5.15.1-skill-entry";
-const ZHISUAN_QUICK_SETTINGS_VERSION = 2;
+const ZHISUAN_QUICK_SETTINGS_VERSION = 3;
 const LEFT_COLUMN_COLLAPSED_STORAGE_KEY = "guankanzhisuan-left-column-collapsed";
+const COLOR_MODE_STORAGE_KEY = "zaojiazhisuan-color-mode";
+type ColorMode = "light" | "dark";
 type MappingField = (typeof MAPPING_FIELDS)[number];
 type ColumnMapping = Record<MappingField, string>;
 type DaweibaModuleId = "agent" | "fill" | "preview" | "experience" | "workload" | "settlement" | "report" | "knowledge" | "collaboration" | "digital-project-assistant";
 type FillWorkspaceView = "dashboard" | "new";
+
+function readInitialColorMode(): ColorMode {
+  try {
+    return window.localStorage.getItem(COLOR_MODE_STORAGE_KEY) === "dark" ? "dark" : "light";
+  } catch {
+    return "light";
+  }
+}
 
 const UI_TUNER_TARGETS = [
   { id: "hero", name: "主标题区域" },
@@ -476,6 +488,11 @@ type ExternalDispatchTask = {
   completed_at?: string;
   can_retry: boolean;
 };
+
+function canStartNextWebReviewRound(task: ExternalDispatchTask | null) {
+  return Boolean(task && (task.status === "completed" || task.status === "returned"));
+}
+
 type FeishuBotConsoleEvent = {
   timestamp: string;
   level: "info" | "success" | "warning" | "error";
@@ -612,7 +629,13 @@ type ChatInlineAction = {
   fileName: string;
 };
 
-type ZhisuanCommand = "batch-match" | "experience-warning" | "risk-report" | "download-excel" | "download-word";
+type ZhisuanCommand =
+  | "batch-match"
+  | "experience-warning"
+  | "risk-report"
+  | "download-excel"
+  | "download-word"
+  | "send-review";
 type ZhisuanQuickKind = "command" | "suggestion";
 type ZhisuanQuickItem = {
   id: string;
@@ -659,6 +682,7 @@ const ZHISUAN_BUILTIN_QUICK_ITEMS: ZhisuanQuickItem[] = [
   { id: "risk-report", label: "输出风险报告", prompt: "输出风险报告", kind: "command", command: "risk-report" },
   { id: "download-excel", label: "输出excel表格", prompt: "输出excel表格", kind: "command", command: "download-excel" },
   { id: "download-word", label: "输出word报告", prompt: "输出word报告", kind: "command", command: "download-word" },
+  { id: "send-review", label: "发送同事复核", prompt: "发送同事复核", kind: "command", command: "send-review" },
 ];
 
 const FILL_WORKFLOW_STEPS = [
@@ -1049,6 +1073,77 @@ const EMPTY_WARNING_PROGRESS: WarningProgress = {
   matched_rows: 0,
   warning_rows: 0,
 };
+const TASK_PROGRESS_TICK_MS = 160;
+const TASK_PROGRESS_SETTLE_MS = 420;
+
+function nextContinuousTaskProgress(current: number) {
+  if (current < 18) return Math.min(18, current + 3.6);
+  if (current < 48) return Math.min(48, current + 2.4);
+  if (current < 72) return Math.min(72, current + 1.5);
+  if (current < 86) return Math.min(86, current + 0.8);
+  if (current < 92) return Math.min(92, current + 0.3);
+  return current;
+}
+
+function waitForTaskProgressSettle() {
+  return new Promise<void>((resolve) => {
+    window.setTimeout(resolve, TASK_PROGRESS_SETTLE_MS);
+  });
+}
+
+function useContinuousTaskProgress(active: boolean, actualProgress = 0) {
+  const [progress, setProgress] = useState(0);
+
+  useEffect(() => {
+    if (!active) {
+      setProgress(0);
+      return undefined;
+    }
+    setProgress(0);
+    const kickoffFrame = window.requestAnimationFrame(() => setProgress(3));
+    const timer = window.setInterval(() => {
+      setProgress((current) => nextContinuousTaskProgress(current));
+    }, TASK_PROGRESS_TICK_MS);
+    return () => {
+      window.cancelAnimationFrame(kickoffFrame);
+      window.clearInterval(timer);
+    };
+  }, [active]);
+
+  useEffect(() => {
+    if (!active || !Number.isFinite(actualProgress)) return;
+    const boundedActual = Math.min(92, Math.max(0, actualProgress));
+    setProgress((current) => Math.max(current, boundedActual));
+  }, [active, actualProgress]);
+
+  return {
+    progress,
+    complete: async () => {
+      setProgress(100);
+      await waitForTaskProgressSettle();
+    },
+  };
+}
+
+function taskProgressLabel(
+  kind: "inspect" | "batch" | "warning",
+  progress: number,
+) {
+  if (kind === "inspect") {
+    if (progress < 30) return "正在读取工作簿结构";
+    if (progress < 66) return "正在识别 Sheet、表头和字段";
+    return "正在校验列映射结果";
+  }
+  if (kind === "batch") {
+    if (progress < 28) return "正在载入结构化计价库";
+    if (progress < 68) return "正在匹配基价和两类调整系数";
+    return "正在复核经验提示并生成结果";
+  }
+  if (progress < 28) return "正在读取预警候选记录";
+  if (progress < 68) return "正在查找同类记录并计算偏离率";
+  return "正在汇总高低风险预警";
+}
+
 const DEFAULT_EXPERIENCE_WARNING_SETTINGS: ExperienceWarningSettings = {
   low_risk_warning_ratio: 5,
   high_risk_warning_ratio: 20,
@@ -1610,10 +1705,13 @@ function normalizeZhisuanQuickSettings(raw?: Partial<ZhisuanQuickSettings>): Zhi
   const enabledIds = Array.isArray(raw?.enabledIds)
     ? raw.enabledIds.map(String).filter((id) => builtinIds.has(id))
     : DEFAULT_ZHISUAN_QUICK_SETTINGS.enabledIds;
-  const migratedEnabledIds =
-    normalizedVersion < ZHISUAN_QUICK_SETTINGS_VERSION && !enabledIds.includes("batch-match")
-      ? ["batch-match", ...enabledIds]
-      : enabledIds;
+  const migratedEnabledIds = [...enabledIds];
+  if (normalizedVersion < 2 && !migratedEnabledIds.includes("batch-match")) {
+    migratedEnabledIds.unshift("batch-match");
+  }
+  if (normalizedVersion < 3 && !migratedEnabledIds.includes("send-review")) {
+    migratedEnabledIds.push("send-review");
+  }
   const customPrompts = Array.isArray(raw?.customPrompts)
     ? Array.from(
       new Set(
@@ -1877,6 +1975,7 @@ export function App() {
 }
 
 function DaweibaApp() {
+  const [colorMode, setColorMode] = useState<ColorMode>(readInitialColorMode);
   const [file, setFile] = useState<File | null>(null);
   const [fillWorkspaceView, setFillWorkspaceView] = useState<FillWorkspaceView>("dashboard");
   const [projectName, setProjectName] = useState("");
@@ -1992,6 +2091,7 @@ function DaweibaApp() {
   const [webReviewTask, setWebReviewTask] = useState<ExternalDispatchTask | null>(null);
   const [isLoadingWebReview, setIsLoadingWebReview] = useState(false);
   const [isSendingWebReview, setIsSendingWebReview] = useState(false);
+  const [isWebReviewRoundConfirmationOpen, setIsWebReviewRoundConfirmationOpen] = useState(false);
   const [feishuBotConsoleEvents, setFeishuBotConsoleEvents] = useState<FeishuBotConsoleEvent[]>([]);
   const [activeCollaborationTab, setActiveCollaborationTab] = useState<"tasks" | "dispatch" | "connections" | "notifications">("tasks");
   const [isFeishuBotConsoleOpen, setIsFeishuBotConsoleOpen] = useState(false);
@@ -2120,6 +2220,21 @@ function DaweibaApp() {
   const [workloadCaptureResult, setWorkloadCaptureResult] = useState<WorkloadCaptureResult | null>(null);
   const [workloadPreviewCountdown, setWorkloadPreviewCountdown] = useState<number | null>(null);
   const [showAllWarnings, setShowAllWarnings] = useState(false);
+  const warningActualProgressPercent = warningProgress.total_rows > 0
+    ? Math.min(100, Math.round((warningProgress.processed_rows / warningProgress.total_rows) * 100))
+    : warningProgress.status === "completed" ? 100 : 0;
+  const {
+    progress: inspectProgressPercent,
+    complete: completeInspectProgress,
+  } = useContinuousTaskProgress(isInspecting);
+  const {
+    progress: batchMatchProgressPercent,
+    complete: completeBatchMatchProgress,
+  } = useContinuousTaskProgress(isBatchMatching);
+  const {
+    progress: warningProgressPercent,
+    complete: completeWarningProgress,
+  } = useContinuousTaskProgress(isRunningWarnings, warningActualProgressPercent);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const agentFileInputRef = useRef<HTMLInputElement | null>(null);
   const experienceFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -2289,6 +2404,16 @@ function DaweibaApp() {
       behavior: "smooth",
     });
   }, [chatMessages]);
+
+  useEffect(() => {
+    if (activeDaweibaModule !== "agent") return undefined;
+    const frame = window.requestAnimationFrame(() => {
+      const log = agentChatLogRef.current;
+      if (!log) return;
+      log.scrollTop = log.scrollHeight;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeDaweibaModule]);
 
   useEffect(() => {
     if (activeDaweibaModule !== "agent") return undefined;
@@ -2683,12 +2808,6 @@ function DaweibaApp() {
   const showZhisuanStatusGrid = zhisuanDockVisibility.conclusion
     || zhisuanDockVisibility.review
     || zhisuanDockVisibility.warning;
-  const warningProgressPercent = useMemo(() => {
-    if (warningProgress.total_rows > 0) {
-      return Math.min(100, Math.round((warningProgress.processed_rows / warningProgress.total_rows) * 100));
-    }
-    return warningProgress.status === "completed" ? 100 : 0;
-  }, [warningProgress]);
   const zhisuanAvatarState = useMemo<ZhisuanAvatarState>(() => {
     const hasAvatarError = Boolean(error || warningProgress.error || fillAssistDialog?.error);
     const isAvatarThinking = isChatting || isRowAiLoading || chatMessages.some((message) => message.role === "assistant" && message.isTyping);
@@ -3057,7 +3176,7 @@ function DaweibaApp() {
       `${warning.sheet_name} 第${warning.excel_row}行 ${warning.metric}：${warning.message}`;
     const highText = high.length ? high.map(format).join("\n") : "暂无高风险。";
     const lowText = low.length ? low.map(format).join("\n") : "暂无低风险。";
-    return `我把预警结果收拢好了。\n高风险前5条：\n${highText}\n\n低风险前5条：\n${lowText}`;
+    return `高风险前5条：\n${highText}\n\n低风险前5条：\n${lowText}`;
   }
 
   function describeProcessingForZhisuan(activeStageTitle: string) {
@@ -3083,15 +3202,22 @@ function DaweibaApp() {
         `共识别 ${summary.total_data_rows} 行待处理明细，当前尚未批量写入价格和两个系数。`,
         "",
         "本轮结果：",
-        "- 输入表与列映射：已读取",
-        "- 候选 Sheet 与待匹配预览：已生成",
-        "- 基价和两类调整系数：等待批量匹配",
-        "- 下一步：进入表格预览并执行“批量匹配”",
+        "- **输入表与列映射**：已读取",
+        "- **候选 Sheet 与待匹配预览**：已生成",
+        "- **基价和两类调整系数**：等待批量匹配",
+        "- **下一步**：进入表格预览并执行“批量匹配”",
       ].join("\n");
     }
     return [
-      "批量匹配完成，我先给你报个数。",
-      `输入 ${summary.total_data_rows} 行，已填 ${summary.filled_rows} 行，结构匹配 ${summary.matched_rows} 行，待复核 ${summary.review_rows} 行。`,
+      "批量匹配完成。",
+      "",
+      "本轮结果：",
+      `- **输入明细**：${summary.total_data_rows} 行`,
+      `- **已填数据**：${summary.filled_rows} 行`,
+      `- **结构匹配**：${summary.matched_rows} 行`,
+      `- **待复核**：${summary.review_rows} 行`,
+      "",
+      "下一步建议：",
       "下一步可以让我跑“经验池预警分析”，也可以直接“输出风险报告”。",
     ].join("\n");
   }
@@ -3161,6 +3287,7 @@ function DaweibaApp() {
     if (compact.includes("输出风险报告") || compact.includes("生成ai审查摘要") || compact.includes("生成审查摘要")) return "risk-report";
     if (compact.includes("输出excel") || compact.includes("下载excel") || compact.includes("下载xlsx") || compact.includes("输出表格")) return "download-excel";
     if (compact.includes("输出word") || compact.includes("下载word") || compact.includes("下载docx") || compact.includes("输出报告")) return "download-word";
+    if (compact === "发送同事复核" || compact === "发送给同事复核" || compact === "发给同事复核") return "send-review";
     return null;
   }
 
@@ -3758,6 +3885,15 @@ function DaweibaApp() {
       }
       appendZhisuanMessage("收到，正在导出 Word 报告。这个动作等同于点击左侧“下载 Word”。", "command");
       openDownload(reportDownloadHref, "Word 报告");
+      return;
+    }
+    if (command === "send-review") {
+      if (!result || !canDownloadOutputs) {
+        appendZhisuanMessage("请先完成批量匹配并生成 Excel 和 Word 成果，再发送给同事复核。", "command");
+        return;
+      }
+      appendZhisuanMessage("请选择投递平台、工作群和明确复核人。最终确认前不会发送任何消息。", "command");
+      await openWebReviewDialog();
     }
   }
 
@@ -4408,15 +4544,25 @@ function DaweibaApp() {
     setWebReviewInstructions("请复核当前网页填价成果、匹配依据和风险项；可在复核卡中填写评论后通过或退回。");
     setWebReviewFeedback("正在读取智能协同中的平台、工作群和人员目录……");
     setWebReviewTask(null);
+    setIsWebReviewRoundConfirmationOpen(false);
     resetWebReviewAudience();
     await loadWebReviewOptions(
       webReviewProfile || externalDispatchProfile || feishuAppBotStatus?.active_profile || "",
     );
   }
 
-  async function sendWebResultReview() {
+  function closeWebReviewDialog() {
+    setIsWebReviewRoundConfirmationOpen(false);
+    setIsWebReviewOpen(false);
+  }
+
+  async function sendWebResultReview(startNewRound = false) {
     if (!result || !webReviewOptions) {
       setWebReviewFeedback("当前成果或复核人员目录尚未就绪。");
+      return;
+    }
+    if (startNewRound && !webReviewTask) {
+      setWebReviewFeedback("未找到上一轮复核任务，请刷新后再试。");
       return;
     }
     const uniqueReviewers = [...new Set(webReviewReviewers)];
@@ -4466,10 +4612,14 @@ function DaweibaApp() {
           deadline: new Date(webReviewDeadline).toISOString(),
           instructions: webReviewInstructions.trim(),
           project_name: projectName.trim() || file?.name.replace(/\.xlsx$/i, "") || "",
+          start_new_round: startNewRound,
+          existing_task_id: startNewRound ? webReviewTask?.task_id : "",
+          previous_review_round: startNewRound ? (webReviewTask?.review_round ?? 0) : 0,
         }),
       });
       const payload = await response.json().catch(() => null) as {
         created?: boolean;
+        started_new_round?: boolean;
         task?: ExternalDispatchTask;
         detail?: unknown;
       } | null;
@@ -4481,9 +4631,16 @@ function DaweibaApp() {
         payload.task!,
         ...current.filter((item) => item.task_id !== payload.task!.task_id),
       ].slice(0, 20));
-      setWebReviewFeedback(payload.created
-        ? `成果已冻结并进入多人复核：${payload.task.status_label}。`
-        : `当前成果已存在复核任务，未重复发送：${payload.task.status_label}。`);
+      if (startNewRound) {
+        setWebReviewFeedback(payload.started_new_round
+          ? `第 ${payload.task.review_round ?? 0} 轮复核已发起；上一轮记录和快照已保留。`
+          : `第 ${payload.task.review_round ?? 0} 轮复核已经发起，本次未重复发送。`);
+      } else {
+        setWebReviewFeedback(payload.created
+          ? `成果已冻结并进入多人复核：${payload.task.status_label}。`
+          : `当前成果已存在复核任务，未重复发送：${payload.task.status_label}。`);
+      }
+      setIsWebReviewRoundConfirmationOpen(false);
     } catch (err) {
       setWebReviewFeedback(err instanceof Error ? err.message : "发起多人复核失败");
     } finally {
@@ -6019,6 +6176,7 @@ function DaweibaApp() {
               : config,
           ),
         );
+        await completeInspectProgress();
         return;
       }
       setColumns(payload.columns);
@@ -6033,6 +6191,7 @@ function DaweibaApp() {
       }));
       setSheetConfigs(configs);
       setActiveSheetName(configs[0]?.sheet_name ?? "");
+      await completeInspectProgress();
     } catch (err) {
       setError(err instanceof Error ? err.message : "读取表头失败");
     } finally {
@@ -6235,6 +6394,7 @@ function DaweibaApp() {
         setCurrentProjectId(finalPayload.project_tracking.project_id);
       }
       setProgressPercent(100);
+      await waitForTaskProgressSettle();
       replaceZhisuanMessage(
         processingMessageIdRef.current,
         summarizeResultForZhisuan(finalPayload),
@@ -6309,6 +6469,7 @@ function DaweibaApp() {
       if (!setResultForCurrentJob(requestJobId, payload)) return;
       setActivePreviewSheetName((current) => current || previewSheetLabel(previewSheetsFromTablePreview(payload.summary.table_preview)[0] ?? activePreview, 0));
       markReportPreviewUpdated(requestJobId, "批量匹配已完成并生成 Word 报告，正在加载真实预览…");
+      await completeBatchMatchProgress();
       appendZhisuanMessage(summarizeResultForZhisuan(payload), "command");
       void sendCollaborationNotification("task_completed", {
         task_name: file?.name ?? "当前造价任务",
@@ -6594,11 +6755,18 @@ function DaweibaApp() {
         matched_rows: finalSummary?.checked_rows ?? 0,
         warning_rows: finalSummary?.warning_rows ?? 0,
       });
+      await completeWarningProgress();
       appendZhisuanMessage(
         [
-          `经验池预警分析完成：候选 ${finalSummary?.candidate_rows ?? 0} 行，已核查 ${finalSummary?.checked_rows ?? 0} 行，预警 ${finalSummary?.warning_rows ?? 0} 行。`,
+          "经验池预警分析完成。",
+          "",
+          "本轮结果：",
+          `- **候选记录**：${finalSummary?.candidate_rows ?? 0} 行`,
+          `- **已核查**：${finalSummary?.checked_rows ?? 0} 行`,
+          `- **发现预警**：${finalSummary?.warning_rows ?? 0} 行`,
+          "",
           describeTopWarnings(payload.summary.warning_details ?? []),
-        ].join("\n\n"),
+        ].join("\n"),
         fromZhisuan ? "command" : "system",
       );
       markReportPreviewUpdated(requestJobId, "经验池预警结果已写入 Word 报告，正在刷新真实预览…");
@@ -7449,6 +7617,64 @@ function DaweibaApp() {
     return "";
   }
 
+  function zhisuanSectionHeadingAppearance(text: string) {
+    if (text === "您可以直接这样说") {
+      return { tone: "guide", icon: <ShieldCheck size={14} /> };
+    }
+    if (text === "开始编制") {
+      return { tone: "guide", icon: <FileSpreadsheet size={14} /> };
+    }
+    if (text === "规则与行级复核") {
+      return { tone: "guide", icon: <BookOpen size={14} /> };
+    }
+    if (text === "风险与经验对比") {
+      return { tone: "guide", icon: <AlertTriangle size={14} /> };
+    }
+    if (text === "知识库与项目记忆") {
+      return { tone: "guide", icon: <BookOpen size={14} /> };
+    }
+    if (text === "工作量抓取") {
+      return { tone: "guide", icon: <Columns3 size={14} /> };
+    }
+    if (text === "成果输出") {
+      return { tone: "guide", icon: <FileText size={14} /> };
+    }
+    if (/高风险|重点复核|异常|风险概览/.test(text)) {
+      return { tone: "danger", icon: <AlertTriangle size={14} /> };
+    }
+    if (/低风险|完成|结论|结果/.test(text)) {
+      return { tone: "success", icon: <CheckCircle2 size={14} /> };
+    }
+    if (/报告|成果|输出/.test(text)) {
+      return { tone: "report", icon: <FileText size={14} /> };
+    }
+    if (/工作量|抓取/.test(text)) {
+      return { tone: "table", icon: <Columns3 size={14} /> };
+    }
+    if (/依据|来源|规则|知识/.test(text)) {
+      return { tone: "knowledge", icon: <BookOpen size={14} /> };
+    }
+    if (/开始|编制|上传|转换|预览|表格|Sheet|输入|列映射/.test(text)) {
+      return { tone: "table", icon: <FileSpreadsheet size={14} /> };
+    }
+    if (/建议|下一步|可核对/.test(text)) {
+      return { tone: "advice", icon: <Sparkles size={14} /> };
+    }
+    return { tone: "default", icon: <ShieldCheck size={14} /> };
+  }
+
+  function renderZhisuanSectionHeading(text: string, key: string) {
+    const appearance = zhisuanSectionHeadingAppearance(text);
+    return (
+      <div className={`zhisuan-message-heading is-${appearance.tone}`} key={key}>
+        <span className="zhisuan-section-heading__icon" aria-hidden="true">
+          {appearance.icon}
+        </span>
+        <span>{renderZhisuanRichInlineText(text)}</span>
+      </div>
+    );
+  }
+
   function findWarningDetailFromZhisuanLine(text: string, severity?: "high" | "low") {
     const normalizedText = normalizePreviewSheetName(text);
     return warningDetails.find((warning) => {
@@ -7690,6 +7916,22 @@ function DaweibaApp() {
         lineIndex += 1;
         continue;
       }
+      const legacyGuideHeading = line.match(/^(?:📎|🔎|⚠️?|📚|📐|📄)\s+\*\*(.+)\*\*$/u);
+      if (legacyGuideHeading) {
+        flushParagraph();
+        flushList();
+        nodes.push(renderZhisuanSectionHeading(legacyGuideHeading[1], `guide-heading-${nodes.length}`));
+        lineIndex += 1;
+        continue;
+      }
+      const numberedSectionHeading = line.match(/^(?:\d+|[一二三四五六七八九十]+)[.、]\s*([^：:]{2,20})$/);
+      if (numberedSectionHeading) {
+        flushParagraph();
+        flushList();
+        nodes.push(renderZhisuanSectionHeading(numberedSectionHeading[1], `numbered-heading-${nodes.length}`));
+        lineIndex += 1;
+        continue;
+      }
       const bulletMatch = line.match(/^([-*•]|\d+[.、]|[一二三四五六七八九十]+[.、])\s*(.+)$/);
       if (bulletMatch) {
         flushParagraph();
@@ -7719,17 +7961,13 @@ function DaweibaApp() {
         lineIndex += 1;
         continue;
       }
-      const headingMatch = line.match(/^#{1,4}\s*(.+)$/) || line.match(/^([一二三四五六七八九十]+[、.].{2,32})$/);
+      const headingMatch = line.match(/^#{1,4}\s+(.+)$/) || line.match(/^([一二三四五六七八九十]+[、.].{2,32})$/);
       const colonHeading = /^[^：:]{2,18}[：:]$/.test(line);
       if (headingMatch || colonHeading) {
         flushParagraph();
         flushList();
         const headingText = (headingMatch?.[1] ?? line).replace(/[：:]$/, "");
-        nodes.push(
-          <div className="zhisuan-message-heading" key={`h-${nodes.length}`}>
-            {renderZhisuanRichInlineText(headingText)}
-          </div>,
-        );
+        nodes.push(renderZhisuanSectionHeading(headingText, `heading-${nodes.length}`));
         lineIndex += 1;
         continue;
       }
@@ -7896,14 +8134,51 @@ function DaweibaApp() {
       : content;
   }
 
+  function zhisuanAnswerPresentation(message: ChatMessage) {
+    if (message.role !== "assistant" || message.content === zhisuanWelcomeMessage || message.attachment) return null;
+    const content = message.content.trim();
+    if ((message.knowledgeSources?.length ?? 0) > 0) {
+      return { title: "智算回答", tone: "knowledge", icon: <Sparkles size={15} /> };
+    }
+    if (message.source === "thinking") {
+      return { title: "正在处理", tone: "processing", icon: <Loader2 className="spin" size={15} /> };
+    }
+    if (/经验池预警分析完成|高风险前5条|低风险前5条/.test(content)) {
+      return { title: "预警分析结果", tone: "warning", icon: <AlertTriangle size={15} /> };
+    }
+    if (/风险报告已生成|本次处理结论|主要风险概览|重点复核建议/.test(content)) {
+      return { title: "风险报告", tone: "report", icon: <FileText size={15} /> };
+    }
+    if (/批量匹配完成/.test(content)) {
+      return { title: "匹配结果", tone: "success", icon: <CheckCircle2 size={15} /> };
+    }
+    if (/转换准备完成/.test(content)) {
+      return { title: "转换结果", tone: "success", icon: <FileSpreadsheet size={15} /> };
+    }
+    if (/表格预览已准备好/.test(content)) {
+      return { title: "表格预览", tone: "table", icon: <PanelTop size={15} /> };
+    }
+    if (/暂不可用|失败|请先|还没有可分析/.test(content)) {
+      return { title: "处理提示", tone: "warning", icon: <AlertTriangle size={15} /> };
+    }
+    if (message.source === "model") {
+      return { title: "智算回复", tone: "default", icon: <Sparkles size={15} /> };
+    }
+    if (content.length >= 48) {
+      return { title: "处理说明", tone: "default", icon: <ShieldCheck size={15} /> };
+    }
+    return null;
+  }
+
   function renderZhisuanAnswerHeading(message: ChatMessage) {
-    if (message.role !== "assistant" || !(message.knowledgeSources?.length ?? 0)) return null;
+    const presentation = zhisuanAnswerPresentation(message);
+    if (!presentation) return null;
     return (
-      <div className="zhisuan-answer-heading" role="heading" aria-level={3}>
+      <div className={`zhisuan-answer-heading is-${presentation.tone}`} role="heading" aria-level={3}>
         <span className="knowledge-evidence-summary__icon" aria-hidden="true">
-          <Sparkles size={15} />
+          {presentation.icon}
         </span>
-        <strong>智算回答</strong>
+        <strong>{presentation.title}</strong>
       </div>
     );
   }
@@ -8303,22 +8578,22 @@ function DaweibaApp() {
     : isRunningWarnings
       ? warningProgressPercent
       : isBatchMatching
-        ? 58
+        ? batchMatchProgressPercent
         : isGeneratingRisk
           ? 78
           : isRiskSummaryLoading
             ? 70
             : isInspecting
-              ? 18
+              ? inspectProgressPercent
               : 0;
   const agentTaskProgressLabel = isInspecting
-    ? "正在校验 Excel 与字段映射"
+    ? taskProgressLabel("inspect", inspectProgressPercent)
     : isProcessing
       ? processingStage.title
       : isBatchMatching
-        ? "正在执行结构化匹配"
+        ? taskProgressLabel("batch", batchMatchProgressPercent)
         : isRunningWarnings
-          ? "正在运行经验池预警"
+          ? taskProgressLabel("warning", warningProgressPercent)
           : isGeneratingRisk
             ? "正在生成风险报告"
             : isRiskSummaryLoading
@@ -8350,6 +8625,7 @@ function DaweibaApp() {
       </button>
       <button type="button" disabled={!result} onClick={() => { appendUserCommand("查看结果预览"); setActiveDaweibaModule("preview"); }}><FileSpreadsheet size={14} />结果预览</button>
       <button type="button" disabled={!hasCurrentReport} onClick={() => { appendUserCommand("查看 Word 预览"); setActiveDaweibaModule("report"); }}><FileText size={14} />Word 预览</button>
+      <button type="button" disabled={!canDownloadOutputs || agentTaskBusy} onClick={() => void runZhisuanQuickCommand("send-review", "发送同事复核")}><Send size={14} />发送同事复核</button>
     </>
   );
   const agentWorkspaceArtifacts = result ? (
@@ -8392,16 +8668,16 @@ function DaweibaApp() {
       icon: <Columns3 size={16} />,
     },
     {
-      id: "settlement",
-      name: "结算审核",
-      detail: "规则审核 · 双成果",
-      icon: <ShieldCheck size={16} />,
-    },
-    {
       id: "report",
       name: "Word 报告",
       detail: hasCurrentReport ? "可预览与下载" : isBatchMatchPending ? "等待批量匹配" : "等待转换",
       icon: <FileText size={16} />,
+    },
+    {
+      id: "settlement",
+      name: "结算审核",
+      detail: "规则审核 · 双成果",
+      icon: <ShieldCheck size={16} />,
     },
     {
       id: "knowledge",
@@ -8475,11 +8751,26 @@ function DaweibaApp() {
         "请结合本行要素核对该候选是否适合作为人工确认参考，但不要生成或写入新的数值。",
       ].join("\n")
     : "";
+  const isDarkMode = colorMode === "dark";
+  const colorModeToggleLabel = isDarkMode ? "切换到浅色模式" : "切换到暗黑模式";
+
+  function toggleColorMode() {
+    setColorMode((current) => {
+      const next = current === "dark" ? "light" : "dark";
+      try {
+        window.localStorage.setItem(COLOR_MODE_STORAGE_KEY, next);
+      } catch {
+        // Storage can be unavailable in private or restricted browser contexts.
+      }
+      return next;
+    });
+  }
 
   return (
     <main
-      className={`shell layout-daweiba ${useZhisuanDockViewportHeight ? "is-zhisuan-viewport-height" : ""} ${uiPreferences.enabled ? "ui-tune-enabled" : ""} ${isUiPickMode ? "ui-pick-mode" : ""}`}
+      className={`shell layout-daweiba ${isDarkMode ? "theme-dark" : ""} ${useZhisuanDockViewportHeight ? "is-zhisuan-viewport-height" : ""} ${uiPreferences.enabled ? "ui-tune-enabled" : ""} ${isUiPickMode ? "ui-pick-mode" : ""}`}
       onClickCapture={handleUiPick}
+      style={isDarkMode ? { colorScheme: "dark" } : undefined}
     >
       <nav className="global-nav" aria-label="全局导航">
         <span>{APP_NAME}</span>
@@ -8510,14 +8801,27 @@ function DaweibaApp() {
         <button className="nav-text-button" type="button" onClick={showWelcomeScreen}>
           欢迎页
         </button>
-        <button
-          className="nav-settings-button"
-          type="button"
-          aria-label="页面设置"
-          onClick={() => setIsPageSettingsOpen(true)}
-        >
-          <Settings size={16} />
-        </button>
+        <div className="nav-actions">
+          <button
+            className="nav-settings-button nav-theme-button"
+            type="button"
+            aria-label={colorModeToggleLabel}
+            aria-pressed={isDarkMode}
+            title={colorModeToggleLabel}
+            onClick={toggleColorMode}
+          >
+            {isDarkMode ? <Sun size={16} /> : <Moon size={16} />}
+          </button>
+          <button
+            className="nav-settings-button"
+            type="button"
+            aria-label="页面设置"
+            title="页面设置"
+            onClick={() => setIsPageSettingsOpen(true)}
+          >
+            <Settings size={16} />
+          </button>
+        </div>
       </nav>
 
       {isWelcomeScreenVisible && (
@@ -9663,7 +9967,11 @@ function DaweibaApp() {
                 <div className="warning-progress-card" data-ui-key="result-card" style={uiStyle("result-card")}>
                   <div className="warning-progress-head">
                     <strong>预警匹配进度</strong>
-                    <span>已匹配 {warningProgress.processed_rows} / {warningProgress.total_rows} 行</span>
+                    <span>
+                      {warningProgress.total_rows > 0
+                        ? `已匹配 ${warningProgress.processed_rows} / ${warningProgress.total_rows} 行 · ${Math.round(warningProgressPercent)}%`
+                        : `正在读取候选记录 · ${Math.round(warningProgressPercent)}%`}
+                    </span>
                   </div>
                   <div className="meter warning-progress-meter">
                     <div className="meter-track">
@@ -10322,42 +10630,6 @@ function DaweibaApp() {
                       重算并更新报告
                     </button>
                   </div>
-                )}
-
-                {riskSummary && (
-                  <details className="daweiba-report-risk-panel" open>
-                    <summary>结构化风险清单 · {riskSummary.summary.total} 项</summary>
-                    <div className="risk-card-list">
-                      {riskSummary.items.slice(0, 6).map((item) => (
-                        <button
-                          className={`risk-card severity-${item.severity}`}
-                          type="button"
-                          key={item.id}
-                          onClick={() => {
-                            if (item.sheet_name && item.excel_row) {
-                              jumpToWarningPreview({
-                                sheet_name: item.sheet_name,
-                                excel_row: Number(item.excel_row),
-                                metric: item.metric || "",
-                                current_value: 0,
-                                experience_values: [],
-                                experience_min: 0,
-                                experience_max: 0,
-                                sample_count: 0,
-                                severity: item.severity,
-                                message: item.message,
-                                source_rows: [],
-                              });
-                            }
-                          }}
-                        >
-                          <span>{item.severity_label ?? item.severity} · {item.risk_type}</span>
-                          <b>{item.title}</b>
-                          <small>{item.message}</small>
-                        </button>
-                      ))}
-                    </div>
-                  </details>
                 )}
 
                 <div className="daweiba-report-preview">
@@ -11568,7 +11840,7 @@ function DaweibaApp() {
       )}
 
       {isWebReviewOpen && (
-        <div className="modal-backdrop web-review-backdrop" role="presentation" onClick={() => setIsWebReviewOpen(false)}>
+        <div className="modal-backdrop web-review-backdrop" role="presentation" onClick={closeWebReviewDialog}>
           <section
             className="settings-modal web-review-modal"
             role="dialog"
@@ -11581,7 +11853,14 @@ function DaweibaApp() {
                 <strong id="web-review-title">发给同事复核</strong>
                 <small>冻结当前网页填价成果，沿用“智能协同”的平台目录和多人复核流程</small>
               </span>
-              <button type="button" onClick={() => setIsWebReviewOpen(false)}>关闭</button>
+              <button
+                type="button"
+                aria-label="关闭复核弹窗"
+                title="关闭"
+                onClick={closeWebReviewDialog}
+              >
+                <X size={16} aria-hidden="true" />
+              </button>
             </div>
 
             <div className="web-review-result-summary">
@@ -11747,7 +12026,7 @@ function DaweibaApp() {
             </p>
 
             <div className="settings-modal-actions web-review-actions">
-              <button className="ghost-button" type="button" disabled={isSendingWebReview} onClick={() => setIsWebReviewOpen(false)}>取消</button>
+              <button className="ghost-button" type="button" disabled={isSendingWebReview} onClick={closeWebReviewDialog}>取消</button>
               <button
                 className="ghost-button"
                 type="button"
@@ -11763,16 +12042,81 @@ function DaweibaApp() {
                 disabled={
                   isLoadingWebReview
                   || isSendingWebReview
-                  || Boolean(webReviewTask)
                   || !webReviewAudienceConfirmed
                   || !webReviewReviewers.length
                 }
-                onClick={() => void sendWebResultReview()}
+                onClick={() => {
+                  if (webReviewTask) {
+                    setIsWebReviewRoundConfirmationOpen(true);
+                  } else {
+                    void sendWebResultReview();
+                  }
+                }}
               >
                 {isSendingWebReview ? <Loader2 size={16} className="spin" /> : <Send size={16} />}
-                {webReviewTask ? "已有复核任务" : "冻结成果并发起复核"}
+                {webReviewTask ? "发起新一轮复核" : "冻结成果并发起复核"}
               </button>
             </div>
+          </section>
+        </div>
+      )}
+
+      {isWebReviewOpen && isWebReviewRoundConfirmationOpen && webReviewTask && (
+        <div
+          className="modal-backdrop web-review-round-confirm-backdrop"
+          role="presentation"
+          onClick={() => setIsWebReviewRoundConfirmationOpen(false)}
+        >
+          <section
+            className="settings-modal web-review-round-confirm-modal"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="web-review-round-confirm-title"
+            aria-describedby="web-review-round-confirm-description"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header>
+              <span className="web-review-round-confirm-kicker">多人复核</span>
+              <strong id="web-review-round-confirm-title">
+                {canStartNextWebReviewRound(webReviewTask) ? "发起新一轮复核？" : "当前复核仍在进行"}
+              </strong>
+              <p id="web-review-round-confirm-description">
+                {canStartNextWebReviewRound(webReviewTask)
+                  ? `现有第 ${webReviewTask.review_round ?? 0} 轮为“${webReviewTask.status_label}”。确认后将冻结当前网页成果并发起第 ${(webReviewTask.review_round ?? 0) + 1} 轮，上一轮快照、评论和审核记录不会被覆盖。`
+                  : `第 ${webReviewTask.review_round ?? 0} 轮当前为“${webReviewTask.status_label}”。系统不允许同一任务并行发起两个复核轮次，请先完成或退回当前轮次。`}
+              </p>
+            </header>
+            <div className="web-review-round-confirm-summary">
+              <span>
+                <small>任务编号</small>
+                <b>{webReviewTask.task_id}</b>
+              </span>
+              <span>
+                <small>本次明确复核人</small>
+                <b>{webReviewReviewers.length} 人</b>
+              </span>
+            </div>
+            <footer>
+              <button
+                className="ghost-button"
+                type="button"
+                disabled={isSendingWebReview}
+                onClick={() => setIsWebReviewRoundConfirmationOpen(false)}
+              >
+                {canStartNextWebReviewRound(webReviewTask) ? "取消" : "知道了"}
+              </button>
+              {canStartNextWebReviewRound(webReviewTask) && (
+                <button
+                  className="primary-button"
+                  type="button"
+                  disabled={isSendingWebReview}
+                  onClick={() => void sendWebResultReview(true)}
+                >
+                  {isSendingWebReview ? <Loader2 size={16} className="spin" /> : <Send size={16} />}
+                  确认发起第 {(webReviewTask.review_round ?? 0) + 1} 轮
+                </button>
+              )}
+            </footer>
           </section>
         </div>
       )}

@@ -24,6 +24,30 @@ from app.feishu_app_bot import (
 from app import external_task_dispatch
 
 
+WS_RECONNECT_JITTER_SECONDS = 1
+WS_RECONNECT_INTERVAL_SECONDS = 5
+WEACT_PROFILE_ID = "weact_cost"
+CARD_ACTION_FOLLOW_UP_DELAY_SECONDS = 1.0
+
+
+def configure_long_connection_reconnect(client: object) -> None:
+    """Shorten the SDK's private reconnect delays so card callbacks recover promptly."""
+    setattr(client, "_reconnect_nonce", WS_RECONNECT_JITTER_SECONDS)
+    setattr(client, "_reconnect_interval", WS_RECONNECT_INTERVAL_SECONDS)
+
+
+def build_card_action_response_payload(
+    profile_id: str,
+    *,
+    toast: dict,
+    card: dict,
+) -> dict:
+    payload = {"toast": toast}
+    if profile_id != WEACT_PROFILE_ID:
+        payload["card"] = {"type": "raw", "data": card}
+    return payload
+
+
 def deliver_external_review_bundle(
     task_id: str,
     *,
@@ -102,6 +126,47 @@ def deliver_external_completion_notification(
             level="warning",
             task_id=task_id,
             profile_id=profile_id,
+        )
+
+
+def deliver_card_action_follow_up(
+    task_id: str,
+    *,
+    profile_id: str,
+    feishu: FeishuApi,
+    callback_token: str,
+    operator_open_id: str,
+    card: dict,
+    notify_completion: bool = False,
+) -> None:
+    time.sleep(CARD_ACTION_FOLLOW_UP_DELAY_SECONDS)
+    try:
+        feishu.update_card_after_callback(
+            callback_token,
+            card,
+            open_ids=[operator_open_id],
+        )
+        append_runtime_event(
+            "task",
+            f"外部任务 {task_id} 的交互卡片已在回调确认后更新",
+            level="success",
+            task_id=task_id,
+            profile_id=profile_id,
+        )
+    except Exception as exc:  # noqa: BLE001 - card refresh must not undo the recorded business action
+        append_runtime_event(
+            "task",
+            f"外部任务 {task_id} 已完成本次操作，但卡片延时更新失败："
+            f"{external_task_dispatch.sanitize_dispatch_error(exc)}",
+            level="warning",
+            task_id=task_id,
+            profile_id=profile_id,
+        )
+    if notify_completion:
+        deliver_external_completion_notification(
+            task_id,
+            profile_id=profile_id,
+            feishu=feishu,
         )
 
 
@@ -559,12 +624,50 @@ def main() -> int:
             })
         task_id = str(value.get("task_id") or "").strip()
         operator_open_id = str(getattr(operator, "open_id", "") or "").strip()
+        callback_token = str(getattr(event, "token", "") or "").strip()
         action_name = str(value.get("action") or "")
         form_value = getattr(action, "form_value", None) or {}
         if hasattr(form_value, "to_dict"):
             form_value = form_value.to_dict()
         if not isinstance(form_value, dict):
             form_value = {}
+
+        def success_response(
+            toast_content: str,
+            card: dict,
+            *,
+            notify_completion: bool = False,
+        ) -> P2CardActionTriggerResponse:
+            if profile_id == WEACT_PROFILE_ID:
+                threading.Thread(
+                    target=deliver_card_action_follow_up,
+                    kwargs={
+                        "task_id": task_id,
+                        "profile_id": profile_id,
+                        "feishu": feishu,
+                        "callback_token": callback_token,
+                        "operator_open_id": operator_open_id,
+                        "card": card,
+                        "notify_completion": notify_completion,
+                    },
+                    name="weact-card-action-follow-up",
+                    daemon=True,
+                ).start()
+            elif notify_completion:
+                threading.Thread(
+                    target=deliver_external_completion_notification,
+                    kwargs={"task_id": task_id, "profile_id": profile_id, "feishu": feishu},
+                    name="feishu-external-completion-delivery",
+                    daemon=True,
+                ).start()
+            return P2CardActionTriggerResponse(
+                build_card_action_response_payload(
+                    profile_id,
+                    toast={"type": "success", "content": toast_content},
+                    card=card,
+                )
+            )
+
         try:
             if action_name == "submit_external_review":
                 review_task, created = dispatch_store.open_submission_window(
@@ -576,13 +679,13 @@ def main() -> int:
                     task_id=task_id,
                     profile_id=profile_id,
                 )
-                return P2CardActionTriggerResponse({
-                    "toast": {
-                        "type": "success",
-                        "content": "请在 1 分钟内发送编制完成的 .xlsx 文件。" if created else "正在等待您的 .xlsx 文件。",
-                    },
-                    "card": {"type": "raw", "data": external_task_dispatch.build_external_task_card(review_task, app_url=load_completion_card_app_url())},
-                })
+                return success_response(
+                    "请在 1 分钟内发送编制完成的 .xlsx 文件。" if created else "正在等待您的 .xlsx 文件。",
+                    external_task_dispatch.build_external_task_card(
+                        review_task,
+                        app_url=load_completion_card_app_url(),
+                    ),
+                )
             if action_name == "review_external_task":
                 decision = str(value.get("decision") or "")
                 review_comment = str(form_value.get("review_comment") or value.get("review_comment") or "")
@@ -594,18 +697,13 @@ def main() -> int:
                     comment=review_comment,
                 )
                 result_text = "复核通过" if decision == "approve" else "已退回编制"
-                if created and str(reviewed_task.get("status") or "") in {"completed", "returned"}:
-                    threading.Thread(
-                        target=deliver_external_completion_notification,
-                        kwargs={"task_id": task_id, "profile_id": profile_id, "feishu": feishu},
-                        name="feishu-external-completion-delivery",
-                        daemon=True,
-                    ).start()
+                notify_completion = created and str(reviewed_task.get("status") or "") in {"completed", "returned"}
                 append_runtime_event("task", f"外部任务 {task_id}：{result_text}", task_id=task_id, profile_id=profile_id)
-                return P2CardActionTriggerResponse({
-                    "toast": {"type": "success", "content": result_text if created else "本轮结论已记录。"},
-                    "card": {"type": "raw", "data": external_task_dispatch.build_external_review_card(reviewed_task)},
-                })
+                return success_response(
+                    result_text if created else "本轮结论已记录。",
+                    external_task_dispatch.build_external_review_card(reviewed_task),
+                    notify_completion=notify_completion,
+                )
             claimed_task, created = dispatch_store.claim_task(task_id, operator_open_id=operator_open_id, platform_profile_id=profile_id)
             append_runtime_event(
                 "task",
@@ -613,16 +711,13 @@ def main() -> int:
                 task_id=task_id,
                 profile_id=profile_id,
             )
-            return P2CardActionTriggerResponse({
-                "toast": {"type": "success", "content": "领取成功，任务已进入您的待办。" if created else "您已领取过该任务。"},
-                "card": {
-                    "type": "raw",
-                    "data": external_task_dispatch.build_external_task_card(
-                        claimed_task,
-                        app_url=load_completion_card_app_url(),
-                    ),
-                },
-            })
+            return success_response(
+                "领取成功，任务已进入您的待办。" if created else "您已领取过该任务。",
+                external_task_dispatch.build_external_task_card(
+                    claimed_task,
+                    app_url=load_completion_card_app_url(),
+                ),
+            )
         except external_task_dispatch.DispatchValidationError as exc:
             append_runtime_event(
                 "task",
@@ -633,6 +728,17 @@ def main() -> int:
             )
             return P2CardActionTriggerResponse({
                 "toast": {"type": "error", "content": str(exc)},
+            })
+        except Exception as exc:  # noqa: BLE001 - card callbacks must always return an acknowledgement
+            append_runtime_event(
+                "task",
+                f"外部任务卡片操作异常：{task_id or '缺少任务编号'}（{exc}）",
+                level="error",
+                task_id=task_id,
+                profile_id=profile_id,
+            )
+            return P2CardActionTriggerResponse({
+                "toast": {"type": "error", "content": "操作暂未完成，请稍后重试；机器人已记录本次异常。"},
             })
 
     handler = (
@@ -648,6 +754,7 @@ def main() -> int:
         domain=domain,
         auto_reconnect=True,
     )
+    configure_long_connection_reconnect(client)
     append_runtime_event("connection", f"正在建立长连接：{domain}", profile_id=profile_id)
     print(f"第二层飞书机器人正在建立长连接：{domain}", flush=True)
     try:

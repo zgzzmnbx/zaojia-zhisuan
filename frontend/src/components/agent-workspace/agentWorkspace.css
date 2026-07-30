@@ -106,10 +106,27 @@
 .agent-message__body .chat-message-body { padding: 0; border: 0; background: transparent; }
 .agent-message__body p { margin: 0 0 12px; font-size: inherit; line-height: inherit; }
 .agent-message__body p:last-child { margin-bottom: 0; }
+.agent-message__body .zhisuan-answer-heading {
+  margin: 0 0 13px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--agent-line);
+}
+.agent-message__body .zhisuan-answer-heading > strong {
+  color: var(--agent-ink);
+  font-size: 15px;
+  font-weight: 650;
+}
+.agent-message__body .zhisuan-answer-heading + .zhisuan-message-paragraph {
+  color: var(--agent-ink);
+  font-weight: 550;
+}
 .agent-message__body ul,
 .agent-message__body ol { margin: 10px 0; padding-left: 24px; }
 .agent-message__body .zhisuan-message-heading {
-  margin: 16px 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 18px 0 9px;
   padding: 0;
   border: 0;
   color: var(--agent-ink);
@@ -117,8 +134,29 @@
   font-weight: 650;
   line-height: 1.55;
 }
+.agent-message__body .zhisuan-message-heading:first-child { margin-top: 0; }
 .agent-message__body .zhisuan-message-heading::before { display: none; content: none; }
-.agent-message__body .zhisuan-message-list { margin: 10px 0; padding-left: 24px; }
+.agent-message__body .zhisuan-section-heading__icon { width: 24px; height: 24px; }
+.agent-message__body .zhisuan-message-list { margin: 10px 0 14px; padding-left: 0; }
+.shell.layout-daweiba .agent-workspace .agent-message__body .zhisuan-message-list:not(.is-ordered) li {
+  position: relative;
+  padding-left: 16px;
+}
+.shell.layout-daweiba .agent-workspace .agent-message__body .zhisuan-message-list:not(.is-ordered) li::before {
+  display: block;
+  content: "";
+  position: absolute;
+  top: .78em;
+  left: 2px;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: #3b82f6;
+}
+.shell.layout-daweiba .agent-workspace .agent-message__body .zhisuan-message-list:not(.is-ordered) li.is-high::before {
+  background: #b42318;
+}
+.agent-message__body .zhisuan-message-list.is-ordered { padding-left: 24px; }
 .agent-message__body strong { color: var(--agent-ink); font-weight: 650; }
 .agent-message.user .agent-message__body { padding: 10px 14px; border-radius: 14px; background: #f1f4fa; color: var(--agent-ink); }
 .agent-message.user:has(.zhisuan-file-attachment) .agent-message__body { padding: 0; background: transparent; }

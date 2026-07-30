@@ -569,6 +569,125 @@ def test_web_result_review_freezes_snapshot_and_only_sends_to_selected_reviewers
     assert len(feishu.files) == len(feishu.cards) == 1
 
 
+def test_completed_web_result_review_can_start_one_idempotent_next_round(service):
+    dispatch, store, feishu, options = service
+    dispatch.direct_delivery_verified = True
+    reviewer = options["people"][0]
+    source = xlsx_bytes()
+    kwargs = {
+        "job_id": "1234567890abcdef1234567890abcdef",
+        "file_name": "网页填价成果.xlsx",
+        "file_bytes": source,
+        "task_name": "勘察测量限价成果复核",
+        "project_name": "测试项目",
+        "skill_id": "survey-measurement-limit-price",
+        "skill_version": "1.0.0",
+        "reviewer_refs": (reviewer["person_ref"],),
+        "deadline": "2026-08-01T18:00:00+08:00",
+        "instructions": "请核对填价结果和风险项。",
+        "delivery_mode": "direct",
+    }
+    task, created = dispatch.create_web_result_review(**kwargs)
+    assert created is True
+    reviewer_row = store.get_person(reviewer["person_ref"], dispatch.profile_id)
+    completed, decided = store.review_task(
+        task["task_id"],
+        operator_open_id=reviewer_row["platform_user_id"],
+        platform_profile_id=dispatch.profile_id,
+        decision="approve",
+        comment="第一轮已核对。",
+    )
+    assert decided is True
+    assert completed["status"] == "completed"
+
+    second_round, started = dispatch.create_web_result_review(
+        **kwargs,
+        start_new_round=True,
+        existing_task_id=task["task_id"],
+        previous_review_round=1,
+    )
+
+    assert started is True
+    assert second_round["task_id"] == task["task_id"]
+    assert second_round["status"] == "pending_review"
+    assert second_round["review_round"] == 2
+    assert second_round["participants"][-1]["status"] == "待复核"
+    assert len(feishu.files) == len(feishu.cards) == 2
+    stored = store.get_task(task["task_id"])
+    assert Path(stored["submission_excel_path"]).parent.name == "round-2"
+    assert Path(stored["submission_excel_path"]).read_bytes() == source
+    assert Path(stored["submission_excel_path"]).parents[1].joinpath("round-1", "网页填价成果.xlsx").is_file()
+    with store._connect() as connection:
+        first_round_action = connection.execute(
+            """SELECT review_round,decision,comment FROM dispatch_review_actions
+            WHERE task_id=? AND review_round=1""",
+            (task["task_id"],),
+        ).fetchone()
+    assert dict(first_round_action) == {
+        "review_round": 1,
+        "decision": "approve",
+        "comment": "第一轮已核对。",
+    }
+
+    repeated, repeated_started = dispatch.create_web_result_review(
+        **kwargs,
+        start_new_round=True,
+        existing_task_id=task["task_id"],
+        previous_review_round=1,
+    )
+    assert repeated_started is False
+    assert repeated["review_round"] == 2
+    assert len(feishu.files) == len(feishu.cards) == 2
+
+    second_completed, second_decided = store.review_task(
+        task["task_id"],
+        operator_open_id=reviewer_row["platform_user_id"],
+        platform_profile_id=dispatch.profile_id,
+        decision="approve",
+        comment="第二轮已核对。",
+    )
+    assert second_decided is True
+    assert second_completed["status"] == "completed"
+    with store._connect() as connection:
+        actions = connection.execute(
+            """SELECT review_round,decision,comment FROM dispatch_review_actions
+            WHERE task_id=? ORDER BY review_round""",
+            (task["task_id"],),
+        ).fetchall()
+    assert [dict(action) for action in actions] == [
+        {"review_round": 1, "decision": "approve", "comment": "第一轮已核对。"},
+        {"review_round": 2, "decision": "approve", "comment": "第二轮已核对。"},
+    ]
+
+
+def test_web_result_review_cannot_open_parallel_round(service):
+    dispatch, _, _, options = service
+    dispatch.direct_delivery_verified = True
+    reviewer = options["people"][0]
+    kwargs = {
+        "job_id": "abcdef1234567890abcdef1234567890",
+        "file_name": "网页填价成果.xlsx",
+        "file_bytes": xlsx_bytes(),
+        "task_name": "网页成果复核",
+        "project_name": "测试项目",
+        "skill_id": "survey-measurement-limit-price",
+        "skill_version": "1.0.0",
+        "reviewer_refs": (reviewer["person_ref"],),
+        "deadline": "2026-08-01T18:00:00+08:00",
+        "instructions": "请复核。",
+        "delivery_mode": "direct",
+    }
+    task, _ = dispatch.create_web_result_review(**kwargs)
+
+    with pytest.raises(external_task_dispatch.DispatchValidationError, match="仍在进行"):
+        dispatch.create_web_result_review(
+            **kwargs,
+            start_new_round=True,
+            existing_task_id=task["task_id"],
+            previous_review_round=1,
+        )
+
+
 def test_web_result_review_retry_skips_already_sent_file(service):
     dispatch, _, feishu, options = service
     dispatch.direct_delivery_verified = True

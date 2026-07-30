@@ -2099,6 +2099,39 @@ class FeishuApi:
     def send_card_to(self, receive_id: str, receive_id_type: str, card: dict[str, Any]) -> str:
         return self._send_message(receive_id, "interactive", card, receive_id_type=receive_id_type)
 
+    def update_card_after_callback(
+        self,
+        callback_token: str,
+        card: dict[str, Any],
+        *,
+        open_ids: list[str],
+    ) -> None:
+        normalized_token = str(callback_token or "").strip()
+        normalized_open_ids = list(dict.fromkeys(str(item or "").strip() for item in open_ids if str(item or "").strip()))
+        if not normalized_token:
+            raise ValueError("缺少卡片回调更新凭证")
+        if not isinstance(card, dict) or not card:
+            raise ValueError("缺少待更新卡片内容")
+        if not normalized_open_ids:
+            raise ValueError("独享卡片延时更新缺少操作人 Open ID")
+        payload_card = json.loads(json.dumps(card, ensure_ascii=False))
+        payload_card["open_ids"] = normalized_open_ids
+        response = self.client.post(
+            f"{self.base_url}/interactive/v1/card/update",
+            headers=self._headers(),
+            json={"token": normalized_token, "card": payload_card},
+        )
+        try:
+            payload = response.json()
+        except ValueError:
+            response.raise_for_status()
+            raise RuntimeError("飞书延时更新消息卡片返回了无法解析的响应")
+        if int(payload.get("code") or 0) != 0:
+            code = int(payload.get("code") or 0)
+            message = str(payload.get("msg") or "飞书延时更新消息卡片失败")
+            raise RuntimeError(f"{message}（错误码 {code}）")
+        response.raise_for_status()
+
     def add_reaction(self, message_id: str, emoji_type: str = ACK_REACTION_EMOJI) -> None:
         normalized_message_id = str(message_id or "").strip()
         normalized_emoji_type = str(emoji_type or "").strip()

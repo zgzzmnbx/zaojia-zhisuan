@@ -26,6 +26,8 @@ RULE_VERSION = "1.0.0"
 SUPPORTED_EXTENSION = ".xlsx"
 AUDIT_RESULT_SHEET = "审核结果"
 AUDIT_COMMENT = "造价智算辅助审核建议，需人工确认。"
+AUDIT_SHEET_FONT_NAME = "等线"
+AUDIT_SHEET_BODY_FONT_SIZE = 9
 
 BLUE = "2563EB"
 NAVY = "163B65"
@@ -1035,14 +1037,14 @@ class SettlementAuditEngine:
         title_cell = ws["A1"]
         title_cell.value = "勘察测量结算辅助审核结果"
         title_cell.fill = PatternFill("solid", fgColor=NAVY)
-        title_cell.font = Font(name="等线", size=18, bold=True, color=WHITE)
+        title_cell.font = Font(name=AUDIT_SHEET_FONT_NAME, size=18, bold=True, color=WHITE)
         title_cell.alignment = Alignment(horizontal="left", vertical="center")
         ws.row_dimensions[1].height = 34
 
         ws.merge_cells("A2:I2")
         ws["A2"] = "规则辅助审核 · 人工最终审定｜本结果不替代合同判断、资料真实性核验及正式签章"
         ws["A2"].fill = PatternFill("solid", fgColor=PALE_BLUE)
-        ws["A2"].font = Font(name="等线", size=10, color=NAVY, bold=True)
+        ws["A2"].font = Font(name=AUDIT_SHEET_FONT_NAME, size=10, color=NAVY, bold=True)
         ws["A2"].alignment = Alignment(vertical="center")
         ws.row_dimensions[2].height = 24
 
@@ -1053,7 +1055,7 @@ class SettlementAuditEngine:
         ws["E3"] = f"源文件：{result['source_file']}"
         for coordinate in ("A3", "E3"):
             cell = ws[coordinate]
-            cell.font = Font(name="等线", size=9, color=TEXT)
+            cell.font = Font(name=AUDIT_SHEET_FONT_NAME, size=AUDIT_SHEET_BODY_FONT_SIZE, color=TEXT)
             cell.alignment = Alignment(vertical="center", wrap_text=False)
             cell.border = Border(bottom=Side(style="thin", color=BORDER))
         ws.row_dimensions[3].height = 24
@@ -1073,10 +1075,14 @@ class SettlementAuditEngine:
             label_cell = ws.cell(4, index)
             value_cell = ws.cell(5, index)
             label_cell.value = label
-            label_cell.font = Font(name="等线", size=9, color=MUTED)
+            label_cell.font = Font(
+                name=AUDIT_SHEET_FONT_NAME,
+                size=AUDIT_SHEET_BODY_FONT_SIZE,
+                color=MUTED,
+            )
             label_cell.alignment = Alignment(horizontal="center", vertical="center")
             value_cell.value = value
-            value_cell.font = Font(name="等线", size=11, bold=True, color=TEXT)
+            value_cell.font = Font(name=AUDIT_SHEET_FONT_NAME, size=11, bold=True, color=TEXT)
             value_cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
             value_cell.fill = PatternFill("solid", fgColor="F8FAFC")
             value_cell.border = Border(bottom=Side(style="thin", color=BORDER))
@@ -1086,7 +1092,7 @@ class SettlementAuditEngine:
 
         ws.merge_cells("A7:I7")
         ws["A7"] = "一、发现问题"
-        ws["A7"].font = Font(name="等线", size=12, bold=True, color=NAVY)
+        ws["A7"].font = Font(name=AUDIT_SHEET_FONT_NAME, size=12, bold=True, color=NAVY)
         ws["A7"].fill = PatternFill("solid", fgColor="F1F5F9")
         ws["A7"].alignment = Alignment(vertical="center")
 
@@ -1095,7 +1101,12 @@ class SettlementAuditEngine:
             cell = ws.cell(8, column)
             cell.value = header
             cell.fill = PatternFill("solid", fgColor=BLUE)
-            cell.font = Font(name="等线", size=9, bold=True, color=WHITE)
+            cell.font = Font(
+                name=AUDIT_SHEET_FONT_NAME,
+                size=AUDIT_SHEET_BODY_FONT_SIZE,
+                bold=True,
+                color=WHITE,
+            )
             cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         ws.row_dimensions[8].height = 28
 
@@ -1118,12 +1129,23 @@ class SettlementAuditEngine:
                 cell = ws.cell(current_row, column)
                 cell.value = value
                 cell.fill = fill if column == 1 else PatternFill("solid", fgColor=WHITE)
-                cell.font = Font(name="等线", size=9, color=TEXT, bold=column == 1)
+                cell.font = Font(
+                    name=AUDIT_SHEET_FONT_NAME,
+                    size=AUDIT_SHEET_BODY_FONT_SIZE,
+                    color=TEXT,
+                    bold=column == 1,
+                )
                 cell.alignment = Alignment(vertical="top", wrap_text=True)
                 cell.border = Border(bottom=Side(style="thin", color=BORDER))
             if risk["row"]:
-                ws.cell(current_row, 4).hyperlink = f"#'{risk['sheet'].replace(chr(39), chr(39) * 2)}'!A{risk['row']}"
-                ws.cell(current_row, 4).style = "Hyperlink"
+                sheet_cell = ws.cell(current_row, 4)
+                sheet_cell.hyperlink = f"#'{risk['sheet'].replace(chr(39), chr(39) * 2)}'!A{risk['row']}"
+                sheet_cell.font = Font(
+                    name=AUDIT_SHEET_FONT_NAME,
+                    size=AUDIT_SHEET_BODY_FONT_SIZE,
+                    color=BLUE,
+                    underline="single",
+                )
             ws.row_dimensions[current_row].height = 44
             current_row += 1
 
@@ -1131,13 +1153,23 @@ class SettlementAuditEngine:
             ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=9)
             ws.cell(current_row, 1).value = "未发现可由系统确定的结构化风险；仍须完成下方人工核验。"
             ws.cell(current_row, 1).fill = PatternFill("solid", fgColor=PALE_GREEN)
+            ws.cell(current_row, 1).font = Font(
+                name=AUDIT_SHEET_FONT_NAME,
+                size=AUDIT_SHEET_BODY_FONT_SIZE,
+                color=TEXT,
+            )
             ws.cell(current_row, 1).alignment = Alignment(vertical="center")
             current_row += 1
 
         current_row += 1
         ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=9)
         ws.cell(current_row, 1).value = "二、待人工核验"
-        ws.cell(current_row, 1).font = Font(name="等线", size=12, bold=True, color=NAVY)
+        ws.cell(current_row, 1).font = Font(
+            name=AUDIT_SHEET_FONT_NAME,
+            size=12,
+            bold=True,
+            color=NAVY,
+        )
         ws.cell(current_row, 1).fill = PatternFill("solid", fgColor="F1F5F9")
         current_row += 1
         for item in result["manual_checklist"]:
@@ -1148,7 +1180,12 @@ class SettlementAuditEngine:
             for column in range(1, 10):
                 cell = ws.cell(current_row, column)
                 cell.fill = PatternFill("solid", fgColor=PALE_RED if column == 1 else WHITE)
-                cell.font = Font(name="等线", size=9, color=TEXT, bold=column in (1, 2))
+                cell.font = Font(
+                    name=AUDIT_SHEET_FONT_NAME,
+                    size=AUDIT_SHEET_BODY_FONT_SIZE,
+                    color=TEXT,
+                    bold=column in (1, 2),
+                )
                 cell.alignment = Alignment(vertical="top", wrap_text=True)
                 cell.border = Border(bottom=Side(style="thin", color=BORDER))
             ws.row_dimensions[current_row].height = 36
@@ -1157,7 +1194,12 @@ class SettlementAuditEngine:
         current_row += 1
         ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=9)
         ws.cell(current_row, 1).value = result["scope_note"]
-        ws.cell(current_row, 1).font = Font(name="等线", size=9, italic=True, color=MUTED)
+        ws.cell(current_row, 1).font = Font(
+            name=AUDIT_SHEET_FONT_NAME,
+            size=AUDIT_SHEET_BODY_FONT_SIZE,
+            italic=True,
+            color=MUTED,
+        )
         ws.cell(current_row, 1).alignment = Alignment(wrap_text=True, vertical="center")
         ws.cell(current_row, 1).fill = PatternFill("solid", fgColor="F8FAFC")
         ws.row_dimensions[current_row].height = 30

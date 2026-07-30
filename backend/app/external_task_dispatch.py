@@ -413,6 +413,114 @@ class ExternalDispatchStore:
                 ],
             )
 
+    def start_web_review_round(
+        self,
+        task_id: str,
+        *,
+        platform_profile_id: str,
+        source_job_id: str,
+        expected_review_round: int,
+        reviewers: list[dict[str, Any]],
+        task_name: str,
+        project_name: str,
+        deadline: str,
+        instructions: str,
+        delivery_mode: str,
+        delivery_policy_json: str,
+        target_chat_id: str,
+        target_chat_name: str,
+        file_name: str,
+        result_hash: str,
+        snapshot_relative_path: str,
+        snapshot_absolute_path: str,
+    ) -> tuple[dict[str, Any], bool]:
+        """Start one explicit next review round while keeping the task and prior audit actions."""
+        now = feishu_app_bot.utc_now()
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM tasks WHERE task_id=? AND task_kind=?",
+                (task_id, TASK_KIND),
+            ).fetchone()
+            if not row:
+                raise DispatchValidationError("未找到上一轮网页复核任务", status_code=404)
+            task = dict(row)
+            if str(task.get("source_system") or "") != WEB_REVIEW_SOURCE_SYSTEM or str(
+                task.get("source_task_id") or ""
+            ) != str(source_job_id or ""):
+                raise DispatchValidationError("上一轮复核任务与当前网页成果不一致", status_code=409)
+            if str(task.get("platform_profile_id") or "") != str(platform_profile_id or ""):
+                raise DispatchValidationError("不能跨飞书平台续开复核轮次", status_code=409)
+
+            current_round = int(task.get("review_round") or 0)
+            expected_round = int(expected_review_round or 0)
+            if current_round > expected_round:
+                connection.rollback()
+                return self._with_reviewers(task), False
+            if current_round != expected_round:
+                raise DispatchValidationError("复核轮次已变化，请刷新后再试", status_code=409)
+            if str(task.get("status") or "") not in {"completed", "returned"}:
+                raise DispatchValidationError("当前复核仍在进行，不能并行发起新一轮", status_code=409)
+
+            next_round = current_round + 1
+            connection.execute("DELETE FROM dispatch_reviewers WHERE task_id=?", (task_id,))
+            connection.executemany(
+                """INSERT INTO dispatch_reviewers
+                (task_id,mapping_id,platform_user_id,display_name,status,review_round,updated_at)
+                VALUES (?,?,?,?,'pending',?,?)""",
+                [
+                    (
+                        task_id,
+                        item["mapping_id"],
+                        item["platform_user_id"],
+                        item["display_name"],
+                        next_round,
+                        now,
+                    )
+                    for item in reviewers
+                ],
+            )
+            connection.execute(
+                """UPDATE tasks SET
+                task_name=?,project_name=?,delivery_mode=?,delivery_policy_json=?,delivery_state_json='{}',
+                target_chat_id=?,target_chat_name=?,deadline=?,instructions=?,
+                template_asset_id=?,template_version=?,template_hash=?,template_source_path=?,task_excel_path=?,
+                submission_file_name=?,submission_excel_path=?,submission_hash=?,submission_message_id=?,
+                submission_received_at=?,submission_delivery_status='pending',
+                submission_delivery_message_ids='',submission_error='',
+                status='pending_review',stage='pending_review',review_round=?,
+                review_card_status='pending',review_card_message_id='',review_error='',
+                completion_card_status='',completion_card_message_id='',completion_error='',completed_at='',
+                updated_at=?
+                WHERE task_id=? AND task_kind=?""",
+                (
+                    task_name,
+                    project_name,
+                    delivery_mode,
+                    delivery_policy_json,
+                    target_chat_id,
+                    target_chat_name,
+                    deadline,
+                    instructions,
+                    file_name,
+                    f"web-{result_hash[:12]}-r{next_round}",
+                    result_hash,
+                    snapshot_relative_path,
+                    snapshot_relative_path,
+                    file_name,
+                    snapshot_absolute_path,
+                    result_hash,
+                    f"web:{source_job_id}:{result_hash[:12]}:r{next_round}",
+                    now,
+                    next_round,
+                    now,
+                    task_id,
+                    TASK_KIND,
+                ),
+            )
+            updated = connection.execute("SELECT * FROM tasks WHERE task_id=?", (task_id,)).fetchone()
+        return self._with_reviewers(dict(updated)), True
+
     def list_reviewers(self, task_id: str) -> list[dict[str, Any]]:
         with self._connect() as connection:
             rows = connection.execute(
@@ -1084,6 +1192,9 @@ class ExternalTaskDispatchService:
         instructions: str,
         delivery_mode: str,
         target_group_ref: str = "",
+        start_new_round: bool = False,
+        existing_task_id: str = "",
+        previous_review_round: int = 0,
     ) -> tuple[dict[str, Any], bool]:
         """Freeze a completed web result and enter the existing multi-review state machine."""
         clean_job_id = str(job_id or "").strip()
@@ -1142,6 +1253,75 @@ class ExternalTaskDispatchService:
                 raise DispatchValidationError("所选复核人不全在本次明确选择的工作群中，已拒绝投递", status_code=409)
 
         result_hash = hashlib.sha256(file_bytes).hexdigest()
+        if start_new_round:
+            clean_existing_task_id = str(existing_task_id or "").strip()
+            expected_round = int(previous_review_round or 0)
+            if not clean_existing_task_id or expected_round < 1:
+                raise DispatchValidationError("缺少上一轮复核任务或轮次，请刷新后再试", status_code=409)
+            prior_task = self.store.get_task(clean_existing_task_id)
+            if not prior_task:
+                raise DispatchValidationError("未找到上一轮网页复核任务", status_code=404)
+            if str(prior_task.get("source_system") or "") != WEB_REVIEW_SOURCE_SYSTEM or str(
+                prior_task.get("source_task_id") or ""
+            ) != clean_job_id:
+                raise DispatchValidationError("上一轮复核任务与当前网页成果不一致", status_code=409)
+            if str(prior_task.get("platform_profile_id") or "") != self.profile_id:
+                raise DispatchValidationError("不能跨飞书平台续开复核轮次", status_code=409)
+            current_round = int(prior_task.get("review_round") or 0)
+            if current_round > expected_round:
+                return public_dispatch_task(prior_task), False
+            if current_round != expected_round:
+                raise DispatchValidationError("复核轮次已变化，请刷新后再试", status_code=409)
+
+            next_round = current_round + 1
+            safe_result_name = feishu_app_bot.safe_filename(file_name)
+            snapshot_dir = self.runtime_root / "external-dispatch" / clean_existing_task_id / "submissions" / f"round-{next_round}"
+            snapshot_path = snapshot_dir / safe_result_name
+            temp_dir = self.runtime_root / "external-dispatch" / clean_existing_task_id / "submissions" / ".pending"
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            temp_path = temp_dir / f"{uuid4().hex}.xlsx"
+            temp_path.write_bytes(file_bytes)
+            delivery_policy = normalize_delivery_policy(
+                {stage: [clean_mode] for stage in DELIVERY_STAGES},
+                legacy_mode=clean_mode,
+            )
+            try:
+                task, started = self.store.start_web_review_round(
+                    clean_existing_task_id,
+                    platform_profile_id=self.profile_id,
+                    source_job_id=clean_job_id,
+                    expected_review_round=expected_round,
+                    reviewers=reviewers,
+                    task_name=clean_task_name,
+                    project_name=clean_project_name,
+                    deadline=clean_deadline,
+                    instructions=clean_instructions,
+                    delivery_mode=clean_mode,
+                    delivery_policy_json=json.dumps(delivery_policy, ensure_ascii=False, separators=(",", ":")),
+                    target_chat_id=target_chat_id,
+                    target_chat_name=target_chat_name,
+                    file_name=safe_result_name,
+                    result_hash=result_hash,
+                    snapshot_relative_path=self._runtime_relative(snapshot_path),
+                    snapshot_absolute_path=str(snapshot_path.resolve()),
+                )
+                if not started:
+                    return public_dispatch_task(task), False
+                snapshot_dir.mkdir(parents=True, exist_ok=True)
+                temp_path.replace(snapshot_path)
+            finally:
+                temp_path.unlink(missing_ok=True)
+            try:
+                task = deliver_review_bundle(
+                    clean_existing_task_id,
+                    profile_id=self.profile_id,
+                    feishu=self.feishu,
+                    store=self.store,
+                )
+            except Exception:
+                task = self.store.get_task(clean_existing_task_id) or task
+            return public_dispatch_task(task), True
+
         business_key = (
             f"{WEB_REVIEW_SOURCE_SYSTEM}\n{clean_job_id}\n"
             f"{WEB_REVIEW_EVENT_TYPE}:{result_hash}"

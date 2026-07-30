@@ -304,6 +304,53 @@ def build_knowledge_answer_prompt(
     ]
 
 
+def ensure_knowledge_answer(
+    answer: str | None,
+    question: str,
+    results: list[KnowledgeSearchResult],
+) -> str:
+    clean_answer = str(answer or "").strip()
+    if _has_substantive_answer(clean_answer):
+        return clean_answer
+
+    candidate = _best_structured_price_candidate(question, results)
+    if candidate:
+        fields = _snippet_fields(candidate.snippet)
+        item = " / ".join(
+            value
+            for key in ("要素1", "要素2", "要素3")
+            if (value := fields.get(key))
+        ) or "当前查询项目"
+        conditions = " / ".join(
+            _strip_field_prefix(value)
+            for key in ("要素4", "要素5")
+            if (value := fields.get(key))
+        ) or "以命中记录为准"
+        unit = fields.get("单位") or "未标注"
+        price = fields.get("基价") or fields.get("单价") or "未标注"
+        source = candidate.title_path or candidate.source_file
+        return "\n".join(
+            [
+                "智算解释：",
+                "",
+                "| 匹配项目 | 条件 | 单位 | 结构化计价库基价 | 来源定位 |",
+                "| --- | --- | --- | ---: | --- |",
+                f"| {item} | {conditions} | {unit} | {price} | {source} |",
+                "",
+                "该数值是知识库中的匹配候选；最终是否采用，仍由现有匹配程序和人工复核确定。",
+                "",
+                "提示：本回答只解释依据，不改变程序填价结果。",
+            ]
+        )
+
+    return (
+        "智算解释：\n\n"
+        "已检索到相关依据，但本次未生成有效的回答正文。"
+        "请根据下方依据摘要人工核对后再确定。\n\n"
+        "提示：本回答只解释依据，不改变程序填价结果。"
+    )
+
+
 def _is_dictionary_lookup_question(question: str) -> bool:
     clean = _normalize_text(question)
     return any(
@@ -320,6 +367,74 @@ def _is_dictionary_lookup_question(question: str) -> bool:
             "清单编码",
         )
     )
+
+
+def _has_substantive_answer(answer: str) -> bool:
+    if not answer or answer == NO_EVIDENCE_ANSWER:
+        return False
+    ignored_headings = {
+        "智算解释",
+        "正式依据",
+        "依据来源",
+        "项目记忆",
+        "提示",
+    }
+    for line in answer.replace("\r", "").split("\n"):
+        clean_line = re.sub(r"^[#>*\-\s]+|[*：:\s]+$", "", line).strip()
+        if not clean_line or clean_line in ignored_headings:
+            continue
+        if "本回答只解释依据" in clean_line or "不改变程序填价结果" in clean_line:
+            continue
+        return True
+    return False
+
+
+def _best_structured_price_candidate(
+    question: str,
+    results: list[KnowledgeSearchResult],
+) -> KnowledgeSearchResult | None:
+    normalized_question = _normalize_text(question)
+    candidates: list[tuple[int, float, KnowledgeSearchResult]] = []
+    for result in results:
+        if "03-知识库-二维数据库制作/【数据库】【导入】.xlsx" not in result.source_file:
+            continue
+        fields = _snippet_fields(result.snippet)
+        if not (fields.get("基价") or fields.get("单价")):
+            continue
+        matches = 0
+        for key in ("要素1", "要素2", "要素3", "要素4", "要素5"):
+            value = _normalize_text(_strip_field_prefix(fields.get(key, "")))
+            if _field_value_matches_question(value, normalized_question):
+                matches += 1
+        if matches >= 2:
+            candidates.append((matches, result.score, result))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    return candidates[0][2]
+
+
+def _field_value_matches_question(value: str, normalized_question: str) -> bool:
+    if len(value) < 2:
+        return False
+    roman_class = re.fullmatch(r"([ivx]+)类", value)
+    if roman_class:
+        question_classes = re.findall(r"(?<![a-z])([ivx]+)类", normalized_question)
+        return roman_class.group(1) in question_classes
+    return value in normalized_question
+
+
+def _snippet_fields(snippet: str) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    for line in snippet.splitlines():
+        key, separator, value = line.partition("：")
+        if separator and key.strip() and value.strip():
+            fields[key.strip()] = value.strip()
+    return fields
+
+
+def _strip_field_prefix(value: str) -> str:
+    return re.sub(r"^(?:级别|比例)[-－—:：]?", "", value).strip()
 
 
 def load_or_build_index(
@@ -666,6 +781,17 @@ def _price_database_affinity_score(chunk: KnowledgeChunk, terms: dict[str, float
     score = 14.0 + min(len(strong_terms), 8) * 5.0
     if any(term.startswith("比例-") and term in content for term in clean_terms):
         score += 12.0
+    roman_classes = {
+        match.group(1)
+        for term in clean_terms
+        if (match := re.fullmatch(r"([ivx]+)(?:类)?", term))
+    }
+    if roman_classes:
+        content_classes = set(re.findall(r"级别-([ivx]+)类", content))
+        if roman_classes & content_classes:
+            score += 28.0
+        elif content_classes:
+            score -= 18.0
     for level in ("简单", "中等", "复杂"):
         if level not in clean_terms:
             continue
@@ -808,6 +934,22 @@ def _relative_path(path: Path, project_root: Path) -> str:
 
 def _normalize_text(value: Any) -> str:
     text = "" if value is None else str(value)
+    text = text.translate(
+        str.maketrans(
+            {
+                "Ⅰ": "I",
+                "Ⅱ": "II",
+                "Ⅲ": "III",
+                "Ⅳ": "IV",
+                "Ⅴ": "V",
+                "Ⅵ": "VI",
+                "Ⅶ": "VII",
+                "Ⅷ": "VIII",
+                "Ⅸ": "IX",
+                "Ⅹ": "X",
+            }
+        )
+    )
     text = text.replace("％", "%")
     text = text.replace("：", ":")
     text = text.replace("（", "(").replace("）", ")")
