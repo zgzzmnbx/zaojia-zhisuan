@@ -1182,13 +1182,15 @@ button {
 }
 
 .shell.layout-daweiba .daweiba-module-copy strong {
-  font-size: 13px;
-  font-weight: 750;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.35;
 }
 
 .shell.layout-daweiba .daweiba-module-copy small {
   color: var(--db-text-muted);
-  font-size: 11px;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .shell.layout-daweiba .daweiba-nav-context {
@@ -14090,7 +14092,7 @@ tbody tr:hover .row-ai-cell {
   grid-template-columns: 32px minmax(0, 1fr);
   gap: 10px;
   min-height: 50px;
-  padding: 9px 12px;
+  padding: 5px 12px;
   border-color: transparent;
   border-radius: 8px;
   background: transparent;
@@ -14112,6 +14114,7 @@ tbody tr:hover .row-ai-cell {
 .shell.layout-daweiba .daweiba-module-item.is-active .daweiba-module-copy strong {
   color: var(--db-text-strong);
   font-weight: 600;
+  line-height: 1.35;
 }
 
 .shell.layout-daweiba .daweiba-module-icon {
