@@ -283,6 +283,8 @@ def build_knowledge_answer_prompt(
             "1. 如果检索资料中有来自 `03-知识库-二维数据库制作/【数据库】【导入】.xlsx` 的明确候选行，优先说明该行的序号、要素1-5、单位、基价和两个调整系数。",
             "2. 如果用户条件不足以唯一确定，但检索资料中有多个相似结构化计价库候选，不要直接说未找到依据；请列出 3-5 个候选项，并提示用户补充复杂程度、单位、比例尺或场景。",
             "3. 只有在没有结构化计价库候选且没有标准资料依据时，才回答当前知识库未找到明确依据，需要人工复核。",
+            "4. 即使无法完整组织长答案，也必须先给出至少一条基于证据的具体结论；禁止只输出标题、空章节或‘已检索到依据’这类无结论内容。",
+            "5. 只要【正式知识与规则依据】已有资料，禁止输出‘未找到明确依据’、‘未生成有效的回答正文’或要求用户仅凭依据摘要人工核对；必须引用至少一条具体数值、规则或来源定位。",
         ]
     )
     return [
@@ -343,11 +345,82 @@ def ensure_knowledge_answer(
             ]
         )
 
+    evidence_fallback = _build_evidence_fallback_answer(question, results)
+    if evidence_fallback:
+        return evidence_fallback
+
     return (
         "智算解释：\n\n"
-        "已检索到相关依据，但本次未生成有效的回答正文。"
-        "请根据下方依据摘要人工核对后再确定。\n\n"
+        "当前检索结果只有零散依据，暂不能形成明确结论。请补充工作表、业务类别、复杂程度、单位或比例尺后再查询。\n\n"
         "提示：本回答只解释依据，不改变程序填价结果。"
+    )
+
+
+def _build_evidence_fallback_answer(
+    question: str,
+    results: list[KnowledgeSearchResult],
+) -> str:
+    """在模型只返回标题或空正文时，用已检索证据生成可读的最小答案。"""
+    if not results:
+        return ""
+
+    clean_question = _normalize_text(question)
+    evidence = "\n".join(result.snippet for result in results)
+    source_labels: list[str] = []
+    for result in results[:3]:
+        label = (result.title_path or result.source_file).strip()
+        if label and label not in source_labels:
+            source_labels.append(label)
+
+    if "技术工作费" in clean_question or "技术系数" in clean_question:
+        rows: list[tuple[str, str, str]] = []
+        if "表2" in evidence and "0.22" in evidence:
+            rows.append(("表2—通用工程测量费用", "普通工程测量默认", "0.22"))
+        if re.search(r"线路航测[^\n]{0,120}(?:\|\s*0(?:\.0+)?\b|系数(?:为|=)[：:\s]*0)", evidence):
+            rows.append(("表2—通用工程测量费用", "线路航测", "0（按专项规则）"))
+        if re.search(r"走向图编制[^\n]{0,120}(?:\|\s*0(?:\.0+)?\b|系数(?:为|=)[：:\s]*0)", evidence):
+            rows.append(("表2—通用工程测量费用", "走向图编制", "0（按专项规则）"))
+        if "表3" in evidence and "1.2 / 1.0 / 0.8" in evidence:
+            rows.append(("表3—地质测绘", "岩土工程勘察甲/乙/丙级", "1.2 / 1.0 / 0.8"))
+        if "表4" in evidence and "水文地质" in evidence:
+            rows.append(("表4—通用工程勘察费用", "按业务类别和复杂程度分流", "见专项规则"))
+        if "工程水文" in evidence and "0.22" in evidence:
+            rows.append(("表4—通用工程勘察费用", "工程水文/工程气象、工程物探", "0.22"))
+        if "室内试验" in evidence and "0.10" in evidence:
+            rows.append(("表4—通用工程勘察费用", "室内试验", "0.10"))
+
+        if rows:
+            unique_rows = list(dict.fromkeys(rows))
+            table = [
+                "| 分流范围 | 判定条件 | 技术工作费调整系数 |",
+                "| --- | --- | ---: |",
+                *[f"| {scope} | {condition} | {value} |" for scope, condition, value in unique_rows],
+            ]
+            source_text = "；".join(source_labels[:2]) or "检索到的技术工作费规则资料"
+            return (
+                "智算解释：\n\n"
+                "技术工作费调整系数按“先判定工作表，再判定业务大类，最后按类别字段映射”的顺序确定，不是所有表共用一张系数表。\n\n"
+                + "\n".join(table)
+                + "\n\n正式依据："
+                + source_text
+                + "。"
+                + _technical_fee_conflict_note(evidence)
+                + "\n\n提示：本回答只解释依据，不改变程序填价结果；具体行若存在专项口径，仍以对应规则和人工复核为准。"
+            )
+
+    snippets: list[str] = []
+    for result in results[:3]:
+        snippet = re.sub(r"filecite[^]*", "", result.snippet).strip()
+        snippet = re.sub(r"\s+", " ", snippet)
+        if snippet and snippet not in snippets:
+            snippets.append(snippet[:360] + ("…" if len(snippet) > 360 else ""))
+    if not snippets:
+        return ""
+    source_text = "；".join(source_labels[:2]) or "检索结果"
+    return (
+        "智算解释：\n\n根据已检索到的依据，可先确认：\n"
+        + "\n".join(f"- {snippet}" for snippet in snippets)
+        + f"\n\n正式依据：{source_text}。\n\n提示：本回答只解释依据，不改变程序填价结果。"
     )
 
 
@@ -372,6 +445,8 @@ def _is_dictionary_lookup_question(question: str) -> bool:
 def _has_substantive_answer(answer: str) -> bool:
     if not answer or answer == NO_EVIDENCE_ANSWER:
         return False
+    if _is_model_answer_stub(answer):
+        return False
     ignored_headings = {
         "智算解释",
         "正式依据",
@@ -387,6 +462,35 @@ def _has_substantive_answer(answer: str) -> bool:
             continue
         return True
     return False
+
+
+def _is_model_answer_stub(answer: str) -> bool:
+    """识别模型把“有依据但没组织出答案”原样返回的占位话术。"""
+    normalized = _normalize_text(answer)
+    if not normalized:
+        return True
+    if "未生成有效的回答正文" in normalized:
+        return True
+    if "已检索到相关依据" in normalized and (
+        "人工核对后再确定" in normalized or "未生成有效" in normalized
+    ):
+        return True
+    if "未找到明确依据" in normalized and "人工复核" in normalized:
+        return True
+    if "当前检索结果只有零散依据" in normalized and "再查询" in normalized:
+        return True
+    return False
+
+
+def _technical_fee_conflict_note(evidence: str) -> str:
+    if "2009" not in evidence:
+        return ""
+    if not any(marker in evidence for marker in ("线路航测", "走向图编制")):
+        return ""
+    return (
+        "\n\n说明：检索资料同时保留了 2009 成本定额行“显示 0.22 但不参与技术工作费小计”的历史说明；"
+        "当前项目第一层规则对线路航测、走向图编制明确输出 0。前者是显示值/计费参与属性，后者是当前规则输出值，使用时不要混淆。"
+    )
 
 
 def _best_structured_price_candidate(

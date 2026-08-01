@@ -148,8 +148,8 @@ def test_project_default_settings_include_zhisuan_window():
     assert payload["zhisuanWindow"]["welcomeMessage"]
     assert payload["zhisuanWindow"]["quickSettings"]["autoHide"] is True
     assert payload["zhisuanWindow"]["quickSettings"]["customPrompts"] == ["#知识库："]
-    assert payload["zhisuanWindow"]["commonQuestions"][0].startswith("表4水文地质勘察")
-    assert len(payload["zhisuanWindow"]["commonQuestions"]) == 6
+    assert payload["zhisuanWindow"]["commonQuestions"][0].startswith("解释0.22技术工作费调整系数")
+    assert len(payload["zhisuanWindow"]["commonQuestions"]) == 18
     assert payload["knowledgeMemory"]["autoApproveTypes"] == ["operation", "general_explanation"]
     assert payload["knowledgeMemory"]["duplicateSimilarityThreshold"] == 0.92
     assert payload["professionalSkills"]["defaultSkillId"] == "survey-measurement-limit-price"
@@ -2945,6 +2945,75 @@ def test_knowledge_ask_uses_evidence_bounded_prompt(monkeypatch):
     assert "0.22 是哪来的？" in user_prompt
     assert "不输出完整目录路径" in user_prompt
     assert "secret-from-backend-env" not in str(payload["debug"])
+
+
+def test_knowledge_ask_uses_evidence_fallback_when_model_returns_empty_sections(monkeypatch):
+    import app.main as main_module
+
+    def fake_call_chat_completion(config, messages):
+        return "智算解释：\n\n正式依据：\n\n提示：本回答只解释依据，不改变程序填价结果。"
+
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "secret-from-backend-env")
+    monkeypatch.setattr(main_module, "call_chat_completion", fake_call_chat_completion)
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/knowledge/ask",
+        json={"question": "技术工作费调整系数如何确定？", "model": "demo-model"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["evidence_found"] is True
+    assert "先判定工作表" in payload["answer"]
+    assert "线路航测" in payload["answer"]
+    assert "本次未生成有效" not in payload["answer"]
+
+
+def test_knowledge_ask_replaces_model_failure_sentence_with_evidence_fallback(monkeypatch):
+    import app.main as main_module
+
+    def fake_call_chat_completion(config, messages):
+        return "已检索到相关依据，但本次未生成有效的回答正文。请根据下方依据摘要人工核对后再确定。"
+
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "secret-from-backend-env")
+    monkeypatch.setattr(main_module, "call_chat_completion", fake_call_chat_completion)
+
+    response = TestClient(app).post(
+        "/api/knowledge/ask",
+        json={"question": "技术工作费调整系数如何确定？", "model": "demo-model"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "先判定工作表" in payload["answer"]
+    assert "线路航测" in payload["answer"]
+    assert "未生成有效的回答正文" not in payload["answer"]
+    assert payload["debug"]["temperature"] == 0.0
+
+
+def test_technical_fee_question_drops_unrelated_confirmed_memories():
+    import app.main as main_module
+
+    memories = [
+        {
+            "title": "新疆地区差异调整系数",
+            "question": "新疆地区场站和输送管道地区差异调整系数是多少？",
+            "conclusion": "场站 0.13，输送管道 0.067。",
+        },
+        {
+            "title": "技术工作费调整系数说明",
+            "question": "技术工作费调整系数如何确定？",
+            "conclusion": "先按工作表和业务类别分流。",
+        },
+    ]
+
+    filtered = main_module._filter_project_memories_for_question(
+        "技术工作费调整系数如何确定？",
+        memories,
+    )
+
+    assert [item["title"] for item in filtered] == ["技术工作费调整系数说明"]
 
 
 def test_knowledge_ask_strips_force_knowledge_prefix(monkeypatch):

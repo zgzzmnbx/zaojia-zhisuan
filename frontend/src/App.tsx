@@ -2,6 +2,7 @@ import { CSSProperties, ChangeEvent, DragEvent, KeyboardEvent, lazy, MouseEvent,
 import {
   AlertTriangle,
   Bot,
+  Brain,
   BookOpen,
   ChevronDown,
   CheckCircle2,
@@ -745,12 +746,24 @@ const DEFAULT_ZHISUAN_WINDOW_SETTINGS: ZhisuanWindowSettings = {
   dockStyle: "default",
   showAssistantAvatar: false,
   commonQuestions: [
+    "解释0.22技术工作费调整系数：哪些表2项目虽然显示0.22但不参与金额计算？请用表格回答适用对象、系数、是否参与金额和正式依据。",
+    "实物工作费调整系数如何确定？请说明正式规则、适用条件和人工复核边界。",
+    "技术工作费调整系数如何确定？请说明第一层标准规则、第二层经验提示和人工复核边界。",
+    "走向图编制、地图编制Ⅱ类1:50000价格如何确定？以及相邻比例价格如何确定？请说明基价、单位、匹配规则和来源定位。",
     "表4水文地质勘察简单、中等、复杂技术工作费调整系数分别是多少？请用表格回答。",
     "新疆地区场（站）和输送管道地区差异调整系数分别是多少？请用表格回答。",
     "查清单编码11301001，只回答清单名称、单位、清单单价、规费、安全生产费和来源定位。",
     "对比清单编码11301001、11301002、11301003，只回答清单名称、单位、清单单价、规费、安全生产费和来源定位。",
     "附加调整系数为什么不能连乘？",
     "第二层经验提示是什么意思？",
+    "查清单编码10101002，只回答清单名称、单位、清单单价、规费、安全生产费和来源定位。",
+    "GPS测量E级中等的基价是多少？请说明来源定位。",
+    "为什么价格和调整系数不能由大模型直接修改？",
+    "项目正式知识库、造价通用知识库和已确认知识记忆有什么区别？",
+    "表2中的线路航测、走向图编制和其他普通项目，技术工作费调整系数分别如何处理？请用表格回答项目类型、系数、是否参与金额和规则优先级。",
+    "第一层标准规则未命中、第二层经验提示命中时，为什么结果必须标黄？请说明正式性、报告标注和人工复核要求。",
+    "查平均海拔大于等于2500米时的高原地区施工增加费，只回答场站系数、输送管道系数、西藏地区说明和来源定位，用Markdown表格。",
+    "查清单编码10701035，只回答清单名称、项目特征、单位、清单单价、规费、安全生产费和来源定位，用Markdown表格。",
   ],
 };
 const ZHISUAN_AVATAR_STATE_LABELS: Record<ZhisuanAvatarState, string> = {
@@ -1747,7 +1760,7 @@ function normalizeZhisuanDockStyle(value: unknown): ZhisuanDockStyle {
 function normalizeZhisuanWindowSettings(raw?: ZhisuanWindowSettingsPayload): ZhisuanWindowSettings {
   const welcomeMessage = String(raw?.welcomeMessage ?? "").replace(/\r/g, "").trim();
   const commonQuestions = Array.isArray(raw?.commonQuestions)
-    ? Array.from(new Set(raw.commonQuestions.map((value) => String(value).trim()).filter(Boolean))).slice(0, 12)
+    ? Array.from(new Set(raw.commonQuestions.map((value) => String(value).trim()).filter(Boolean)))
     : DEFAULT_ZHISUAN_WINDOW_SETTINGS.commonQuestions;
   return {
     chatHeight: clampZhisuanChatHeight(raw?.chatHeight),
@@ -7651,7 +7664,7 @@ function DaweibaApp() {
     if (/工作量|抓取/.test(text)) {
       return { tone: "table", icon: <Columns3 size={14} /> };
     }
-    if (/依据|来源|规则|知识/.test(text)) {
+    if (/智算解释|依据|来源|规则|知识/.test(text)) {
       return { tone: "knowledge", icon: <BookOpen size={14} /> };
     }
     if (/开始|编制|上传|转换|预览|表格|Sheet|输入|列映射/.test(text)) {
@@ -8125,6 +8138,79 @@ function DaweibaApp() {
     );
   }
 
+  function renderKnowledgeMemoryHits(message: ChatMessage) {
+    const memories = message.projectMemories ?? [];
+    if (message.role !== "assistant" || message.isTyping || memories.length === 0) return null;
+    return (
+      <details className="knowledge-evidence-details knowledge-memory-hit-list">
+        <summary>
+          <span>已确认记忆</span>
+          <small>{memories.length} 条</small>
+          <ChevronDown size={14} aria-hidden="true" />
+        </summary>
+        <div className="knowledge-memory-hit-list__items">
+          {memories.map((memory) => (
+            <button
+              key={memory.id}
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                setKnowledgeProjectName(memory.project_name);
+                setKnowledgeProjectKey(memory.project_key);
+                setIsKnowledgeMemoryOpen(true);
+                void selectKnowledgeMemory(memory);
+              }}
+            >
+              <span>{memory.scope_type === "general" ? "通用知识" : "项目记忆"}</span>
+              <strong>{memory.title}</strong>
+              <small>{memory.project_name} · {memory.confirmer || "未记录确认人"}</small>
+            </button>
+          ))}
+        </div>
+      </details>
+    );
+  }
+
+  function renderKnowledgeMemorySection(message: ChatMessage) {
+    if (message.role !== "assistant" || message.isTyping) return null;
+    const memories = message.projectMemories ?? [];
+    const hasCandidate = Boolean(message.knowledgeCandidate);
+    if (memories.length === 0 && !hasCandidate) return null;
+    return (
+      <section className="knowledge-evidence-summary knowledge-memory-summary" aria-label="知识记忆">
+        <div className="knowledge-evidence-summary__head">
+          <span className="knowledge-evidence-summary__icon" aria-hidden="true">
+            <Brain size={15} />
+          </span>
+          <div>
+            <strong>知识记忆</strong>
+            <small>
+              {memories.length > 0
+                ? `本次回答引用 ${memories.length} 条已确认记忆`
+                : "可将本次回答保存为知识候选"}
+            </small>
+          </div>
+          {message.knowledgeCandidate && (
+            <button
+              className="zhisuan-action-button secondary knowledge-memory-summary__save"
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                openKnowledgeCandidate(message.knowledgeCandidate!);
+              }}
+            >
+              <Database size={13} aria-hidden="true" />
+              记忆保存
+            </button>
+          )}
+        </div>
+        <div className="knowledge-memory-summary__body">
+          {renderKnowledgeMemoryHits(message)}
+        </div>
+      </section>
+    );
+  }
+
   function zhisuanMessageDisplayText(message: ChatMessage) {
     const content = message.role === "assistant"
       ? (message.displayContent ?? message.content)
@@ -8197,31 +8283,7 @@ function DaweibaApp() {
         {message.role === "assistant" && !message.isTyping && renderZhisuanInlineAction(message)}
         {message.role === "assistant" && !message.isTyping && renderKnowledgeEvidenceSummary(message)}
         {message.role === "assistant" && message.isTyping && <i className="typing-caret" />}
-        {message.role === "assistant" && !message.isTyping && (message.projectMemories?.length ?? 0) > 0 && (
-          <div className="knowledge-memory-hit-list">
-            <div className="knowledge-memory-hit-list__head">
-              <span>已确认知识记忆</span>
-              <small>{message.projectMemories?.length} 条</small>
-            </div>
-            {message.projectMemories?.map((memory) => (
-              <button
-                key={memory.id}
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setKnowledgeProjectName(memory.project_name);
-                  setKnowledgeProjectKey(memory.project_key);
-                  setIsKnowledgeMemoryOpen(true);
-                  void selectKnowledgeMemory(memory);
-                }}
-              >
-                <span>{memory.scope_type === "general" ? "通用知识" : "项目记忆"}</span>
-                <strong>{memory.title}</strong>
-                <small>{memory.project_name} · {memory.confirmer || "未记录确认人"}</small>
-              </button>
-            ))}
-          </div>
-        )}
+        {renderKnowledgeMemorySection(message)}
         {message.role === "assistant" && !message.isTyping && message.rowDetailContext && (
           <div className="zhisuan-message-actions">
             <button
@@ -8234,23 +8296,6 @@ function DaweibaApp() {
             >
               <BookOpen size={14} />
               详细情况
-            </button>
-          </div>
-        )}
-        {message.role === "assistant" && !message.isTyping && message.knowledgeCandidate && (
-          <div className="zhisuan-message-actions">
-            <button
-              className="zhisuan-action-button secondary knowledge-candidate-action"
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                openKnowledgeCandidate(message.knowledgeCandidate!);
-              }}
-            >
-              <span className="knowledge-evidence-summary__icon" aria-hidden="true">
-                <Database size={15} />
-              </span>
-              <span>保存为知识候选</span>
             </button>
           </div>
         )}
@@ -11235,31 +11280,7 @@ function DaweibaApp() {
                               {message.role === "assistant" && !message.isTyping && renderZhisuanInlineAction(message)}
                               {message.role === "assistant" && !message.isTyping && renderKnowledgeEvidenceSummary(message)}
                               {message.role === "assistant" && message.isTyping && <i className="typing-caret" />}
-                              {message.role === "assistant" && !message.isTyping && (message.projectMemories?.length ?? 0) > 0 && (
-                                <div className="knowledge-memory-hit-list">
-                                  <div className="knowledge-memory-hit-list__head">
-                                    <span>已确认知识记忆</span>
-                                    <small>{message.projectMemories?.length} 条</small>
-                                  </div>
-                                  {message.projectMemories?.map((memory) => (
-                                    <button
-                                      key={memory.id}
-                                      type="button"
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        setKnowledgeProjectName(memory.project_name);
-                                        setKnowledgeProjectKey(memory.project_key);
-                                        setIsKnowledgeMemoryOpen(true);
-                                        void selectKnowledgeMemory(memory);
-                                      }}
-                                    >
-                                      <span>{memory.scope_type === "general" ? "通用知识" : "项目记忆"}</span>
-                                      <strong>{memory.title}</strong>
-                                      <small>{memory.project_name} · {memory.confirmer || "未记录确认人"}</small>
-                                    </button>
-                                  ))}
-                                </div>
-                              )}
+                              {renderKnowledgeMemorySection(message)}
                               {message.role === "assistant" && !message.isTyping && message.rowDetailContext && (
                                 <div className="zhisuan-message-actions">
                                   <button
@@ -11272,23 +11293,6 @@ function DaweibaApp() {
                                   >
                                     <BookOpen size={14} />
                                     详细情况
-                                  </button>
-                                </div>
-                              )}
-                              {message.role === "assistant" && !message.isTyping && message.knowledgeCandidate && (
-                                <div className="zhisuan-message-actions">
-                                  <button
-                                    className="zhisuan-action-button secondary knowledge-candidate-action"
-                                    type="button"
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      openKnowledgeCandidate(message.knowledgeCandidate!);
-                                    }}
-                                  >
-                                    <span className="knowledge-evidence-summary__icon" aria-hidden="true">
-                                      <Database size={15} />
-                                    </span>
-                                    <span>保存为知识候选</span>
                                   </button>
                                 </div>
                               )}

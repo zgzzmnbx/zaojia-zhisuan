@@ -130,7 +130,7 @@
       "backend/app/rules/physical_factor_rules.xlsx",
       "backend/app/rules/physical_factor_overrides.xlsx"
     ],
-    "validationSample": "03-知识库-二维数据库制作/输入100 和 空单价100.xlsx"
+    "validationSample": "03-知识库-二维数据库制作/【项目例子】【测试输入】可行性研究勘察测量控制价计算 -v3.1【批注-完备】.xlsx"
   },
   "runtime": {
     "processorId": "survey-measurement-v1",

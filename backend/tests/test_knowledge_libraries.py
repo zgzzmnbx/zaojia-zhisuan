@@ -179,6 +179,88 @@ def test_empty_model_answer_falls_back_to_exact_structured_price_candidate():
     assert "最终是否采用" in answer
 
 
+def test_empty_model_answer_falls_back_to_technical_fee_rules():
+    results = [
+        KnowledgeSearchResult(
+            id="technical-rules",
+            source_file="03-【匹配规则】-勘察测绘知识库-匹配规则提炼/规则.md",
+            source_type="project_rule",
+            title_path="规则总览 / 技术工作费调整系数",
+            snippet=(
+                "技术工作费调整系数按工作表、业务大类和类别字段分流。\n"
+                "表2-通用工程测量费用：线路航测 | 0；走向图编制 | 0；其他默认 | 0.22。\n"
+                "表3-地质测绘：岩土工程勘察甲/乙/丙级 | 1.2 / 1.0 / 0.8。\n"
+                "表4-通用工程勘察费用：工程水文/工程气象 | 0.22；室内试验 | 0.10。"
+            ),
+            score=120.0,
+            module="技术工作费调整系数",
+        )
+    ]
+
+    answer = ensure_knowledge_answer(
+        "智算解释：\n\n正式依据：\n\n提示：本回答只解释依据，不改变程序填价结果。",
+        "技术工作费调整系数如何确定？",
+        results,
+    )
+
+    assert "先判定工作表" in answer
+    assert "线路航测" in answer
+    assert "0.22" in answer
+    assert "室内试验" in answer
+    assert "本次未生成有效" not in answer
+
+
+def test_model_failure_sentence_falls_back_to_technical_fee_rules():
+    results = [
+        KnowledgeSearchResult(
+            id="technical-rules",
+            source_file="03-【匹配规则】-勘察测绘知识库-匹配规则提炼/规则.md",
+            source_type="project_rule",
+            title_path="规则总览 / 技术工作费调整系数",
+            snippet=(
+                "技术工作费调整系数按工作表、业务大类和类别字段分流。\n"
+                "表2-通用工程测量费用：线路航测 | 0；走向图编制 | 0；其他默认 | 0.22。\n"
+                "表3-地质测绘：岩土工程勘察甲/乙/丙级 | 1.2 / 1.0 / 0.8。"
+            ),
+            score=120.0,
+            module="技术工作费调整系数",
+        )
+    ]
+
+    answer = ensure_knowledge_answer(
+        "已检索到相关依据，但本次未生成有效的回答正文。请根据下方依据摘要人工核对后再确定。",
+        "技术工作费调整系数如何确定？",
+        results,
+    )
+
+    assert "先判定工作表" in answer
+    assert "线路航测" in answer
+    assert "未生成有效的回答正文" not in answer
+
+
+def test_no_evidence_sentence_with_evidence_falls_back_to_technical_fee_rules():
+    results = [
+        KnowledgeSearchResult(
+            id="technical-rules",
+            source_file="03-【匹配规则】-勘察测绘知识库-匹配规则提炼/规则.md",
+            source_type="project_rule",
+            title_path="规则总览 / 技术工作费调整系数",
+            snippet="表2-通用工程测量费用：线路航测 | 0；其他默认 | 0.22。",
+            score=120.0,
+            module="技术工作费调整系数",
+        )
+    ]
+
+    answer = ensure_knowledge_answer(
+        "智算解释：当前知识库未找到明确依据，需要人工复核。",
+        "技术工作费调整系数如何确定？",
+        results,
+    )
+
+    assert "先判定工作表" in answer
+    assert "线路航测" in answer
+
+
 def test_library_selection_isolates_static_sources_and_memory(tmp_path):
     project_root = tmp_path / "project"
     core_source = project_root / "core.md"

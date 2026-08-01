@@ -96,10 +96,9 @@ from .workload_capture import (
 )
 from .llm import (
     DEFAULT_BASE_URL,
-    DEFAULT_MAX_TOKENS,
     DEFAULT_MODEL,
     DEFAULT_PROVIDER,
-    DEFAULT_TEMPERATURE,
+    KNOWLEDGE_QA_TEMPERATURE,
     LlmConfig,
     build_risk_prompt,
     call_chat_completion,
@@ -1998,6 +1997,12 @@ async def llm_chat(
     config = LlmConfig(provider=provider, model=model, base_url=base_url)
     knowledge_message, force_knowledge = strip_force_knowledge_prefix(clean_message)
     if force_knowledge:
+        config = LlmConfig(
+            provider=provider,
+            model=model,
+            base_url=base_url,
+            temperature=KNOWLEDGE_QA_TEMPERATURE,
+        )
         if not knowledge_message:
             raise HTTPException(status_code=400, detail="请输入查库问题")
         results = search_knowledge(knowledge_message, limit=8)
@@ -2025,7 +2030,7 @@ async def llm_chat(
         return {
             "provider": provider,
             "model": model,
-            "answer": answer or NO_EVIDENCE_ANSWER,
+            "answer": ensure_knowledge_answer(answer, knowledge_message, results),
             "forced_knowledge": True,
             "evidence_found": True,
             "sources": [result.__dict__ for result in results],
@@ -2248,7 +2253,12 @@ async def knowledge_ask(payload: dict[str, Any] = Body(...)) -> dict[str, object
     provider = str(payload.get("provider") or DEFAULT_PROVIDER)
     model = str(payload.get("model") or DEFAULT_MODEL)
     base_url = str(payload.get("base_url") or DEFAULT_BASE_URL)
-    config = LlmConfig(provider=provider, model=model, base_url=base_url)
+    config = LlmConfig(
+        provider=provider,
+        model=model,
+        base_url=base_url,
+        temperature=KNOWLEDGE_QA_TEMPERATURE,
+    )
     messages = build_knowledge_answer_prompt(
         question,
         results,
@@ -2497,17 +2507,41 @@ def _safe_search_project_memories(
     limit: int,
 ) -> tuple[list[dict[str, Any]], bool]:
     try:
-        return (
-            search_confirmed_project_memory(
-                question,
-                project_key,
-                limit=limit,
-                db_path=DEFAULT_KNOWLEDGE_MEMORY_DB_PATH,
-            ),
-            True,
+        memories = search_confirmed_project_memory(
+            question,
+            project_key,
+            limit=limit,
+            db_path=DEFAULT_KNOWLEDGE_MEMORY_DB_PATH,
         )
+        return _filter_project_memories_for_question(question, memories), True
     except (OSError, sqlite3.Error):
         return [], False
+
+
+def _filter_project_memories_for_question(
+    question: str,
+    memories: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """避免无关的已确认记忆污染正式规则问答提示词。"""
+    if not memories:
+        return []
+    clean_question = re.sub(r"\s+", "", str(question or ""))
+    required_terms: tuple[str, ...] = ()
+    if "技术工作费" in clean_question or "技术系数" in clean_question:
+        required_terms = ("技术工作费", "技术系数", "工程测量技术工作费")
+    elif "实物工作费" in clean_question or "实物系数" in clean_question:
+        required_terms = ("实物工作费", "实物系数", "附加调整系数")
+    if not required_terms:
+        return memories
+    filtered: list[dict[str, Any]] = []
+    for memory in memories:
+        searchable = "".join(
+            str(memory.get(field) or "")
+            for field in ("title", "question", "conclusion", "conditions", "exceptions")
+        )
+        if any(term in searchable for term in required_terms):
+            filtered.append(memory)
+    return filtered
 
 
 def _knowledge_memory_no_evidence_answer(question: str) -> str:
@@ -2617,8 +2651,8 @@ def _build_llm_debug(config: LlmConfig, messages: list[dict[str, str]], prompt_p
         "provider": config.provider,
         "model": config.model,
         "base_url": config.base_url,
-        "temperature": DEFAULT_TEMPERATURE,
-        "max_tokens": DEFAULT_MAX_TOKENS,
+        "temperature": config.temperature,
+        "max_tokens": config.max_tokens,
         "messages": messages,
         "prompt_markdown": str(prompt_path) if prompt_path else "",
     }
@@ -2694,8 +2728,8 @@ def _write_llm_prompt_markdown(
         f"- Provider：{config.provider}",
         f"- Model：{config.model}",
         f"- Base URL：{config.base_url}",
-        f"- Temperature：{DEFAULT_TEMPERATURE}",
-        f"- Max tokens：{DEFAULT_MAX_TOKENS}",
+        f"- Temperature：{config.temperature}",
+        f"- Max tokens：{config.max_tokens}",
         "",
         "> 本文件只记录发送给大模型的提示词，不包含 API Key。",
         "",
@@ -4276,8 +4310,6 @@ def _project_zhisuan_window_defaults() -> dict[str, object]:
             question = str(value).strip()
             if question and question not in common_questions:
                 common_questions.append(question)
-            if len(common_questions) >= 12:
-                break
     return {
         "chatHeight": _project_default_int(section, "chatHeight", 430, 300, 720),
         "dockWidth": _project_default_int(section, "dockWidth", 400, 300, 560),

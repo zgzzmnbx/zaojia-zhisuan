@@ -21,6 +21,7 @@ DEFAULT_PROVIDER = PROVIDER_DEEPSEEK
 DEFAULT_MODEL = "deepseek-v4-flash"
 DEFAULT_BASE_URL = "https://api.deepseek.com"
 DEFAULT_TEMPERATURE = 0.2
+KNOWLEDGE_QA_TEMPERATURE = 0.0
 DEFAULT_MAX_TOKENS = 1800
 NETWORK_ATTEMPTS = 3
 NETWORK_RETRY_DELAYS = (0.5, 1.5)
@@ -31,6 +32,8 @@ class LlmConfig:
     provider: str = DEFAULT_PROVIDER
     model: str = DEFAULT_MODEL
     base_url: str = DEFAULT_BASE_URL
+    temperature: float = DEFAULT_TEMPERATURE
+    max_tokens: int = DEFAULT_MAX_TOKENS
 
     def resolved_api_key(self) -> str:
         key_name = self.api_key_env_name()
@@ -74,8 +77,8 @@ def call_chat_completion(config: LlmConfig, messages: list[dict[str, str]]) -> s
         {
             "model": config.model,
             "messages": messages,
-            "temperature": DEFAULT_TEMPERATURE,
-            "max_tokens": DEFAULT_MAX_TOKENS,
+            "temperature": config.temperature,
+            "max_tokens": config.max_tokens,
         },
         ensure_ascii=False,
     ).encode("utf-8")

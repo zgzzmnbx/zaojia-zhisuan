@@ -3814,6 +3814,27 @@ h2 {
   min-width: 0;
 }
 
+.knowledge-memory-summary__body {
+  display: grid;
+  gap: 8px;
+}
+
+.knowledge-memory-summary .knowledge-memory-hit-list {
+  margin-top: 0;
+}
+
+.shell.layout-daweiba .zhisuan-action-button.knowledge-memory-summary__save {
+  margin-left: auto;
+  flex: 0 0 auto;
+  min-height: 22px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
 .zhisuan-answer-heading {
   display: flex;
   align-items: center;
@@ -3850,6 +3871,33 @@ h2 {
 .zhisuan-answer-heading.is-table > .knowledge-evidence-summary__icon {
   background: #eaf2ff;
   color: #2563eb;
+}
+
+/* Keep the processing state alive without shifting the answer layout: the
+   loader already rotates, while its small container gently breathes. */
+.zhisuan-answer-heading.is-processing > .knowledge-evidence-summary__icon {
+  animation: zhisuan-processing-pulse 1.8s ease-in-out infinite;
+  transform-origin: center;
+}
+
+@keyframes zhisuan-processing-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgb(37 99 235 / 0%);
+    transform: scale(1);
+  }
+
+  50% {
+    box-shadow: 0 0 0 4px rgb(37 99 235 / 12%);
+    transform: scale(1.04);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .zhisuan-answer-heading.is-processing > .knowledge-evidence-summary__icon,
+  .zhisuan-answer-heading.is-processing > .knowledge-evidence-summary__icon > .spin {
+    animation: none;
+  }
 }
 
 .knowledge-evidence-summary__icon {
@@ -4035,31 +4083,16 @@ h2 {
 }
 
 .knowledge-memory-hit-list {
+  margin-top: 0;
+}
+
+.knowledge-memory-hit-list__items {
   display: grid;
   gap: 6px;
-  margin-top: 10px;
+  padding: 0 8px 8px;
 }
 
-.knowledge-memory-hit-list__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 0 2px;
-}
-
-.knowledge-memory-hit-list__head span {
-  color: var(--ink);
-  font-size: 11px;
-  font-weight: 750;
-}
-
-.knowledge-memory-hit-list__head small {
-  color: var(--muted);
-  font-size: 10px;
-}
-
-.knowledge-memory-hit-list > button {
+.knowledge-memory-hit-list__items > button {
   display: grid;
   justify-items: start;
   gap: 3px;
@@ -4072,17 +4105,17 @@ h2 {
   cursor: pointer;
 }
 
-.knowledge-memory-hit-list > button span {
+.knowledge-memory-hit-list__items > button span {
   color: #1d4ed8;
   font-size: 11px;
   font-weight: 800;
 }
 
-.knowledge-memory-hit-list > button strong {
+.knowledge-memory-hit-list__items > button strong {
   font-size: 12px;
 }
 
-.knowledge-memory-hit-list > button small {
+.knowledge-memory-hit-list__items > button small {
   color: var(--muted);
   font-size: 11px;
 }
@@ -8957,25 +8990,6 @@ tbody tr:hover .row-ai-cell {
   color: var(--db-primary);
 }
 
-.shell.layout-daweiba .zhisuan-action-button.secondary.knowledge-candidate-action {
-  min-height: 31px;
-  padding: 2px 8px 2px 0;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--db-text-strong);
-  gap: 8px;
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 1.35;
-}
-
-.shell.layout-daweiba .zhisuan-action-button.secondary.knowledge-candidate-action:hover {
-  border-color: transparent;
-  background: var(--db-primary-soft);
-  color: var(--db-primary);
-}
-
 .shell.layout-daweiba .zhisuan-action-button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
@@ -13114,6 +13128,10 @@ tbody tr:hover .row-ai-cell {
     min-width: 0;
   }
 
+  .shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-preview .preview-window .window-primary-button {
+    justify-self: start;
+  }
+
   .shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-preview .preview-window .preview-cell-edit-status {
     max-width: none;
     min-width: 0;
@@ -14569,7 +14587,7 @@ tbody tr:hover .row-ai-cell {
   color: var(--db-primary);
 }
 
-.knowledge-question-suggestions > header > div {
+.knowledge-question-suggestions > header > .knowledge-question-suggestions__title {
   display: grid;
   flex: 1 1 auto;
   gap: 1px;
@@ -14587,6 +14605,48 @@ tbody tr:hover .row-ai-cell {
   color: var(--db-text-muted);
   font-size: 11px;
   line-height: 1.35;
+}
+
+.knowledge-question-suggestions__controls {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.knowledge-question-suggestions__page-button {
+  display: inline-grid;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--db-text-muted);
+  cursor: pointer;
+}
+
+.knowledge-question-suggestions__page-button:hover:not(:disabled),
+.knowledge-question-suggestions__page-button:focus-visible:not(:disabled) {
+  outline: 0;
+  background: var(--db-primary-soft);
+  color: var(--db-primary);
+}
+
+.knowledge-question-suggestions__page-button:disabled {
+  cursor: default;
+  opacity: 0.38;
+}
+
+.knowledge-question-suggestions__page-indicator {
+  min-width: 30px;
+  color: var(--db-text-muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  line-height: 24px;
+  text-align: center;
 }
 
 .knowledge-question-suggestions__close {
@@ -17869,8 +17929,16 @@ tbody tr:hover .row-ai-cell {
 }
 
 .shell.layout-daweiba.theme-dark .knowledge-question-suggestions > header small,
-.shell.layout-daweiba.theme-dark .knowledge-question-suggestions__list button > svg {
+.shell.layout-daweiba.theme-dark .knowledge-question-suggestions__list button > svg,
+.shell.layout-daweiba.theme-dark .knowledge-question-suggestions__page-button,
+.shell.layout-daweiba.theme-dark .knowledge-question-suggestions__page-indicator {
   color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-question-suggestions__page-button:hover:not(:disabled),
+.shell.layout-daweiba.theme-dark .knowledge-question-suggestions__page-button:focus-visible:not(:disabled) {
+  background: var(--db-primary-soft);
+  color: var(--db-primary);
 }
 
 .shell.layout-daweiba.theme-dark .knowledge-question-suggestions__close {
@@ -18150,4 +18218,213 @@ tbody tr:hover .row-ai-cell {
   border-color: var(--db-primary);
   background: var(--db-primary-soft);
   color: var(--db-primary);
+}
+
+/* Dark-mode palette repairs for the shared navigation, evidence cards, and avatar.
+   Keep every rule scoped so the light theme remains unchanged. */
+.shell.layout-daweiba.theme-dark .daweiba-mark {
+  border-color: var(--db-border-strong);
+  background: var(--db-surface-tint);
+  color: var(--db-primary);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-mark:hover,
+.shell.layout-daweiba.theme-dark .daweiba-mark:focus-visible {
+  border-color: var(--db-primary);
+  background: var(--db-primary-soft);
+  color: var(--db-primary-hover);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-module-icon {
+  background: transparent;
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-module-item:hover .daweiba-module-icon,
+.shell.layout-daweiba.theme-dark .daweiba-module-item.is-active .daweiba-module-icon {
+  background: var(--db-bg-alt);
+  color: var(--db-primary);
+}
+
+.shell.layout-daweiba.theme-dark .zhisuan-module-links button {
+  border-color: var(--db-border);
+  background: var(--db-surface-tint);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .zhisuan-module-links button:hover,
+.shell.layout-daweiba.theme-dark .zhisuan-module-links button:focus-visible {
+  border-color: var(--db-primary);
+  background: var(--db-primary-soft);
+  color: var(--db-primary);
+}
+
+.shell.layout-daweiba.theme-dark .zhisuan-message-heading .zhisuan-section-heading__icon {
+  background: var(--db-primary-soft);
+  color: var(--db-primary);
+}
+
+.shell.layout-daweiba.theme-dark .zhisuan-message-heading.is-success .zhisuan-section-heading__icon {
+  background: #10291d;
+  color: #86efac;
+}
+
+.shell.layout-daweiba.theme-dark .zhisuan-message-heading.is-danger .zhisuan-section-heading__icon {
+  background: #35191e;
+  color: #fca5a5;
+}
+
+.shell.layout-daweiba.theme-dark .zhisuan-message-heading.is-report .zhisuan-section-heading__icon {
+  background: #33260b;
+  color: #fcd34d;
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-status-segment[stroke="#dbeafe"] {
+  stroke: #244d82;
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-status-svg stop[stop-color="#dbeafe"] {
+  stop-color: #244d82;
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-status-lines path {
+  stroke: var(--db-border-strong);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-status-callouts span {
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-evidence-summary__item {
+  border-color: var(--db-border);
+  background: var(--db-surface-tint);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-evidence-summary__item > span {
+  background: #17345c;
+  color: #a7cdfb;
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-evidence-summary__item strong {
+  color: var(--db-text-strong);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-evidence-summary__item small {
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-evidence-summary > .knowledge-evidence-summary__head > .knowledge-evidence-summary__icon {
+  background: var(--db-primary-soft);
+  color: var(--db-primary);
+}
+
+.shell.layout-daweiba.theme-dark .zhisuan-answer-heading.is-knowledge > .knowledge-evidence-summary__icon {
+  background: var(--db-primary-soft);
+  color: var(--db-primary);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-evidence-details {
+  border: 1px solid var(--db-border);
+  background: var(--db-bg-alt);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-evidence-details > summary {
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-evidence-details > summary small,
+.shell.layout-daweiba.theme-dark .knowledge-evidence-details li,
+.shell.layout-daweiba.theme-dark .knowledge-evidence-details li small {
+  color: var(--db-text-weak);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-memory-hit-list__items > button small {
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-memory-hit-list__items > button {
+  border-color: #315987;
+  background: #172033;
+  color: var(--db-text-strong);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-memory-hit-list__items > button span {
+  color: #a7cdfb;
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-layout-shell.is-ai-collapsed > .ai-dock .ai-dock-rail {
+  border-color: var(--db-border);
+  background: var(--db-surface);
+  color: var(--db-primary);
+  box-shadow: 0 12px 32px rgb(2 6 23 / 42%);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-layout-shell.is-ai-collapsed > .ai-dock .ai-dock-rail:hover,
+.shell.layout-daweiba.theme-dark .daweiba-layout-shell.is-ai-collapsed > .ai-dock .ai-dock-rail:focus-visible {
+  border-color: var(--db-primary);
+  background: var(--db-primary-soft);
+  box-shadow: 0 16px 36px rgb(2 6 23 / 52%);
+}
+
+.shell.layout-daweiba.theme-dark .zhisuan-avatar {
+  --za-blue: #7db6fa;
+  --za-blue-soft: #17345c;
+  --za-slate: #a7b6ca;
+  --za-line: #52657f;
+  --za-surface: #172033;
+  --za-screen: #0e1726;
+  --za-warning: #fcd34d;
+  --za-error: #fca5a5;
+  --za-success: #86efac;
+  color: var(--za-blue);
+}
+
+.shell.layout-daweiba.theme-dark .zhisuan-avatar__ring {
+  stroke: #7db6fa;
+}
+
+.shell.layout-daweiba.theme-dark .zhisuan-avatar__shell {
+  fill: #172033;
+  stroke: #52657f;
+}
+
+.shell.layout-daweiba.theme-dark .zhisuan-avatar__screen {
+  fill: #0e1726;
+  stroke: #355982;
+}
+
+.shell.layout-daweiba.theme-dark .zhisuan-avatar__status-dot {
+  fill: #60a5fa;
+  stroke: #0b111d;
+}
+
+.shell.layout-daweiba.theme-dark .zhisuan-avatar__eye {
+  fill: #a7cdfb;
+}
+
+.shell.layout-daweiba.theme-dark .zhisuan-avatar__z {
+  stroke: #a7b6ca;
+}
+
+.shell.layout-daweiba.theme-dark :is(
+  .zhisuan-avatar__magnifier-lens,
+  .zhisuan-avatar__magnifier-handle,
+  .zhisuan-avatar__scan
+) {
+  stroke: #7db6fa;
+}
+
+.shell.layout-daweiba.theme-dark .zhisuan-avatar__check {
+  stroke: #86efac;
+}
+
+.shell.layout-daweiba.theme-dark .zhisuan-avatar__warning {
+  fill: #fcd34d;
+  stroke: #fcd34d;
+}
+
+.shell.layout-daweiba.theme-dark .zhisuan-avatar__error {
+  stroke: #fca5a5;
 }
