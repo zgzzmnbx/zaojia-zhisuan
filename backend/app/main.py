@@ -32,6 +32,7 @@ from . import feishu_webhook
 from . import feishu_app_bot
 from . import external_task_dispatch
 from .knowledge_base import KnowledgeBase
+from .knowledge_demo_answers import get_demo_answer
 from .knowledge_qa import (
     ASSISTANT_TABLE_FORMAT_RULE,
     NO_EVIDENCE_ANSWER,
@@ -146,7 +147,7 @@ from .professional_skills import (
 from .report import append_risk_report, write_report
 
 
-APP_VERSION = "v5.19.1"
+APP_VERSION = "v5.19.2"
 OUTPUT_FILE_PREFIX = "【输出】"
 TEMP_FILE_PREFIX = "【临时】"
 PROCESS_STATE_FILENAME = "process-state.json"
@@ -2216,6 +2217,28 @@ async def knowledge_ask(payload: dict[str, Any] = Body(...)) -> dict[str, object
     if not question:
         raise HTTPException(status_code=400, detail="请输入要询问的问题")
     force_knowledge = bool(payload.get("force_knowledge")) or prefix_forced
+
+    demo_answer = get_demo_answer(question) if not payload.get("row_context") else None
+    if demo_answer is not None:
+        return {
+            "answer": demo_answer["answer"],
+            "sources": demo_answer["sources"],
+            "project_memories": [],
+            "project_key": normalize_project_key(payload.get("project_key")) or None,
+            "memory_available": True,
+            "memory_enabled": False,
+            "evidence_found": True,
+            "forced_knowledge": force_knowledge,
+            "debug": None,
+            "selected_library_ids": [],
+            "selected_libraries": [],
+            "professional_skill": None,
+            "preset_answer": True,
+            "answer_mode": "curated_demo",
+            "generated_by_model": False,
+            "preset_id": demo_answer["id"],
+            "chart": demo_answer["chart"],
+        }
 
     limit = _parse_knowledge_limit(payload.get("limit"))
     row_context = _parse_row_context(payload.get("row_context"))

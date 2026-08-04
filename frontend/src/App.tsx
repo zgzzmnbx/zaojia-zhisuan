@@ -40,6 +40,8 @@ import KnowledgeLibrarySelector, {
   type KnowledgeLibraryOption,
 } from "./components/knowledge/KnowledgeLibrarySelector";
 import KnowledgeQuestionSuggestions from "./components/knowledge/KnowledgeQuestionSuggestions";
+import KnowledgeDemoChart, { type KnowledgeDemoChartData } from "./components/knowledge/KnowledgeDemoChart";
+import { DEMO_KNOWLEDGE_QUESTIONS } from "./components/knowledge/knowledgeDemoQuestions";
 import ConversationalAgentWorkspace from "./components/agent-workspace/ConversationalAgentWorkspace";
 import { agentComposerSpaceCompletion, knowledgeQuestionPrompt } from "./components/agent-workspace/agentWorkspaceUtils";
 import ZhisuanFeeAnalysisCharts from "./components/agent-workspace/ZhisuanFeeAnalysisCharts";
@@ -71,7 +73,7 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.19.1";
+const APP_VERSION = "v5.19.2";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const PRICE_KNOWLEDGE_ROW_COUNT = 560;
 const FORCE_KNOWLEDGE_PREFIXES = ["查库：", "查库:", "#知识库"] as const;
@@ -625,6 +627,7 @@ type ChatMessage = {
   attachment?: ChatFileAttachment;
   inlineAction?: ChatInlineAction;
   feeAnalysis?: FeeAnalysis;
+  knowledgeChart?: KnowledgeDemoChartData;
 };
 
 type ChatFileAttachment = {
@@ -748,10 +751,7 @@ const DEFAULT_ZHISUAN_WINDOW_SETTINGS: ZhisuanWindowSettings = {
   dockStyle: "default",
   showAssistantAvatar: false,
   commonQuestions: [
-    "解释0.22技术工作费调整系数：哪些表2项目虽然显示0.22但不参与金额计算？请用表格回答适用对象、系数、是否参与金额和正式依据。",
-    "实物工作费调整系数如何确定？请说明正式规则、适用条件和人工复核边界。",
-    "技术工作费调整系数如何确定？请说明第一层标准规则、第二层经验提示和人工复核边界。",
-    "走向图编制、地图编制Ⅱ类1:50000价格如何确定？以及相邻比例价格如何确定？请说明基价、单位、匹配规则和来源定位。",
+    ...DEMO_KNOWLEDGE_QUESTIONS,
     "表4水文地质勘察简单、中等、复杂技术工作费调整系数分别是多少？请用表格回答。",
     "新疆地区场（站）和输送管道地区差异调整系数分别是多少？请用表格回答。",
     "查清单编码11301001，只回答清单名称、单位、清单单价、规费、安全生产费和来源定位。",
@@ -908,6 +908,11 @@ type KnowledgeAskResponse = {
     name: string;
     kind: "static" | "memory";
   }>;
+  preset_answer?: boolean;
+  answer_mode?: "curated_demo" | string;
+  generated_by_model?: boolean;
+  preset_id?: string;
+  chart?: KnowledgeDemoChartData | null;
 };
 
 type KnowledgeLibraryCatalogResponse = {
@@ -2986,7 +2991,7 @@ function DaweibaApp() {
   async function loadUiPreferences(openAfterLoad = false) {
     setIsLoadingUiPreferences(true);
     try {
-      const response = await fetch(`${API_BASE}/api/ui-preferences`);
+      const response = await fetch(`${API_BASE}/api/ui-preferences`, { cache: "no-store" });
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
         throw new Error(payload?.detail ?? `读取页面用户设置失败：${response.status}`);
@@ -3168,6 +3173,7 @@ function DaweibaApp() {
       llmDebugAnswer?: string;
       inlineAction?: ChatInlineAction;
       feeAnalysis?: FeeAnalysis;
+      knowledgeChart?: KnowledgeDemoChartData;
     } = {},
   ) {
     const id = makeZhisuanMessageId();
@@ -3188,6 +3194,7 @@ function DaweibaApp() {
         projectMemories: options.projectMemories,
         inlineAction: options.inlineAction,
         feeAnalysis: options.feeAnalysis,
+        knowledgeChart: options.knowledgeChart,
       },
     ]);
     return id;
@@ -3205,6 +3212,7 @@ function DaweibaApp() {
       projectMemories?: ProjectMemory[];
       llmDebug?: LlmDebugInfo;
       llmDebugAnswer?: string;
+      knowledgeChart?: KnowledgeDemoChartData;
     } = {},
   ) {
     const shouldType = options.typing ?? true;
@@ -3223,6 +3231,7 @@ function DaweibaApp() {
               projectMemories: options.projectMemories ?? message.projectMemories,
               llmDebug: options.llmDebug ?? message.llmDebug,
               llmDebugAnswer: options.llmDebugAnswer ?? message.llmDebugAnswer,
+              knowledgeChart: options.knowledgeChart ?? message.knowledgeChart,
             }
           : message,
       ),
@@ -3405,6 +3414,7 @@ function DaweibaApp() {
   }
 
   function formatKnowledgeAnswer(payload: KnowledgeAskResponse, options: { forcedKnowledge?: boolean } = {}) {
+    if (payload.preset_answer) return payload.answer;
     const forcedKnowledge = options.forcedKnowledge || Boolean(payload.forced_knowledge);
     const selectedLibraryNames = (payload.selected_libraries ?? []).map((library) => library.name).join("、");
     const knowledgeModeLine = forcedKnowledge
@@ -7075,13 +7085,14 @@ function DaweibaApp() {
       const rowReference = options.rowDetailContext
         ? `${options.rowDetailContext.sheetName} / 第${options.rowDetailContext.rowNumber}行`
         : "";
-      replaceZhisuanMessage(thinking, answer, payload.evidence_found ? "model" : "command", {
+      replaceZhisuanMessage(thinking, answer, payload.preset_answer ? "command" : payload.evidence_found ? "model" : "command", {
         rowDetailContext: options.rowDetailContext,
         knowledgeSources: payload.sources,
         projectMemories,
         llmDebug: payload.debug ?? undefined,
         llmDebugAnswer: payload.answer,
-        knowledgeCandidate: payload.evidence_found
+        knowledgeChart: payload.chart ?? undefined,
+        knowledgeCandidate: payload.evidence_found && !payload.preset_answer
           ? {
               title: question.length > 30 ? `${question.slice(0, 30)}…` : question,
               question,
@@ -8554,6 +8565,9 @@ function DaweibaApp() {
         {message.attachment
           ? renderZhisuanFileAttachment(message.attachment)
           : renderZhisuanMessageText(zhisuanMessageDisplayText(message))}
+        {message.role === "assistant" && !message.isTyping && message.knowledgeChart && (
+          <KnowledgeDemoChart chart={message.knowledgeChart} />
+        )}
         {message.role === "assistant" && !message.isTyping && message.feeAnalysis && (
           <ZhisuanFeeAnalysisCharts analysis={message.feeAnalysis} />
         )}
@@ -11880,6 +11894,9 @@ function DaweibaApp() {
                               {message.attachment
                                 ? renderZhisuanFileAttachment(message.attachment)
                                 : renderZhisuanMessageText(zhisuanMessageDisplayText(message))}
+                              {message.role === "assistant" && !message.isTyping && message.knowledgeChart && (
+                                <KnowledgeDemoChart chart={message.knowledgeChart} />
+                              )}
                               {message.role === "assistant"
                                 && !message.isTyping
                                 && message.content === zhisuanWelcomeMessage

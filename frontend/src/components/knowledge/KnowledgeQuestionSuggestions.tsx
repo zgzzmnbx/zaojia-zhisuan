@@ -1,6 +1,7 @@
 import { BookOpen, Check, ChevronLeft, ChevronRight, Loader2, RotateCcw, Settings, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { shouldShowKnowledgeQuestionSuggestions } from "../agent-workspace/agentWorkspaceUtils";
+import { isDemoKnowledgeQuestion } from "./knowledgeDemoQuestions";
 
 const QUESTIONS_PER_PAGE = 6;
 
@@ -181,7 +182,15 @@ export default function KnowledgeQuestionSuggestions({
                   onClick={() => onSelect(question)}
                 >
                   <span>{questionIndex + 1}</span>
-                  <strong>{question}</strong>
+                  <strong>
+                    {question}
+                    {isDemoKnowledgeQuestion(question) && (
+                      <i
+                        className="knowledge-question-suggestions__demo-dot"
+                        aria-label="标准演示问题"
+                      />
+                    )}
+                  </strong>
                   <ChevronRight size={14} aria-hidden="true" />
                 </button>
               );

@@ -15153,6 +15153,16 @@ tbody tr:hover .row-ai-cell {
   line-height: 1.45;
 }
 
+.knowledge-question-suggestions__demo-dot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-left: 5px;
+  border-radius: 999px;
+  background: rgb(37 99 235 / 55%);
+  vertical-align: 2px;
+}
+
 .knowledge-question-suggestions__list button > svg {
   margin-top: 4px;
   color: #94a3b8;
@@ -18524,6 +18534,10 @@ tbody tr:hover .row-ai-cell {
 .shell.layout-daweiba.theme-dark .knowledge-question-suggestions__list button > span {
   background: var(--db-bg-alt);
   color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-question-suggestions__demo-dot {
+  background: rgb(96 165 250 / 62%);
 }
 
 .shell.layout-daweiba.theme-dark .knowledge-question-suggestions__list button:hover,

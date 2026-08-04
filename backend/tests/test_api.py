@@ -43,7 +43,7 @@ def test_health_endpoint():
 
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
-    assert response.json()["version"] == "v5.19.1"
+    assert response.json()["version"] == "v5.19.2"
 
 
 def test_web_result_review_endpoint_uses_backend_frozen_output(tmp_path, monkeypatch):
@@ -148,7 +148,12 @@ def test_project_default_settings_include_zhisuan_window():
     assert payload["zhisuanWindow"]["welcomeMessage"]
     assert payload["zhisuanWindow"]["quickSettings"]["autoHide"] is True
     assert payload["zhisuanWindow"]["quickSettings"]["customPrompts"] == ["#知识库："]
-    assert payload["zhisuanWindow"]["commonQuestions"][0].startswith("解释0.22技术工作费调整系数")
+    assert payload["zhisuanWindow"]["commonQuestions"][:4] == [
+        "勘察测量，技术工作费调整系数如何确定？",
+        "走向图编制、地图编制、Ⅱ类、1:50000，价格如何确定？以及相邻比例尺价格如何确定？",
+        "对比清单编码10504014、10504015、10504016，只回答管径、单位、清单单价和来源定位，用Markdown表格。",
+        "查询清单编码10504001至10504016的过路过桥费，按管径从小到大输出柱状图，并指出价格平台区间和最高单价，只使用造价通用知识库数据，不进行区间插值。",
+    ]
     assert len(payload["zhisuanWindow"]["commonQuestions"]) == 18
     assert payload["knowledgeMemory"]["autoApproveTypes"] == ["operation", "general_explanation"]
     assert payload["knowledgeMemory"]["duplicateSimilarityThreshold"] == 0.92
@@ -2903,6 +2908,43 @@ def test_knowledge_ask_returns_no_evidence_without_calling_model(monkeypatch):
     assert payload["evidence_found"] is False
     assert payload["sources"] == []
     assert payload["answer"] == "当前知识库未找到明确依据，需要人工复核。"
+
+
+@pytest.mark.parametrize(
+    ("question", "preset_id", "has_chart"),
+    [
+        ("勘察测量，技术工作费调整系数如何确定？", "technical-fee-determination", False),
+        ("走向图编制、地图编制、Ⅱ类、1:50000，价格如何确定？以及相邻比例尺价格如何确定？", "route-map-price", False),
+        ("对比清单编码10504014、10504015、10504016，只回答管径、单位、清单单价和来源定位，用Markdown表格。", "cost-code-comparison", False),
+        ("查询清单编码10504001至10504016的过路过桥费，按管径从小到大输出柱状图，并指出价格平台区间和最高单价，只使用造价通用知识库数据，不进行区间插值。", "bridge-fee-chart", True),
+    ],
+)
+def test_knowledge_demo_answers_bypass_search_and_model(monkeypatch, question, preset_id, has_chart):
+    def fail_search(*args, **kwargs):
+        raise AssertionError("预置演示答案不应调用检索")
+
+    def fail_model(*args, **kwargs):
+        raise AssertionError("预置演示答案不应调用大模型")
+
+    monkeypatch.setattr(main_module, "_search_selected_knowledge", fail_search)
+    monkeypatch.setattr(main_module, "_call_chat_completion_tracked", fail_model)
+
+    response = TestClient(app).post(
+        "/api/knowledge/ask",
+        json={"question": question, "force_knowledge": True},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["preset_answer"] is True
+    assert payload["answer_mode"] == "curated_demo"
+    assert payload["generated_by_model"] is False
+    assert payload["preset_id"] == preset_id
+    assert payload["debug"] is None
+    assert bool(payload["chart"]) is has_chart
+    if has_chart:
+        assert len(payload["chart"]["items"]) == 16
+        assert payload["chart"]["items"][-1] == {"label": "D1422", "value": 4500, "highlight": True}
 
 
 def test_knowledge_ask_uses_evidence_bounded_prompt(monkeypatch):

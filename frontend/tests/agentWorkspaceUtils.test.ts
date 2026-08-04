@@ -10,6 +10,10 @@ import {
   knowledgeQuestionPrompt,
   shouldShowKnowledgeQuestionSuggestions,
 } from "../src/components/agent-workspace/agentWorkspaceUtils.ts";
+import {
+  DEMO_KNOWLEDGE_QUESTIONS,
+  isDemoKnowledgeQuestion,
+} from "../src/components/knowledge/knowledgeDemoQuestions.ts";
 
 const skills = [
   {
@@ -57,6 +61,13 @@ test("shows maintainable knowledge questions only while the prefix is empty", ()
   assert.equal(shouldShowKnowledgeQuestionSuggestions("#知识库：技术系数"), false);
   assert.equal(shouldShowKnowledgeQuestionSuggestions("普通问题"), false);
   assert.equal(knowledgeQuestionPrompt("  第二层经验提示是什么意思？  "), "#知识库：第二层经验提示是什么意思？");
+});
+
+test("marks only unchanged standard demo questions for the subtle blue dot", () => {
+  assert.equal(DEMO_KNOWLEDGE_QUESTIONS.length, 4);
+  assert.equal(isDemoKnowledgeQuestion(DEMO_KNOWLEDGE_QUESTIONS[0]), true);
+  assert.equal(isDemoKnowledgeQuestion("勘察测量: 技术工作费调整系数如何确定?"), true);
+  assert.equal(isDemoKnowledgeQuestion("勘察测量，实物工作费调整系数如何确定？"), false);
 });
 
 test("derives the deterministic task phase used by the workspace", () => {

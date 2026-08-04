@@ -40,6 +40,12 @@ def _check_case(case: dict[str, Any], payload: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     if bool(payload.get("evidence_found")) != bool(expected["evidenceFound"]):
         errors.append(f"evidence_found 应为 {expected['evidenceFound']}")
+    if "presetAnswer" in expected and bool(payload.get("preset_answer")) != bool(expected["presetAnswer"]):
+        errors.append(f"preset_answer 应为 {expected['presetAnswer']}")
+    if "generatedByModel" in expected and bool(payload.get("generated_by_model")) != bool(expected["generatedByModel"]):
+        errors.append(f"generated_by_model 应为 {expected['generatedByModel']}")
+    if expected.get("answerMode") and payload.get("answer_mode") != expected["answerMode"]:
+        errors.append(f"answer_mode 应为 {expected['answerMode']}")
     if expected.get("exactAnswer") and answer.strip() != expected["exactAnswer"]:
         errors.append("回答未命中固定标准答案")
     for phrase in expected.get("mustInclude", []):
@@ -52,6 +58,10 @@ def _check_case(case: dict[str, Any], payload: dict[str, Any]) -> list[str]:
     for phrase in expected.get("sourceContains", []):
         if phrase.lower() not in sources.lower():
             errors.append(f"依据来源缺少：{phrase}")
+    if "chartItemCount" in expected:
+        chart_items = (payload.get("chart") or {}).get("items") or []
+        if len(chart_items) != int(expected["chartItemCount"]):
+            errors.append(f"图表数据项应为 {expected['chartItemCount']} 条")
     return errors
 
 
