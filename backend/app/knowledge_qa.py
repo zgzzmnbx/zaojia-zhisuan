@@ -295,6 +295,22 @@ def build_knowledge_answer_prompt(
         if row_context
         else "未提供当前行上下文。"
     )
+    has_ranked_candidates = bool(
+        row_context
+        and isinstance(row_context.get("candidate_recommendations"), list)
+        and row_context.get("candidate_recommendations")
+    )
+    ai_fill_instructions = (
+        [
+            "AI填价候选要求：",
+            "1. 当前行上下文中的 candidate_recommendations 已由程序按相似度、来源优先级和可信度排序；不得自行改变排序算法或编造新的候选。",
+            "2. 先说明排序第一的推荐值、相似度、来源和匹配理由，再对比最多两个备选的关键差异。",
+            "3. 只能引用 candidate_recommendations 中已有的数值；存在关键差异或高可信冲突时必须明确提示人工复核。",
+            "4. 模型只解释推荐，不得声称已经写入；最终采用和写入必须由用户确认。",
+        ]
+        if has_ranked_candidates
+        else []
+    )
     answer_instructions = (
         [
             "本题属于字典式数字快查，请只输出一个简洁的 Markdown 表格。",
@@ -331,6 +347,7 @@ def build_knowledge_answer_prompt(
             "【已确认通用与项目知识记忆】",
             "\n\n".join(memory_blocks) or "未检索到当前项目已确认知识记忆。",
             *answer_instructions,
+            *ai_fill_instructions,
             "项目记忆补充要求：",
             "1. 正式标准、正式规则和结构化计价库始终优先于项目记忆。",
             "2. 引用项目记忆时必须明确写“项目记忆”，并说明所属项目、确认人、确认时间、适用条件和来源。",
@@ -375,6 +392,38 @@ def normalize_knowledge_answer(answer: str | None) -> str:
     clean_answer = _UNSUPPORTED_ANSWER_TAG_RE.sub("", clean_answer)
     clean_answer = re.sub(r"(?m)^\s*[-*•]\s+(?=#{1,6}\s+)", "", clean_answer)
     return re.sub(r"\n{3,}", "\n\n", clean_answer).strip()
+
+
+def prepend_ranked_candidate_recommendation(
+    answer: str,
+    row_context: dict[str, Any] | None,
+) -> str:
+    candidates = row_context.get("candidate_recommendations") if row_context else None
+    if not isinstance(candidates, list) or not candidates or not isinstance(candidates[0], dict):
+        return answer
+    primary = candidates[0]
+    value = primary.get("value")
+    if value is None or str(value).strip() == "":
+        return answer
+    metadata = ["结构化排序第1"]
+    similarity = primary.get("similarity")
+    if similarity is not None and str(similarity).strip() != "":
+        metadata.append(f"相似度 {similarity}%")
+    source = str(primary.get("source") or "").strip()
+    if source:
+        metadata.append(f"来源：{source}")
+    reason = str(primary.get("reason") or "").strip()
+    risk_tips = primary.get("risk_tips")
+    risk_text = ""
+    if isinstance(risk_tips, list):
+        risk_text = "；".join(str(item).strip() for item in risk_tips[:2] if str(item).strip())
+    summary = [
+        f"**结构化排序首选：{value}**（{'；'.join(metadata)}）",
+        reason,
+        f"风险提示：{risk_text}" if risk_text else "",
+        "该数值由结构化候选排序产生，仍需人工确认后写入。",
+    ]
+    return "\n\n".join([line for line in summary if line] + [answer])
 
 
 def ensure_knowledge_answer(
@@ -943,6 +992,13 @@ def _expand_query_terms(question: str, row_context: dict[str, Any] | None) -> di
                 text = str(value).strip()
                 if len(text) <= 30:
                     _add_term(terms, text, 1.5)
+        row_values = row_context.get("values")
+        if isinstance(row_values, dict):
+            for value in row_values.values():
+                if isinstance(value, (str, int, float)) and str(value).strip():
+                    text = str(value).strip()
+                    if len(text) <= 30:
+                        _add_term(terms, text, 1.5)
     return terms
 
 

@@ -4,6 +4,7 @@ from app.knowledge_qa import (
     build_knowledge_answer_prompt,
     ensure_knowledge_answer,
     normalize_knowledge_answer,
+    prepend_ranked_candidate_recommendation,
     split_knowledge_question,
 )
 
@@ -74,6 +75,68 @@ def test_complex_question_format_words_do_not_enter_search_terms():
     assert not any("表格回答" in term for term in terms)
     assert not any("适用对象" in term for term in terms)
     assert "给我讲述原理" not in terms
+
+
+def test_row_context_values_participate_in_knowledge_retrieval_terms():
+    terms = _expand_query_terms(
+        "解释这行价格为什么需要复核",
+        {
+            "sheet_name": "表2-通用工程测量费用",
+            "row_number": 5,
+            "values": {
+                "要素1": "控制测量",
+                "要素2": "GPS测量E级",
+                "单位": "个",
+            },
+        },
+    )
+
+    assert terms["控制测量"] == 1.5
+    assert terms["GPS测量E级"] == 1.5
+    assert terms["个"] == 1.5
+
+
+def test_ranked_ai_fill_candidates_are_guarded_in_model_prompt():
+    prompt = build_knowledge_answer_prompt(
+        "请解释排序首选",
+        [_result()],
+        row_context={
+            "sheet_name": "表2",
+            "row_number": 5,
+            "values": {"要素1": "控制测量", "单位": "个"},
+            "candidate_recommendations": [
+                {"rank": 1, "value": 4274, "similarity": 100, "source": "知识库"},
+                {"rank": 2, "value": 3203, "similarity": 75, "source": "知识库"},
+            ],
+        },
+    )[1]["content"]
+
+    assert "candidate_recommendations 已由程序按相似度" in prompt
+    assert "只能引用 candidate_recommendations 中已有的数值" in prompt
+    assert "最终采用和写入必须由用户确认" in prompt
+
+
+def test_ranked_ai_fill_answer_always_leads_with_structured_recommendation():
+    answer = prepend_ranked_candidate_recommendation(
+        "## 依据与解释\n\n模型解释正文。",
+        {
+            "candidate_recommendations": [
+                {
+                    "rank": 1,
+                    "value": 4274,
+                    "similarity": 100,
+                    "source": "知识库",
+                    "reason": "单位一致，4/4 个非空要素一致。",
+                    "risk_tips": ["仍需核对主匹配未采用原因。"],
+                }
+            ]
+        },
+    )
+
+    assert answer.startswith("**结构化排序首选：4274**")
+    assert "相似度 100%" in answer
+    assert "仍需人工确认后写入" in answer
+    assert answer.endswith("模型解释正文。")
 
 
 def test_normalize_knowledge_answer_removes_markup_and_nested_heading_bullets():

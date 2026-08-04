@@ -70,6 +70,37 @@ test("marks only unchanged standard demo questions for the subtle blue dot", () 
   assert.equal(isDemoKnowledgeQuestion("勘察测量，实物工作费调整系数如何确定？"), false);
 });
 
+test("keeps preset knowledge answers in a visible five-second processing flow", async () => {
+  const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const css = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+  assert.match(appSource, /PRESET_KNOWLEDGE_PROCESSING_MS\s*=\s*5000/);
+  assert.match(appSource, /正在识别演示问题并加载标准知识范围/);
+  assert.match(appSource, /已命中演示知识，正在核对标准依据和来源/);
+  assert.match(appSource, /标准依据已核对，正在组织结构化答案/);
+  assert.match(appSource, /typing:\s*payload\.preset_answer\s*\?\s*false\s*:\s*undefined/);
+  assert.match(appSource, /aria-valuenow=\{Math\.round\(progress\)\}/);
+  assert.match(appSource, /style=\{\{ width: `\$\{progress\}%` \}\}/);
+  assert.match(appSource, /tone === "processing"[\s\S]*rotate\(\$\{frame \* 24\}deg\)/);
+  assert.match(appSource, /tone === "knowledge"[\s\S]*completionPulse \* 0\.06/);
+  assert.match(appSource, /knowledge-evidence-summary__icon[\s\S]*zhisuan-status-icon__glyph" style=\{motionStyle\}/);
+  assert.doesNotMatch(appSource, /knowledge-evidence-summary__icon" aria-hidden="true" style=\{motionStyle\}/);
+  assert.match(css, /\.zhisuan-processing-progress\s*>\s*i[\s\S]*transition:\s*width\s+120ms\s+linear/);
+  assert.match(css, /\.zhisuan-processing-progress\s*>\s*i\s*\{[^}]*background:\s*var\(--blue\);[^}]*box-shadow:\s*none;/s);
+  assert.doesNotMatch(css, /\.zhisuan-processing-progress\s*>\s*i\s*\{[^}]*linear-gradient/s);
+  assert.doesNotMatch(css, /animation:\s*zhisuan-processing-progress/);
+});
+
+test("routes the row AI entry through ranked AI pricing candidates", async () => {
+  const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
+  assert.match(appSource, /title="AI填价"/);
+  assert.match(appSource, /openFillAssist\(row, rowIndex, undefined, \{ autoRunAi: true \}\)/);
+  assert.match(appSource, /candidate_recommendations:\s*candidates\.slice\(0, 3\)/);
+  assert.match(appSource, /候选列表已经由程序按相似度、来源优先级和可信度完成排序/);
+  assert.match(appSource, /只能引用当前结构化候选中的数值/);
+  assert.match(appSource, /开始AI填价/);
+  assert.doesNotMatch(appSource, /开始AI复核/);
+});
+
 test("derives the deterministic task phase used by the workspace", () => {
   assert.equal(agentTaskPhase({ hasFile: false, hasResult: false, matchingPending: false, warningExecuted: false }), "empty");
   assert.equal(agentTaskPhase({ hasFile: true, hasResult: false, matchingPending: false, warningExecuted: false }), "file-ready");

@@ -73,7 +73,7 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.19.2";
+const APP_VERSION = "v5.19.3";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const PRICE_KNOWLEDGE_ROW_COUNT = 560;
 const FORCE_KNOWLEDGE_PREFIXES = ["查库：", "查库:", "#知识库"] as const;
@@ -618,6 +618,7 @@ type ChatMessage = {
   displayContent?: string;
   isTyping?: boolean;
   source?: "model" | "system" | "command" | "thinking";
+  processingStartedAt?: number;
   rowDetailContext?: RowAiContext;
   knowledgeCandidate?: KnowledgeCandidateSeed;
   knowledgeSources?: KnowledgeSource[];
@@ -629,6 +630,78 @@ type ChatMessage = {
   feeAnalysis?: FeeAnalysis;
   knowledgeChart?: KnowledgeDemoChartData;
 };
+
+function knowledgeProcessingProgress(elapsedMs: number) {
+  if (elapsedMs <= 1700) return 8 + (38 * elapsedMs) / 1700;
+  if (elapsedMs <= 3500) return 46 + (30 * (elapsedMs - 1700)) / 1800;
+  if (elapsedMs <= PRESET_KNOWLEDGE_PROCESSING_MS) {
+    return 76 + (18 * (elapsedMs - 3500)) / 1500;
+  }
+  return 94;
+}
+
+function ZhisuanProcessingStatus({ text, startedAt }: { text: string; startedAt?: number }) {
+  const fallbackStartedAt = useRef(performance.now());
+  const [progress, setProgress] = useState(8);
+
+  useEffect(() => {
+    const origin = startedAt ?? fallbackStartedAt.current;
+    const update = () => setProgress(Math.min(94, knowledgeProcessingProgress(performance.now() - origin)));
+    update();
+    const timer = window.setInterval(update, 120);
+    return () => window.clearInterval(timer);
+  }, [startedAt]);
+
+  return (
+    <div className="zhisuan-processing-status" aria-live="polite">
+      <p><strong>当前步骤</strong><span>{text}</span></p>
+      <div
+        className="zhisuan-processing-progress"
+        role="progressbar"
+        aria-label="知识检索处理进度"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(progress)}
+        aria-valuetext={text}
+      >
+        <i aria-hidden="true" style={{ width: `${progress}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function ZhisuanStatusIcon({ tone, icon }: { tone: string; icon: ReactNode }) {
+  const [frame, setFrame] = useState(0);
+
+  useEffect(() => {
+    setFrame(0);
+    if (tone !== "processing" && tone !== "knowledge") return undefined;
+    let currentFrame = 0;
+    const timer = window.setInterval(() => {
+      currentFrame += 1;
+      setFrame(currentFrame);
+      if (tone === "knowledge" && currentFrame >= 18) window.clearInterval(timer);
+    }, 80);
+    return () => window.clearInterval(timer);
+  }, [tone]);
+
+  const completionPulse = tone === "knowledge"
+    ? Math.sin((Math.PI * Math.min(frame, 18)) / 9) ** 2
+    : 0;
+  const motionStyle: CSSProperties | undefined = tone === "processing"
+    ? { transform: `rotate(${frame * 24}deg)` }
+    : tone === "knowledge"
+      ? { transform: `scale(${1 + completionPulse * 0.06})`, opacity: 0.82 + completionPulse * 0.18 }
+      : undefined;
+
+  return (
+    <span className="knowledge-evidence-summary__icon" aria-hidden="true">
+      <span className="zhisuan-status-icon__glyph" style={motionStyle}>
+        {icon}
+      </span>
+    </span>
+  );
+}
 
 type ChatFileAttachment = {
   name: string;
@@ -729,7 +802,7 @@ const ZHISUAN_DOCK_VISIBILITY_OPTIONS: Array<{
   name: string;
   description: string;
 }> = [
-  { id: "rowReview", name: "行级AI复核模块", description: "显示独立行级复核面板；关闭时点击表格 AI 只把问题送到“问问智算”。" },
+  { id: "rowReview", name: "AI填价模块", description: "显示当前行与 AI 填价意见；候选值仍需人工确认后写入。" },
   { id: "conclusion", name: "本次结论", description: "显示填价完成数和本次结论摘要。" },
   { id: "review", name: "待复核", description: "显示待复核数量和复核提醒。" },
   { id: "warning", name: "预警", description: "显示经验池预警运行状态。" },
@@ -989,7 +1062,7 @@ type RowAiContext = {
   sourceIndex: number;
 };
 
-const DEFAULT_ROW_AI_QUESTION = "解释这行要素含义，并判断当前基价和两个系数是否合理。";
+const DEFAULT_ROW_AI_QUESTION = "请根据已排序的结构化候选，推荐本行基价并说明相似项差异和风险。";
 
 type WarningSummary = {
   pool_enabled: boolean;
@@ -1100,6 +1173,7 @@ const EMPTY_WARNING_PROGRESS: WarningProgress = {
 };
 const TASK_PROGRESS_TICK_MS = 160;
 const TASK_PROGRESS_SETTLE_MS = 420;
+const PRESET_KNOWLEDGE_PROCESSING_MS = 5000;
 
 function nextContinuousTaskProgress(current: number) {
   if (current < 18) return Math.min(18, current + 3.6);
@@ -1113,6 +1187,23 @@ function nextContinuousTaskProgress(current: number) {
 function waitForTaskProgressSettle() {
   return new Promise<void>((resolve) => {
     window.setTimeout(resolve, TASK_PROGRESS_SETTLE_MS);
+  });
+}
+
+function waitUntilElapsed(startedAt: number, targetMs: number, signal: AbortSignal) {
+  if (signal.aborted) return Promise.reject(new DOMException("Aborted", "AbortError"));
+  const remainingMs = Math.max(0, targetMs - (performance.now() - startedAt));
+  if (remainingMs === 0) return Promise.resolve();
+  return new Promise<void>((resolve, reject) => {
+    const onAbort = () => {
+      window.clearTimeout(timer);
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+    const timer = window.setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, remainingMs);
+    signal.addEventListener("abort", onAbort, { once: true });
   });
 }
 
@@ -1462,6 +1553,15 @@ function fillAssistSourceClass(candidate: FillAssistCandidate) {
   if (candidate.source === "experience_pool") return "is-experience";
   if (candidate.source.startsWith("knowledge")) return "is-knowledge";
   return "is-other";
+}
+
+function fillAssistAiReviewQuestion(userQuestion = DEFAULT_ROW_AI_QUESTION) {
+  return [
+    userQuestion,
+    "候选列表已经由程序按相似度、来源优先级和可信度完成排序。",
+    "请优先解释排序第一的候选；如存在关键差异或多个高可信冲突候选，必须明确提示人工复核。",
+    "只能引用当前结构化候选中的数值，不得生成候选列表之外的新数值，也不得直接写入 Excel。",
+  ].join("\n");
 }
 
 function standardTraceKindClass(trace: StandardTraceItem) {
@@ -3188,6 +3288,7 @@ function DaweibaApp() {
         displayContent: shouldType ? "" : content,
         isTyping: shouldType,
         source,
+        processingStartedAt: source === "thinking" ? performance.now() : undefined,
         rowDetailContext: options.rowDetailContext,
         knowledgeCandidate: options.knowledgeCandidate,
         knowledgeSources: options.knowledgeSources,
@@ -3315,7 +3416,7 @@ function DaweibaApp() {
       "可核对内容：",
       "- 切换 Sheet 并查看匹配状态",
       "- 调整列宽或人工修改普通单元格",
-      "- 在 AI 列打开辅助填价与行级复核",
+      "- 在 AI 列打开结构化候选或直接启动 AI 填价",
       "- 当前尚未批量填写基价和两类调整系数",
       ZHISUAN_PREVIEW_ACTION,
     ].join("\n");
@@ -3404,12 +3505,28 @@ function DaweibaApp() {
     ].some((term) => compact.includes(term.toLowerCase()));
   }
 
-  function knowledgeRowContext(context: RowAiContext | null) {
+  function knowledgeRowContext(
+    context: RowAiContext | null,
+    candidates: FillAssistCandidate[] = [],
+    selectedCandidateId = "",
+  ) {
     if (!context) return null;
     return {
       sheet_name: context.sheetName,
       row_number: context.rowNumber,
       values: context.values,
+      candidate_recommendations: candidates.slice(0, 3).map((candidate, index) => ({
+        rank: index + 1,
+        id: candidate.id,
+        value: candidate.value,
+        similarity: candidate.similarity,
+        confidence: candidate.confidence_label,
+        source: fillAssistSourceDisplay(candidate),
+        reason: candidate.reason,
+        risk_tips: candidate.risk_tips,
+        basis: candidate.basis,
+      })),
+      selected_candidate_id: selectedCandidateId || undefined,
     };
   }
 
@@ -6670,7 +6787,12 @@ function DaweibaApp() {
     }
   }
 
-  async function openFillAssist(row: Array<string | number | null>, sourceIndex: number, sheetOverride?: TablePreview) {
+  async function openFillAssist(
+    row: Array<string | number | null>,
+    sourceIndex: number,
+    sheetOverride?: TablePreview,
+    options: { autoRunAi?: boolean } = {},
+  ) {
     if (!result || !activePreview) return;
     const sourceSheet = sheetOverride ?? activePreview;
     const sourceColumns = sheetOverride
@@ -6678,7 +6800,7 @@ function DaweibaApp() {
       : previewColumns;
     const targetColumn = findFillAssistTargetColumn(sourceColumns, result.summary.price_column);
     if (!targetColumn) {
-      setError("当前预览未找到基价 / 单价列，无法打开辅助填价");
+      setError("当前预览未找到基价 / 单价列，无法启动 AI 填价");
       return;
     }
     const sheetIndex = Math.max(0, previewSheets.findIndex((sheet) => sheet.sheet_name === sourceSheet.sheet_name));
@@ -6722,7 +6844,7 @@ function DaweibaApp() {
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
-        throw new Error(payload?.detail ?? `读取辅助填价候选失败：${response.status}`);
+        throw new Error(payload?.detail ?? `读取 AI 填价候选失败：${response.status}`);
       }
       const payload = (await response.json()) as FillAssistPayload;
       setFillAssistDialog({
@@ -6734,11 +6856,19 @@ function DaweibaApp() {
         isConfirming: false,
         error: "",
       });
+      if (options.autoRunAi && inlineRowAiContext && payload.candidates.length > 0) {
+        await askRowAi(inlineRowAiContext, fillAssistAiReviewQuestion(), {
+          showDetailPrompt: false,
+          displayQuestion: DEFAULT_ROW_AI_QUESTION,
+          candidates: payload.candidates,
+          selectedCandidateId: payload.candidates[0]?.id ?? "",
+        });
+      }
     } catch (err) {
       setFillAssistDialog((current) => current ? {
         ...current,
         isLoading: false,
-        error: err instanceof Error ? err.message : "读取辅助填价候选失败",
+        error: err instanceof Error ? err.message : "读取 AI 填价候选失败",
       } : current);
     }
   }
@@ -6768,19 +6898,19 @@ function DaweibaApp() {
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
-        throw new Error(payload?.detail ?? `辅助填价确认失败：${response.status}`);
+        throw new Error(payload?.detail ?? `AI 填价确认失败：${response.status}`);
       }
       const payload = (await response.json()) as PreviewCellUpdateResult;
       if (!setResultForCurrentJob(requestJobId, payload)) return;
-      setPreviewManualEditMessage(`已通过辅助填价写入：${payload.manual_edit.column_letter}${payload.manual_edit.row_number}；如影响汇总，请点“重算公式”。`);
+      setPreviewManualEditMessage(`已通过 AI 填价写入：${payload.manual_edit.column_letter}${payload.manual_edit.row_number}；如影响汇总，请点“重算公式”。`);
       setFillAssistDialog(null);
-      appendZhisuanMessage(`已采用辅助填价候选：${candidate.source_label}，写入 ${candidate.value}。`, "command");
+      appendZhisuanMessage(`已采用 AI 填价候选：${candidate.source_label}，写入 ${candidate.value}。`, "command");
     } catch (err) {
       if (!isCurrentResultJob(requestJobId)) return;
       setFillAssistDialog((current) => current ? {
         ...current,
         isConfirming: false,
-        error: err instanceof Error ? err.message : "辅助填价确认失败",
+        error: err instanceof Error ? err.message : "AI 填价确认失败",
       } : current);
     }
   }
@@ -7012,6 +7142,7 @@ function DaweibaApp() {
     setIsChatting(true);
     setError("");
     const controller = beginChatRequest();
+    const processingStartedAt = performance.now();
     const isRowReview = Boolean(options.rowDetailContext);
     const thinking = appendZhisuanMessage(
       options.forcedKnowledge
@@ -7067,6 +7198,16 @@ function DaweibaApp() {
         throw new Error(payload?.detail ?? `知识库问答失败：${response.status}`);
       }
       const payload = (await response.json()) as KnowledgeAskResponse;
+      if (payload.preset_answer) {
+        window.clearTimeout(evidenceTimer);
+        window.clearTimeout(modelTimer);
+        replaceZhisuanMessage(thinking, "正在识别演示问题并加载标准知识范围...", "thinking", { typing: false });
+        await waitUntilElapsed(processingStartedAt, 1700, controller.signal);
+        replaceZhisuanMessage(thinking, "已命中演示知识，正在核对标准依据和来源...", "thinking", { typing: false });
+        await waitUntilElapsed(processingStartedAt, 3500, controller.signal);
+        replaceZhisuanMessage(thinking, "标准依据已核对，正在组织结构化答案...", "thinking", { typing: false });
+        await waitUntilElapsed(processingStartedAt, PRESET_KNOWLEDGE_PROCESSING_MS, controller.signal);
+      }
       const answer = formatKnowledgeAnswer(payload, { forcedKnowledge: options.forcedKnowledge });
       const projectMemories = payload.project_memories ?? [];
       const sourceReferences = [
@@ -7086,6 +7227,7 @@ function DaweibaApp() {
         ? `${options.rowDetailContext.sheetName} / 第${options.rowDetailContext.rowNumber}行`
         : "";
       replaceZhisuanMessage(thinking, answer, payload.preset_answer ? "command" : payload.evidence_found ? "model" : "command", {
+        typing: payload.preset_answer ? false : undefined,
         rowDetailContext: options.rowDetailContext,
         knowledgeSources: payload.sources,
         projectMemories,
@@ -7172,7 +7314,12 @@ function DaweibaApp() {
   async function askRowAi(
     context: RowAiContext | null = rowAiContext,
     question = rowAiQuestion,
-    options: { showDetailPrompt?: boolean } = {},
+    options: {
+      showDetailPrompt?: boolean;
+      displayQuestion?: string;
+      candidates?: FillAssistCandidate[];
+      selectedCandidateId?: string;
+    } = {},
   ) {
     if (!context) return;
     const cleanQuestion = question.trim();
@@ -7182,19 +7329,24 @@ function DaweibaApp() {
     }
     setIsRowAiLoading(true);
     setError("");
-    setRowAiQuestion(cleanQuestion);
+    setRowAiQuestion(options.displayQuestion ?? cleanQuestion);
     setRowAiAnswer("");
 
     try {
-      const answer = await askKnowledgeQuestion(cleanQuestion, knowledgeRowContext(context), "行级知识库复核", {
+      const answer = await askKnowledgeQuestion(
+        cleanQuestion,
+        knowledgeRowContext(context, options.candidates, options.selectedCandidateId),
+        "AI填价",
+        {
         rowDetailContext: context,
-      });
+        },
+      );
       setRowAiAnswer(answer);
       if (options.showDetailPrompt !== false) {
         setRowAiDetailPrompt(context);
       }
     } catch (err) {
-      const messageText = err instanceof Error ? err.message : "行级 AI 分析失败";
+      const messageText = err instanceof Error ? err.message : "AI 填价分析失败";
       setError(messageText);
       setRowAiAnswer(`智算辅助暂不可用：${messageText}`);
       appendZhisuanMessage(`智算辅助暂不可用：${messageText}`, "model");
@@ -7249,15 +7401,7 @@ function DaweibaApp() {
   }
 
   function openRowAi(row: Array<string | number | null>, rowIndex: number) {
-    const context = buildRowAiContext(row, rowIndex);
-    if (!context) return;
-    setRowAiContext(context);
-    setRowAiAnswer("");
-    setRowAiQuestion(DEFAULT_ROW_AI_QUESTION);
-    setChatInput(DEFAULT_ROW_AI_QUESTION);
-    setIsChatOpen(true);
-    setIsAiDockCollapsed(false);
-    window.setTimeout(() => chatInputRef.current?.focus(), 0);
+    void openFillAssist(row, rowIndex, undefined, { autoRunAi: true });
   }
 
   function openRowAiDetail(context: RowAiContext | null = rowAiDetailPrompt) {
@@ -8408,7 +8552,7 @@ function DaweibaApp() {
       return { title: "智算回答", tone: "knowledge", icon: <Sparkles size={15} /> };
     }
     if (message.source === "thinking") {
-      return { title: "正在处理", tone: "processing", icon: <Loader2 className="spin" size={15} /> };
+      return { title: "正在处理", tone: "processing", icon: <Loader2 size={15} /> };
     }
     if (message.feeAnalysis) {
       return { title: "费用洞察", tone: "table", icon: <PanelTop size={15} /> };
@@ -8445,9 +8589,7 @@ function DaweibaApp() {
     if (!presentation) return null;
     return (
       <div className={`zhisuan-answer-heading is-${presentation.tone}`} role="heading" aria-level={3}>
-        <span className="knowledge-evidence-summary__icon" aria-hidden="true">
-          {presentation.icon}
-        </span>
+        <ZhisuanStatusIcon tone={presentation.tone} icon={presentation.icon} />
         <strong>{presentation.title}</strong>
       </div>
     );
@@ -8564,7 +8706,9 @@ function DaweibaApp() {
         {renderZhisuanAnswerHeading(message)}
         {message.attachment
           ? renderZhisuanFileAttachment(message.attachment)
-          : renderZhisuanMessageText(zhisuanMessageDisplayText(message))}
+          : message.source === "thinking"
+            ? <ZhisuanProcessingStatus text={zhisuanMessageDisplayText(message)} startedAt={message.processingStartedAt} />
+            : renderZhisuanMessageText(zhisuanMessageDisplayText(message))}
         {message.role === "assistant" && !message.isTyping && message.knowledgeChart && (
           <KnowledgeDemoChart chart={message.knowledgeChart} />
         )}
@@ -9087,14 +9231,6 @@ function DaweibaApp() {
     && rowAiContext.rowNumber === fillAssistDialog.context.excel_row
     ? rowAiContext
     : null;
-  const fillAssistCandidateReviewContext = selectedFillAssistCandidate
-    ? [
-        `当前结构化建议值：${selectedFillAssistCandidate.value}`,
-        `候选来源：${fillAssistSourceDisplay(selectedFillAssistCandidate)}`,
-        `结构化匹配说明：${selectedFillAssistCandidate.reason}`,
-        "请结合本行要素核对该候选是否适合作为人工确认参考，但不要生成或写入新的数值。",
-      ].join("\n")
-    : "";
   const isDarkMode = colorMode === "dark";
   const colorModeToggleLabel = isDarkMode ? "切换到浅色模式" : "切换到暗黑模式";
 
@@ -10556,8 +10692,8 @@ function DaweibaApp() {
                               <button
                                 className="row-ai-button fill-assist-row-button"
                                 type="button"
-                                title="辅助填价"
-                                aria-label="辅助填价"
+                                title="查看结构化填价候选"
+                                aria-label="查看结构化填价候选"
                                 onClick={() => openFillAssist(row, sourceIndex)}
                               >
                                 <BookOpen size={16} />
@@ -10565,8 +10701,8 @@ function DaweibaApp() {
                               <button
                                 className="row-ai-button"
                                 type="button"
-                                title="行级AI复核"
-                                aria-label="行级AI复核"
+                                title="AI填价"
+                                aria-label="AI填价"
                                 onClick={() => openRowAi(row, sourceIndex)}
                               >
                                 <Bot size={16} />
@@ -12002,7 +12138,7 @@ function DaweibaApp() {
                     <div>
                       <span>
                         <Bot size={16} />
-                        行级AI复核
+                        AI填价
                       </span>
                       <strong>{rowAiContext.sheetName} · 第 {rowAiContext.rowNumber} 行</strong>
                     </div>
@@ -12028,16 +12164,16 @@ function DaweibaApp() {
                     />
                     <button className="chat-send-button row-ai-send-button" disabled={isRowAiLoading} type="button" onClick={() => askRowAi()}>
                       {isRowAiLoading ? <Loader2 className="spin" size={16} /> : <Send size={16} />}
-                      {isRowAiLoading ? "分析中" : "复核"}
+                      {isRowAiLoading ? "填价分析中" : "AI填价"}
                     </button>
                   </div>
                   <div className="row-ai-answer">
                     {isRowAiLoading ? (
-                      <span>正在结合本行要素、三个数字和匹配说明生成复核意见...</span>
+                      <span>正在结合本行要素、结构化候选和正式依据生成填价建议...</span>
                     ) : rowAiAnswer ? (
                       <p>{rowAiAnswer}</p>
                     ) : (
-                      <span>点击表格末列 AI 按钮后，会先把问题填入上方“问问智算”；也可以在这里单独复核。</span>
+                      <span>点击表格末列“AI填价”，系统会先检索并排序结构化候选，再由模型解释排序首选。</span>
                     )}
                   </div>
                 </div>
@@ -12150,10 +12286,10 @@ function DaweibaApp() {
 
       {rowAiDetailPrompt && (
         <div className="modal-backdrop row-ai-detail-backdrop" role="presentation" onClick={() => setRowAiDetailPrompt(null)}>
-          <div className="settings-modal row-ai-detail-modal" role="dialog" aria-modal="true" aria-label="行级AI复核详情" onClick={(event) => event.stopPropagation()}>
+          <div className="settings-modal row-ai-detail-modal" role="dialog" aria-modal="true" aria-label="AI填价详情" onClick={(event) => event.stopPropagation()}>
             <div className="settings-modal-head">
               <div>
-                <p>行级AI复核</p>
+                <p>AI填价</p>
                 <h2>{rowAiDetailPrompt.sheetName} 第 {rowAiDetailPrompt.rowNumber} 行</h2>
               </div>
               <button type="button" onClick={() => setRowAiDetailPrompt(null)}>
@@ -12161,7 +12297,7 @@ function DaweibaApp() {
               </button>
             </div>
             <div className="row-ai-detail-body">
-              <p>本行复核意见已生成。如需查看价格匹配信息、候选来源和当前价格依据追溯，可以打开辅助填价详情。</p>
+              <p>本行 AI 填价意见已生成。如需查看排序候选、差异项和当前价格依据追溯，可以打开详细情况。</p>
               <div className="row-ai-detail-context">
                 {Object.entries(rowAiDetailPrompt.values)
                   .filter(([, value]) => value)
@@ -12202,12 +12338,12 @@ function DaweibaApp() {
                   <Sparkles size={18} />
                 </span>
                 <div>
-                  <p>辅助填价</p>
+                  <p>AI填价</p>
                   <h2 id="fill-assist-title">{fillAssistDialog.context.sheet_name}</h2>
                   <span id="fill-assist-description">第 {fillAssistDialog.context.excel_row} 行 · 选择候选值并写入输出副本</span>
                 </div>
               </div>
-              <button className="icon-button" type="button" aria-label="关闭辅助填价" onClick={() => setFillAssistDialog(null)}>
+              <button className="icon-button" type="button" aria-label="关闭AI填价" onClick={() => setFillAssistDialog(null)}>
                 <X size={18} />
               </button>
             </div>
@@ -12239,7 +12375,7 @@ function DaweibaApp() {
                       </div>
                       {fillAssistDialog.candidates.length > 0 ? (
                         <div className="fill-assist-candidates">
-                          {fillAssistDialog.candidates.map((candidate) => (
+                          {fillAssistDialog.candidates.map((candidate, candidateIndex) => (
                             <label className={`fill-assist-candidate confidence-${candidate.confidence}`} key={candidate.id}>
                               <input
                                 type="radio"
@@ -12254,7 +12390,10 @@ function DaweibaApp() {
                               <span className="fill-assist-selection-dot" aria-hidden="true" />
                               <span className="fill-assist-candidate-content">
                                 <span className="fill-assist-candidate-head">
-                                  <strong className="fill-assist-value">{candidate.value}</strong>
+                                  <span className="fill-assist-ranked-value">
+                                    <small className="fill-assist-rank">#{candidateIndex + 1}</small>
+                                    <strong className="fill-assist-value">{candidate.value}</strong>
+                                  </span>
                                   <span className="fill-assist-tag-row">
                                     <span className={`fill-assist-source ${fillAssistSourceClass(candidate)}`}>{fillAssistSourceDisplay(candidate)}</span>
                                     <span className="fill-assist-confidence">{candidate.confidence_label}</span>
@@ -12376,16 +12515,16 @@ function DaweibaApp() {
                           <Bot size={17} />
                         </span>
                         <div>
-                          <p>大模型辅助</p>
-                          <h3 id="fill-assist-ai-title">行级AI复核</h3>
+                          <p>结构化检索 + 模型解释</p>
+                          <h3 id="fill-assist-ai-title">AI填价</h3>
                         </div>
-                        <small>只解释，不写值</small>
+                        <small>人工确认后写入</small>
                       </div>
 
                       <section className="fill-assist-ai-candidate" aria-label="当前结构化建议">
                         <div>
-                          <span>当前结构化建议</span>
-                          <small>供大模型复核时对照</small>
+                          <span>排序首选</span>
+                          <small>按相似度与来源优先级</small>
                         </div>
                         {selectedFillAssistCandidate ? (
                           <>
@@ -12401,12 +12540,12 @@ function DaweibaApp() {
                       </section>
 
                       <label className="fill-assist-ai-question">
-                        <span>复核问题</span>
+                        <span>填价要求</span>
                         <textarea
                           rows={4}
                           value={rowAiQuestion}
                           onChange={(event) => setRowAiQuestion(event.target.value)}
-                          placeholder="说明希望大模型重点复核的内容"
+                          placeholder="说明希望 AI 填价重点核对的内容"
                         />
                       </label>
 
@@ -12416,26 +12555,31 @@ function DaweibaApp() {
                         disabled={!fillAssistRowAiContext || isRowAiLoading || !rowAiQuestion.trim()}
                         onClick={() => void askRowAi(
                           fillAssistRowAiContext,
-                          [rowAiQuestion.trim(), fillAssistCandidateReviewContext].filter(Boolean).join("\n\n"),
-                          { showDetailPrompt: false },
+                          fillAssistAiReviewQuestion(rowAiQuestion.trim()),
+                          {
+                            showDetailPrompt: false,
+                            displayQuestion: rowAiQuestion.trim(),
+                            candidates: fillAssistDialog.candidates,
+                            selectedCandidateId: fillAssistDialog.selectedCandidateId,
+                          },
                         )}
                       >
                         {isRowAiLoading ? <Loader2 className="spin" size={16} /> : <Sparkles size={16} />}
-                        {isRowAiLoading ? "正在复核" : "开始AI复核"}
+                        {isRowAiLoading ? "AI填价中" : "开始AI填价"}
                       </button>
 
                       <section
                         className={`fill-assist-ai-answer ${isRowAiLoading ? "is-loading" : ""} ${rowAiAnswer ? "has-answer" : ""}`}
-                        aria-label="大模型复核建议"
+                        aria-label="AI填价建议"
                         aria-live="polite"
                       >
                         <header>
                           <Sparkles size={15} aria-hidden="true" />
-                          <strong>大模型建议</strong>
+                          <strong>AI填价建议</strong>
                         </header>
                         <div>
                           {isRowAiLoading ? (
-                            <div className="fill-assist-ai-skeleton" role="status" aria-label="正在生成复核意见">
+                            <div className="fill-assist-ai-skeleton" role="status" aria-label="正在生成AI填价意见">
                               <span className="fill-assist-ai-skeleton__line is-wide" />
                               <span className="fill-assist-ai-skeleton__line" />
                               <span className="fill-assist-ai-skeleton__line is-medium" />
@@ -12446,14 +12590,14 @@ function DaweibaApp() {
                           ) : rowAiAnswer ? (
                             renderFillAssistAiAnswer(rowAiAnswer)
                           ) : (
-                            <span>点击“开始AI复核”，即可在这里对照查看模型意见。模型不会替您采用或写入候选值。</span>
+                            <span>点击“开始AI填价”，模型会对照前三个结构化候选解释排序首选；仍需您确认后写入。</span>
                           )}
                         </div>
                       </section>
 
                       <p className="fill-assist-ai-boundary">
                         <ShieldCheck size={15} />
-                        候选值仍由结构化资料生成；大模型建议仅供人工复核。
+                        候选值由结构化资料生成并排序；大模型只解释，不生成候选外数值。
                       </p>
                     </aside>
                   </div>

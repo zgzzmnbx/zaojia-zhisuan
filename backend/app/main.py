@@ -39,6 +39,7 @@ from .knowledge_qa import (
     build_knowledge_answer_prompt,
     ensure_knowledge_answer,
     is_knowledge_question,
+    prepend_ranked_candidate_recommendation,
     search_knowledge,
     strip_force_knowledge_prefix,
 )
@@ -147,7 +148,7 @@ from .professional_skills import (
 from .report import append_risk_report, write_report
 
 
-APP_VERSION = "v5.19.2"
+APP_VERSION = "v5.19.3"
 OUTPUT_FILE_PREFIX = "【输出】"
 TEMP_FILE_PREFIX = "【临时】"
 PROCESS_STATE_FILENAME = "process-state.json"
@@ -2254,7 +2255,12 @@ async def knowledge_ask(payload: dict[str, Any] = Body(...)) -> dict[str, object
         )
     else:
         project_memories, memory_available = [], True
-    if not results and not project_memories:
+    has_ranked_candidates = bool(
+        row_context
+        and isinstance(row_context.get("candidate_recommendations"), list)
+        and row_context.get("candidate_recommendations")
+    )
+    if not results and not project_memories and not has_ranked_candidates:
         answer = NO_EVIDENCE_ANSWER
         if (
             selection.memory_enabled
@@ -2303,6 +2309,7 @@ async def knowledge_ask(payload: dict[str, Any] = Body(...)) -> dict[str, object
     except (ValueError, RuntimeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     answer = ensure_knowledge_answer(answer, question, results)
+    answer = prepend_ranked_candidate_recommendation(answer, row_context)
 
     return {
         "answer": answer,

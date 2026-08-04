@@ -3004,18 +3004,46 @@ h2 {
 }
 
 .chat-message.assistant.source-thinking .chat-message-body::after {
-  content: "";
-  display: inline-block;
-  width: 28px;
-  height: 8px;
-  margin-left: 8px;
+  display: none;
+}
+
+.zhisuan-processing-status {
+  display: grid;
+  gap: 9px;
+}
+
+.zhisuan-processing-status > p {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 0;
+  color: var(--muted-strong);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.zhisuan-processing-status > p > strong {
+  flex: 0 0 auto;
+  color: var(--blue);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.zhisuan-processing-progress {
+  height: 5px;
+  overflow: hidden;
   border-radius: 999px;
-  background:
-    radial-gradient(circle at 4px 4px, currentColor 0 3px, transparent 3.5px),
-    radial-gradient(circle at 14px 4px, currentColor 0 3px, transparent 3.5px),
-    radial-gradient(circle at 24px 4px, currentColor 0 3px, transparent 3.5px);
-  opacity: 0.55;
-  animation: zhisuan-thinking-pulse 1.1s ease-in-out infinite;
+  background: rgb(37 99 235 / 10%);
+}
+
+.zhisuan-processing-progress > i {
+  display: block;
+  width: 8%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--blue);
+  box-shadow: none;
+  transition: width 120ms linear;
 }
 
 .zhisuan-message-paragraph {
@@ -4054,31 +4082,15 @@ h2 {
   color: #2563eb;
 }
 
-/* Keep the processing state alive without shifting the answer layout: the
-   loader already rotates, while its small container gently breathes. */
 .zhisuan-answer-heading.is-processing > .knowledge-evidence-summary__icon {
-  animation: zhisuan-processing-pulse 1.8s ease-in-out infinite;
   transform-origin: center;
 }
 
-@keyframes zhisuan-processing-pulse {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 rgb(37 99 235 / 0%);
-    transform: scale(1);
-  }
-
-  50% {
-    box-shadow: 0 0 0 4px rgb(37 99 235 / 12%);
-    transform: scale(1.04);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .zhisuan-answer-heading.is-processing > .knowledge-evidence-summary__icon,
-  .zhisuan-answer-heading.is-processing > .knowledge-evidence-summary__icon > .spin {
-    animation: none;
-  }
+.zhisuan-status-icon__glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transform-origin: center;
 }
 
 .knowledge-evidence-summary__icon {
@@ -6526,6 +6538,19 @@ tbody tr:hover .row-ai-cell {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.fill-assist-ranked-value {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+}
+
+.fill-assist-rank {
+  color: var(--db-primary, #2563eb);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
 }
 
 .fill-assist-value {
