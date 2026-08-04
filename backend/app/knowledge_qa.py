@@ -116,6 +116,54 @@ class KnowledgeSearchResult:
     module: str
 
 
+@dataclass(frozen=True)
+class KnowledgeQuestionParts:
+    search_question: str
+    answer_requirements: str
+    meta_requirements: str
+
+
+_INLINE_ANSWER_INSTRUCTION_RE = re.compile(
+    r"(?=[，,；;]\s*(?:请用|请按|只回答|只返回|不要|不得|回答必须|在\d+字以内))"
+)
+
+
+def split_knowledge_question(question: str) -> KnowledgeQuestionParts:
+    """把业务检索内容与回答格式、附加说明要求分开，避免格式词污染召回。"""
+    clean_question, _forced = strip_force_knowledge_prefix(question)
+    segments: list[str] = []
+    for sentence in re.findall(r"[^。！？!?]+[。！？!?]?", clean_question):
+        segments.extend(_INLINE_ANSWER_INSTRUCTION_RE.split(sentence))
+
+    search_segments: list[str] = []
+    answer_segments: list[str] = []
+    meta_segments: list[str] = []
+    for segment in segments:
+        clean_segment = segment.strip(" \t\r\n，,；;。！？!?")
+        if not clean_segment:
+            continue
+        normalized = _normalize_text(clean_segment)
+        if re.search(r"(?:给我|向我)?讲述(?:一下)?(?:检索|回答)?原理|说明(?:检索|回答)过程", normalized):
+            meta_segments.append(clean_segment)
+            continue
+        if (
+            re.match(r"^(?:仅检索|限定范围)", clean_segment)
+            or re.match(r"^(?:请)?(?:只回答|只返回|不要|不得|回答必须)", clean_segment)
+            or re.match(r"^(?:请)?(?:用|使用|按|只用).{0,30}(?:表格|markdown|字数|格式|字段|回答|输出|整理)", clean_segment, flags=re.IGNORECASE)
+            or re.match(r"^(?:请)?在\d+字以内", clean_segment)
+        ):
+            answer_segments.append(clean_segment)
+            continue
+        search_segments.append(clean_segment)
+
+    search_question = " ".join(search_segments).strip() or clean_question
+    return KnowledgeQuestionParts(
+        search_question=search_question,
+        answer_requirements="；".join(answer_segments),
+        meta_requirements="；".join(meta_segments),
+    )
+
+
 def is_knowledge_question(question: str) -> bool:
     clean = _normalize_text(question)
     if not clean:
@@ -209,6 +257,7 @@ def build_knowledge_answer_prompt(
     row_context: dict[str, Any] | None = None,
     project_memories: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, str]]:
+    question_parts = split_knowledge_question(question)
     dictionary_lookup = _is_dictionary_lookup_question(question)
     evidence_blocks = []
     for index, result in enumerate(results, start=1):
@@ -269,6 +318,12 @@ def build_knowledge_answer_prompt(
         [
             "【用户问题】",
             question.strip(),
+            "【用于检索的业务问题】",
+            question_parts.search_question,
+            "【回答与展示要求】",
+            question_parts.answer_requirements or "未单独指定。",
+            "【补充说明要求】",
+            question_parts.meta_requirements or "未单独指定。",
             "【当前行上下文】",
             row_context_text,
             "【正式知识与规则依据】",
@@ -398,20 +453,48 @@ def _build_evidence_fallback_answer(
             source_labels.append(label)
 
     if "技术工作费" in clean_question or "技术系数" in clean_question:
+        if "表2" in clean_question and any(
+            marker in clean_question
+            for marker in ("不参与金额", "不参与技术工作费", "不计技术工作费", "不另计技术工作费")
+        ):
+            source_text = "；".join(source_labels[:2]) or "检索到的表2技术工作费规则资料"
+            return (
+                "## 结论\n\n"
+                "表2中需要排除技术工作费金额计算的项目包括线路航测、走向图编制、像控点联测、"
+                "地物地貌调绘、DLG/DEM/DOM和地图编制。前两类当前第一层规则直接输出0；"
+                "后四类可保留历史显示值0.22，但不参与技术工作费小计。\n\n"
+                "## 依据与解释\n\n"
+                "| 适用对象 | 系数 | 是否参与金额 | 正式依据 |\n"
+                "| --- | --- | --- | --- |\n"
+                f"| 线路航测 | 历史显示0.22；当前规则输出0 | 否 | {source_text} |\n"
+                f"| 走向图编制 | 历史显示0.22；当前规则输出0 | 否 | {source_text} |\n"
+                f"| 像控点联测 | 显示0.22；金额参与标志为否 | 否 | {source_text} |\n"
+                f"| 地物地貌调绘 | 显示0.22；金额参与标志为否 | 否 | {source_text} |\n"
+                f"| DLG/DEM/DOM | 显示0.22；金额参与标志为否 | 否 | {source_text} |\n"
+                f"| 地图编制 | 显示0.22；金额参与标志为否 | 否 | {source_text} |\n\n"
+                "## 适用条件与复核\n\n"
+                "必须区分历史表格显示值与当前规则计算值；如项目合同或专项计价约定另有规定，应转人工复核。\n\n"
+                "## 使用边界\n\n本回答只解释依据，不改变程序填价结果。"
+            )
+
         rows: list[tuple[str, str, str]] = []
-        if "表2" in evidence and "0.22" in evidence:
+        requested_tables = set(re.findall(r"表\s*([234])", clean_question))
+        include_table2 = not requested_tables or "2" in requested_tables
+        include_table3 = not requested_tables or "3" in requested_tables
+        include_table4 = not requested_tables or "4" in requested_tables
+        if include_table2 and "表2" in evidence and "0.22" in evidence:
             rows.append(("表2—通用工程测量费用", "普通工程测量默认", "0.22"))
-        if re.search(r"线路航测[^\n]{0,120}(?:\|\s*0(?:\.0+)?\b|系数(?:为|=)[：:\s]*0)", evidence):
+        if include_table2 and re.search(r"线路航测[^\n]{0,120}(?:\|\s*0(?:\.0+)?\b|系数(?:为|=)[：:\s]*0)", evidence):
             rows.append(("表2—通用工程测量费用", "线路航测", "0（按专项规则）"))
-        if re.search(r"走向图编制[^\n]{0,120}(?:\|\s*0(?:\.0+)?\b|系数(?:为|=)[：:\s]*0)", evidence):
+        if include_table2 and re.search(r"走向图编制[^\n]{0,120}(?:\|\s*0(?:\.0+)?\b|系数(?:为|=)[：:\s]*0)", evidence):
             rows.append(("表2—通用工程测量费用", "走向图编制", "0（按专项规则）"))
-        if "表3" in evidence and "1.2 / 1.0 / 0.8" in evidence:
+        if include_table3 and "表3" in evidence and "1.2 / 1.0 / 0.8" in evidence:
             rows.append(("表3—地质测绘", "岩土工程勘察甲/乙/丙级", "1.2 / 1.0 / 0.8"))
-        if "表4" in evidence and "水文地质" in evidence:
+        if include_table4 and "表4" in evidence and "水文地质" in evidence:
             rows.append(("表4—通用工程勘察费用", "按业务类别和复杂程度分流", "见专项规则"))
-        if "工程水文" in evidence and "0.22" in evidence:
+        if include_table4 and "工程水文" in evidence and "0.22" in evidence:
             rows.append(("表4—通用工程勘察费用", "工程水文/工程气象、工程物探", "0.22"))
-        if "室内试验" in evidence and "0.10" in evidence:
+        if include_table4 and "室内试验" in evidence and "0.10" in evidence:
             rows.append(("表4—通用工程勘察费用", "室内试验", "0.10"))
 
         if rows:
@@ -800,7 +883,8 @@ def _module_for_text(text: str) -> str:
 
 
 def _expand_query_terms(question: str, row_context: dict[str, Any] | None) -> dict[str, float]:
-    clean = _normalize_text(question)
+    search_question = split_knowledge_question(question).search_question
+    clean = _normalize_text(search_question)
     terms: dict[str, float] = {}
     for triggers, expansions in SYNONYM_RULES:
         if any(_normalize_text(trigger) in clean for trigger in triggers):
@@ -824,7 +908,7 @@ def _expand_query_terms(question: str, row_context: dict[str, Any] | None) -> di
     for level in ("简单", "中等", "复杂"):
         if level in clean:
             _add_term(terms, level, 2.5)
-    for token in re.findall(r"[\u4e00-\u9fffA-Za-z0-9.%:\-]+", question):
+    for token in re.findall(r"[\u4e00-\u9fffA-Za-z0-9.%:\-]+", search_question):
         clean_token = _normalize_text(token)
         if clean_token not in COMMON_STOP_TERMS and 2 <= len(clean_token) <= 20:
             _add_term(terms, token, 2.2)
@@ -835,14 +919,14 @@ def _expand_query_terms(question: str, row_context: dict[str, Any] | None) -> di
             _add_term(terms, gps_match.group(1)[-2:], 2.4)
     for number in re.findall(r"\d+(?:\.\d+)?%?", clean):
         _add_term(terms, number, 2.5)
-    for ratio in re.findall(r"\d+\s*:\s*\d+", question):
+    for ratio in re.findall(r"\d+\s*:\s*\d+", search_question):
         compact_ratio = _normalize_text(ratio)
         _add_term(terms, compact_ratio, 3.5)
         _add_term(terms, f"比例-{compact_ratio}", 3.8)
     for raw in re.findall(r"[\u4e00-\u9fffA-Za-z0-9.%\-]{2,}", clean):
         if raw not in COMMON_STOP_TERMS and len(raw) <= 16:
             _add_term(terms, raw, 1.0)
-    for chinese_span in re.findall(r"[\u4e00-\u9fff]{9,}", question):
+    for chinese_span in re.findall(r"[\u4e00-\u9fff]{9,}", search_question):
         for size, weight in ((8, 1.0), (6, 1.0), (5, 1.15), (4, 0.9)):
             if len(chinese_span) < size:
                 continue

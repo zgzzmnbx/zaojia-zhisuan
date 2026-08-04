@@ -1,8 +1,10 @@
 from app.knowledge_qa import (
     KnowledgeSearchResult,
+    _expand_query_terms,
     build_knowledge_answer_prompt,
     ensure_knowledge_answer,
     normalize_knowledge_answer,
+    split_knowledge_question,
 )
 
 
@@ -45,6 +47,35 @@ def test_dictionary_lookup_keeps_compact_table_without_fixed_sections():
     assert "先看结论、再看依据、最后看边界" not in prompt
 
 
+def test_complex_question_separates_search_answer_and_meta_requirements():
+    question = (
+        "#知识库：解释0.22技术工作费调整系数：哪些表2项目虽然显示0.22但不参与金额计算？"
+        "请用表格回答适用对象、系数、是否参与金额和正式依据。给我讲述原理"
+    )
+
+    parts = split_knowledge_question(question)
+
+    assert parts.search_question == "解释0.22技术工作费调整系数：哪些表2项目虽然显示0.22但不参与金额计算"
+    assert parts.answer_requirements == "请用表格回答适用对象、系数、是否参与金额和正式依据"
+    assert parts.meta_requirements == "给我讲述原理"
+
+
+def test_complex_question_format_words_do_not_enter_search_terms():
+    question = (
+        "解释0.22技术工作费调整系数：哪些表2项目虽然显示0.22但不参与金额计算？"
+        "请用表格回答适用对象、系数、是否参与金额和正式依据。给我讲述原理"
+    )
+
+    terms = _expand_query_terms(question, None)
+
+    assert len(terms) == 18
+    assert "技术工作费调整系数" in terms
+    assert "工程测量技术工作费" in terms
+    assert not any("表格回答" in term for term in terms)
+    assert not any("适用对象" in term for term in terms)
+    assert "给我讲述原理" not in terms
+
+
 def test_normalize_knowledge_answer_removes_markup_and_nested_heading_bullets():
     answer = normalize_knowledge_answer(
         "- ### 规则总览\n\n"
@@ -76,6 +107,24 @@ def test_evidence_fallback_uses_the_same_answer_hierarchy():
     assert answer.startswith("## 结论")
     assert "## 依据与解释" in answer
     assert answer.endswith("## 使用边界\n\n本回答只解释依据，不改变程序填价结果。")
+
+
+def test_table2_nonparticipating_fee_fallback_only_returns_requested_items():
+    answer = ensure_knowledge_answer(
+        "",
+        "0.22技术工作费调整系数中，表2哪些项目不参与金额计算？",
+        [_result(snippet="表2线路航测和走向图编制按专项规则处理。")],
+    )
+
+    assert "线路航测" in answer
+    assert "走向图编制" in answer
+    assert "像控点联测" in answer
+    assert "地物地貌调绘" in answer
+    assert "DLG/DEM/DOM" in answer
+    assert "地图编制" in answer
+    assert "历史显示0.22；当前规则输出0" in answer
+    assert "表3" not in answer
+    assert "表4" not in answer
 
 
 def test_structured_price_fallback_separates_conclusion_evidence_and_review():
