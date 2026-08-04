@@ -480,7 +480,6 @@ def test_api_exposes_configured_knowledge_libraries():
     ]
     assert payload["default_library_ids"] == [
         "project-core",
-        "cost-aiw",
         "knowledge-memory",
     ]
     assert next(item for item in payload["libraries"] if item["id"] == "cost-aiw")["source_count"] >= 5
@@ -512,6 +511,40 @@ def test_api_can_disable_memory_and_only_search_selected_static_library(monkeypa
     assert payload["memory_enabled"] is False
     assert captured["sources"]
     assert all("06-知识库问答资料" in str(path) for path in captured["sources"])
+
+
+def test_row_context_forces_professional_library_and_skips_general_library_and_memory(monkeypatch):
+    captured = {}
+
+    def fake_search(*args, **kwargs):
+        captured["sources"] = kwargs["sources"]
+        return []
+
+    def forbidden_memory(*args, **kwargs):
+        raise AssertionError("行级复核不应读取通用知识记忆")
+
+    monkeypatch.setattr(main_module, "search_knowledge", fake_search)
+    monkeypatch.setattr(main_module, "_safe_search_project_memories", forbidden_memory)
+    response = TestClient(app).post(
+        "/api/knowledge/search",
+        json={
+            "question": "判断当前基价和两个系数是否合理",
+            "context_type": "row",
+            "row_context": {
+                "sheet_name": "表2-通用工程测量费用",
+                "row_number": 27,
+                "values": {"要素1": "控制测量", "单位": "项"},
+            },
+            "library_ids": ["cost-aiw", "knowledge-memory"],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["selected_library_ids"] == ["project-core"]
+    assert payload["memory_enabled"] is False
+    assert captured["sources"]
+    assert all("06-知识库问答资料" not in str(path) for path in captured["sources"])
 
 
 def test_api_memory_only_selection_skips_static_search(monkeypatch):

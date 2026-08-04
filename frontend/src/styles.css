@@ -2826,6 +2826,177 @@ h2 {
   margin-top: 12px;
 }
 
+.zhisuan-debug-block {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.zhisuan-debug-actions {
+  margin-top: 0;
+}
+
+.zhisuan-debug-trigger {
+  min-height: 28px;
+  font-size: 11px;
+}
+
+.zhisuan-debug-trigger.is-active {
+  border-color: var(--blue);
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.zhisuan-debug-panel {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  background: var(--surface-soft);
+}
+
+.zhisuan-debug-section {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.zhisuan-debug-section + .zhisuan-debug-section {
+  padding-top: 10px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.zhisuan-debug-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.zhisuan-debug-section-head > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.zhisuan-debug-section-head svg {
+  flex: 0 0 auto;
+  color: var(--blue);
+}
+
+.zhisuan-debug-section-head small {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.zhisuan-debug-source-list,
+.zhisuan-debug-message-list {
+  display: grid;
+  gap: 6px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.zhisuan-debug-source,
+.zhisuan-debug-prompt {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--canvas);
+}
+
+.zhisuan-debug-source {
+  padding: 8px 9px;
+}
+
+.zhisuan-debug-source-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+}
+
+.zhisuan-debug-source-meta strong,
+.zhisuan-debug-source-meta span,
+.zhisuan-debug-source > small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zhisuan-debug-source-meta strong {
+  flex: 0 0 auto;
+  color: var(--blue);
+  font-size: 10px;
+}
+
+.zhisuan-debug-source-meta span {
+  min-width: 0;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.zhisuan-debug-source > small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.zhisuan-debug-source p,
+.zhisuan-debug-prompt pre,
+.zhisuan-debug-answer {
+  margin: 0;
+  color: var(--muted-strong);
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.zhisuan-debug-source p {
+  max-height: 130px;
+  overflow-y: auto;
+}
+
+.zhisuan-debug-prompt-label {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line-soft);
+  background: var(--surface-code);
+  color: var(--blue);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.zhisuan-debug-prompt pre,
+.zhisuan-debug-answer {
+  max-height: 260px;
+  overflow: auto;
+  padding: 8px 9px;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 10px;
+}
+
+.zhisuan-debug-empty,
+.zhisuan-debug-path {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
 .chat-message.assistant.source-thinking .chat-message-body {
   border-color: rgba(0, 102, 204, 0.22);
   background: linear-gradient(90deg, rgba(230, 242, 255, 0.94), rgba(255, 255, 255, 0.96));
@@ -3598,6 +3769,16 @@ h2 {
   max-height: min(92vh, 860px);
 }
 
+.knowledge-memory-modal label > span {
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.knowledge-memory-modal :is(input, select, textarea) {
+  font-size: 13px;
+  line-height: 1.4;
+}
+
 .knowledge-memory-form-grid,
 .knowledge-memory-scope-grid {
   display: grid;
@@ -4270,10 +4451,6 @@ h2 {
     grid-template-columns: 1fr;
     gap: 2px;
   }
-}
-
-.page-settings-modal {
-  width: min(720px, 100%);
 }
 
 .experience-field-settings-modal {
@@ -6103,6 +6280,45 @@ tbody tr:hover .row-ai-cell {
   color: var(--fill-assist-text-muted);
 }
 
+.fill-assist-ai-skeleton {
+  display: grid;
+  align-content: start;
+  gap: 9px;
+  min-height: 112px;
+}
+
+.fill-assist-ai-skeleton__line {
+  display: block;
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #e7edf5 0%, #f7f9fc 45%, #e7edf5 100%);
+  background-size: 220% 100%;
+  animation: fill-assist-skeleton-shimmer 1.6s ease-in-out infinite;
+}
+
+.fill-assist-ai-skeleton__line.is-wide {
+  width: 92%;
+}
+
+.fill-assist-ai-skeleton__line.is-medium {
+  width: 72%;
+}
+
+.fill-assist-ai-skeleton__line.is-short {
+  width: 48%;
+}
+
+@keyframes fill-assist-skeleton-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+
+  100% {
+    background-position: -100% 0;
+  }
+}
+
 .fill-assist-ai-answer .zhisuan-message-paragraph {
   margin: 0 0 8px;
   font-size: 12px;
@@ -6121,6 +6337,62 @@ tbody tr:hover .row-ai-cell {
 
 .fill-assist-ai-answer .zhisuan-markdown-table-wrap {
   max-width: 100%;
+}
+
+.fill-assist-ai-answer__content {
+  min-width: 0;
+}
+
+.fill-assist-ai-answer__heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 2px 0 8px;
+  padding: 7px 8px;
+  border-left: 3px solid var(--db-primary, #2563eb);
+  border-radius: 0 7px 7px 0;
+  background: #f1f6ff;
+  color: var(--fill-assist-text-strong);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.fill-assist-ai-answer__heading svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--db-primary, #2563eb);
+}
+
+.fill-assist-ai-answer__source {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: flex-start;
+  gap: 5px;
+  margin: 8px 0 10px;
+  padding: 7px 8px;
+  border: 1px solid var(--fill-assist-border);
+  border-radius: 7px;
+  background: #f7f9fc;
+  color: var(--fill-assist-text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.fill-assist-ai-answer__source svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--db-primary, #2563eb);
+}
+
+.fill-assist-ai-answer__source-label {
+  color: var(--fill-assist-text-strong);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.fill-assist-ai-answer__source-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .fill-assist-ai-boundary {
@@ -10506,7 +10778,7 @@ tbody tr:hover .row-ai-cell {
   backdrop-filter: blur(2px);
 }
 
-.settings-modal.daweiba-llm-settings-modal {
+.settings-modal.unified-settings-modal {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   gap: 0;
@@ -10521,30 +10793,32 @@ tbody tr:hover .row-ai-cell {
   box-shadow: var(--db-shadow-dialog);
 }
 
-.settings-modal.daweiba-llm-settings-modal > .modal-title {
+.settings-modal.unified-settings-modal > .modal-title {
   min-height: 68px;
   padding: 14px 18px;
   border-bottom: 1px solid var(--db-border-soft);
 }
 
-.settings-modal.daweiba-llm-settings-modal > .modal-title > span {
+.settings-modal.unified-settings-modal > .modal-title > span {
   display: grid;
   gap: 3px;
   min-width: 0;
 }
 
-.settings-modal.daweiba-llm-settings-modal > .modal-title strong {
+.settings-modal.unified-settings-modal > .modal-title strong {
   color: var(--db-text-strong);
-  font-size: 17px;
+  font-size: var(--dws-font-size-16);
+  line-height: 1.35;
 }
 
-.settings-modal.daweiba-llm-settings-modal > .modal-title small {
+.settings-modal.unified-settings-modal > .modal-title small {
   color: var(--db-text-muted);
-  font-size: 12px;
+  font-size: var(--dws-font-size-12);
   font-weight: 400;
+  line-height: 1.45;
 }
 
-.settings-modal.daweiba-llm-settings-modal > .modal-title button {
+.settings-modal.unified-settings-modal > .modal-title button {
   display: inline-grid;
   width: 32px;
   height: 32px;
@@ -10556,7 +10830,7 @@ tbody tr:hover .row-ai-cell {
   color: var(--db-text-muted);
 }
 
-.settings-modal.daweiba-llm-settings-modal > .modal-title button:hover {
+.settings-modal.unified-settings-modal > .modal-title button:hover {
   border-color: var(--db-border);
   background: #f8fafc;
   color: var(--db-text-strong);
@@ -10578,8 +10852,9 @@ tbody tr:hover .row-ai-cell {
   background: transparent;
   color: var(--db-text-muted);
   font: inherit;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--dws-font-size-13);
+  font-weight: var(--dws-font-weight-semibold);
+  line-height: 1.35;
   cursor: pointer;
 }
 
@@ -10592,6 +10867,78 @@ tbody tr:hover .row-ai-cell {
   color: var(--db-primary);
 }
 
+.settings-modal.unified-settings-modal > .unified-settings-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  margin: 10px 18px 0;
+  padding: 4px;
+  border: 1px solid var(--db-border);
+  border-radius: 9px;
+  background: var(--db-surface-tint);
+}
+
+.settings-modal.unified-settings-modal > .unified-settings-tabs button {
+  min-width: 0;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-bottom: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--db-text-muted);
+  text-align: center;
+}
+
+.settings-modal.unified-settings-modal > .unified-settings-tabs button:hover {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--db-surface) 72%, transparent);
+  color: var(--db-text);
+}
+
+.settings-modal.unified-settings-modal > .unified-settings-tabs button.is-active {
+  border-color: var(--db-border);
+  background: var(--db-surface);
+  color: var(--db-primary);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 4%);
+}
+
+.settings-modal.unified-settings-modal .zhisuan-settings-scroll > .zhisuan-settings-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  margin: 0 0 14px;
+  padding: 4px;
+  border: 1px solid var(--db-border);
+  border-radius: 9px;
+  background: var(--db-surface-tint);
+}
+
+.settings-modal.unified-settings-modal .zhisuan-settings-scroll > .zhisuan-settings-tabs button {
+  min-width: 0;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-bottom: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--db-text-muted);
+  text-align: center;
+}
+
+.settings-modal.unified-settings-modal .zhisuan-settings-scroll > .zhisuan-settings-tabs button:hover {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--db-surface) 72%, transparent);
+  color: var(--db-text);
+}
+
+.settings-modal.unified-settings-modal .zhisuan-settings-scroll > .zhisuan-settings-tabs button.is-active {
+  border-color: var(--db-border);
+  background: var(--db-surface);
+  color: var(--db-primary);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 4%);
+}
+
 .daweiba-settings-scroll {
   min-height: 0;
   overflow: auto;
@@ -10599,7 +10946,7 @@ tbody tr:hover .row-ai-cell {
   scrollbar-gutter: stable;
 }
 
-.settings-modal.daweiba-llm-settings-modal .daweiba-settings-pane {
+.settings-modal.unified-settings-modal .daweiba-settings-pane {
   display: grid;
   gap: 14px;
   margin: 0;
@@ -10608,19 +10955,20 @@ tbody tr:hover .row-ai-cell {
   background: transparent;
 }
 
-.settings-modal.daweiba-llm-settings-modal .settings-subsection-title {
+.settings-modal.unified-settings-modal .settings-subsection-title {
   margin-bottom: 2px;
   color: var(--db-text-strong);
-  font-size: 14px;
-  font-weight: 700;
+  font-size: var(--dws-font-size-14);
+  font-weight: var(--dws-font-weight-bold);
+  line-height: 1.35;
 }
 
-.settings-modal.daweiba-llm-settings-modal .field-preference-item,
-.settings-modal.daweiba-llm-settings-modal .preference-row {
+.settings-modal.unified-settings-modal .field-preference-item,
+.settings-modal.unified-settings-modal .preference-row {
   border-radius: 8px;
 }
 
-.settings-modal.daweiba-llm-settings-modal .settings-hint {
+.settings-modal.unified-settings-modal .settings-hint {
   display: flex;
   align-items: flex-start;
   gap: 8px;
@@ -10634,10 +10982,76 @@ tbody tr:hover .row-ai-cell {
   line-height: 1.55;
 }
 
-.settings-modal.daweiba-llm-settings-modal .settings-hint > svg {
+.settings-modal.unified-settings-modal .settings-hint > svg {
   flex: 0 0 auto;
   margin-top: 1px;
   color: var(--db-primary);
+}
+
+.settings-modal.unified-settings-modal :is(input, select, textarea) {
+  font-size: var(--dws-font-size-13);
+  line-height: 1.45;
+}
+
+.settings-modal.unified-settings-modal .field-preference-item > span,
+.settings-modal.unified-settings-modal .settings-field-row > span,
+.settings-modal.unified-settings-modal .settings-mini-title {
+  font-size: var(--dws-font-size-13);
+  font-weight: var(--dws-font-weight-semibold);
+  line-height: 1.35;
+}
+
+.settings-modal.unified-settings-modal .preference-row span strong {
+  font-size: var(--dws-font-size-14);
+  font-weight: var(--dws-font-weight-semibold);
+  line-height: 1.35;
+}
+
+.settings-modal.unified-settings-modal .preference-row span small {
+  font-size: var(--dws-font-size-12);
+  line-height: 1.45;
+}
+
+.settings-modal.unified-settings-modal :is(.primary-button, .ghost-button) {
+  font-size: var(--dws-font-size-13);
+  font-weight: var(--dws-font-weight-bold);
+  line-height: 1;
+}
+
+.settings-modal.unified-settings-modal .unified-memory-settings-content {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.settings-modal.unified-settings-modal .unified-memory-settings-content .knowledge-memory-scope-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.settings-modal.unified-settings-modal .unified-memory-settings-content .knowledge-memory-workspace {
+  grid-template-columns: minmax(190px, 240px) minmax(0, 1fr);
+}
+
+.settings-modal.unified-settings-modal .unified-memory-settings-content label > span {
+  color: var(--db-text-muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.settings-modal.unified-settings-modal .unified-memory-settings-content .knowledge-memory-list > button {
+  font-size: var(--dws-font-size-13);
+  line-height: 1.45;
+}
+
+.settings-modal.unified-settings-modal .unified-memory-settings-content .knowledge-memory-list > button strong {
+  font-size: var(--dws-font-size-13);
+  font-weight: var(--dws-font-weight-semibold);
+  line-height: 1.35;
+}
+
+.settings-modal.unified-settings-modal .unified-memory-settings-content .knowledge-memory-list > button small {
+  font-size: var(--dws-font-size-12);
+  line-height: 1.45;
 }
 
 .daweiba-settings-footer {
@@ -10653,7 +11067,8 @@ tbody tr:hover .row-ai-cell {
 
 .daweiba-settings-footer > span {
   color: var(--db-text-muted);
-  font-size: 11px;
+  font-size: var(--dws-font-size-12);
+  line-height: 1.45;
 }
 
 .daweiba-settings-footer .primary-button {
@@ -10662,7 +11077,7 @@ tbody tr:hover .row-ai-cell {
 }
 
 @media (max-width: 720px) {
-  .settings-modal.daweiba-llm-settings-modal {
+  .settings-modal.unified-settings-modal {
     height: calc(100vh - 20px);
     max-height: calc(100vh - 20px);
   }
@@ -14649,26 +15064,39 @@ tbody tr:hover .row-ai-cell {
   text-align: center;
 }
 
+.knowledge-question-suggestions__edit,
 .knowledge-question-suggestions__close {
   display: inline-grid;
   flex: 0 0 auto;
   width: 24px;
   height: 24px;
-  margin-left: auto;
+  margin-left: 0;
   padding: 0;
   place-items: center;
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #94a3b8;
+  color: var(--db-text-muted);
   cursor: pointer;
 }
 
+.knowledge-question-suggestions__edit:hover,
+.knowledge-question-suggestions__edit:focus-visible,
 .knowledge-question-suggestions__close:hover,
 .knowledge-question-suggestions__close:focus-visible {
   outline: 0;
-  background: #eef2f7;
-  color: var(--db-text-strong);
+  background: var(--db-primary-soft);
+  color: var(--db-primary);
+}
+
+.knowledge-question-suggestions__editor-error {
+  margin: 0;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--db-border-soft);
+  color: #b42318;
+  font-size: 11px;
+  font-style: normal;
+  line-height: 1.45;
 }
 
 .knowledge-question-suggestions__list {
@@ -14741,6 +15169,107 @@ tbody tr:hover .row-ai-cell {
 .knowledge-question-suggestions__list button:focus-visible > span {
   background: #dbeafe;
   color: var(--db-primary);
+}
+
+.knowledge-question-suggestions__edit-row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--db-border-soft);
+  background: #fbfcfe;
+}
+
+.knowledge-question-suggestions__edit-row:last-child {
+  border-bottom: 0;
+}
+
+.knowledge-question-suggestions__edit-row > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-top: 4px;
+  border-radius: 6px;
+  background: #f1f5f9;
+  color: var(--db-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.knowledge-question-suggestions__edit-row textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 44px;
+  max-height: 110px;
+  padding: 6px 8px;
+  resize: vertical;
+  border: 1px solid var(--db-border);
+  border-radius: 7px;
+  outline: 0;
+  background: #ffffff;
+  color: var(--db-text);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.knowledge-question-suggestions__edit-row textarea:focus {
+  border-color: var(--db-primary);
+  box-shadow: 0 0 0 3px rgb(37 99 235 / 12%);
+}
+
+.knowledge-question-suggestions__row-actions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.knowledge-question-suggestions__row-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--db-border);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--db-text-muted);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.knowledge-question-suggestions__row-actions button:hover:not(:disabled),
+.knowledge-question-suggestions__row-actions button:focus-visible:not(:disabled) {
+  outline: 0;
+  border-color: var(--db-primary);
+  background: var(--db-primary-soft);
+  color: var(--db-primary);
+}
+
+.knowledge-question-suggestions__row-actions button.is-primary {
+  border-color: var(--db-border);
+  background: #ffffff;
+  color: var(--db-text-muted);
+}
+
+.knowledge-question-suggestions__row-actions button.is-primary:hover:not(:disabled),
+.knowledge-question-suggestions__row-actions button.is-primary:focus-visible:not(:disabled) {
+  border-color: var(--db-primary);
+  background: #ffffff;
+  color: var(--db-primary);
+}
+
+.knowledge-question-suggestions__row-actions button:disabled {
+  cursor: not-allowed;
+  opacity: .45;
 }
 
 /* v5.3.2 Daweiba polish authority layer */
@@ -15533,15 +16062,13 @@ tbody tr:hover .row-ai-cell {
   min-width: 0;
   padding: 12px;
   border: 1px solid var(--db-border);
-  border-left: 3px solid #93c5fd;
   border-radius: 8px;
   background: #ffffff;
 }
 
 .shell.layout-daweiba .daweiba-app-bot-profile.is-running {
-  border-color: #93c5fd;
-  border-left-color: #2563eb;
-  background: #f8fbff;
+  border-color: var(--db-border);
+  background: #ffffff;
 }
 
 .shell.layout-daweiba .daweiba-app-bot-profile > div {
@@ -16310,7 +16837,7 @@ tbody tr:hover .row-ai-cell {
 ) > .daweiba-collaboration-section-title {
   position: relative;
   margin: -16px -16px 0;
-  padding: 13px 16px 12px 19px;
+  padding: 13px 16px 12px;
   border-bottom: 1px solid #dbeafe;
   border-radius: 8px 8px 0 0;
   background: linear-gradient(100deg, #eef6ff 0%, #f8fbff 58%, #ffffff 100%);
@@ -16321,14 +16848,7 @@ tbody tr:hover .row-ai-cell {
   .daweiba-collaboration-settings.is-second-layer,
   .daweiba-collaboration-settings.is-webhook-layer
 ) > .daweiba-collaboration-section-title::before {
-  position: absolute;
-  top: 11px;
-  bottom: 11px;
-  left: 0;
-  width: 4px;
-  border-radius: 0 4px 4px 0;
-  background: #1677ff;
-  content: "";
+  display: none;
 }
 
 .shell.layout-daweiba :is(
@@ -17941,14 +18461,58 @@ tbody tr:hover .row-ai-cell {
   color: var(--db-primary);
 }
 
+.shell.layout-daweiba.theme-dark .knowledge-question-suggestions__edit,
 .shell.layout-daweiba.theme-dark .knowledge-question-suggestions__close {
   color: var(--db-text-muted);
 }
 
+.shell.layout-daweiba.theme-dark .knowledge-question-suggestions__edit:hover,
+.shell.layout-daweiba.theme-dark .knowledge-question-suggestions__edit:focus-visible,
 .shell.layout-daweiba.theme-dark .knowledge-question-suggestions__close:hover,
 .shell.layout-daweiba.theme-dark .knowledge-question-suggestions__close:focus-visible {
   background: var(--db-bg-alt);
   color: var(--db-text-strong);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-question-suggestions__editor-error {
+  border-color: var(--db-border);
+  color: #fca5a5;
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-question-suggestions__edit-row {
+  border-color: var(--db-border);
+  background: var(--db-surface-tint);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-question-suggestions__edit-row > span {
+  background: var(--db-bg-alt);
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-question-suggestions__edit-row textarea,
+.shell.layout-daweiba.theme-dark .knowledge-question-suggestions__row-actions button {
+  border-color: var(--db-border);
+  background: var(--db-surface);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-question-suggestions__edit-row textarea:focus {
+  border-color: var(--db-primary);
+  background: var(--db-surface);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-question-suggestions__row-actions button:hover:not(:disabled),
+.shell.layout-daweiba.theme-dark .knowledge-question-suggestions__row-actions button:focus-visible:not(:disabled) {
+  background: var(--db-primary-soft);
+  color: var(--db-primary);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-question-suggestions__row-actions button.is-primary,
+.shell.layout-daweiba.theme-dark .knowledge-question-suggestions__row-actions button.is-primary:hover:not(:disabled),
+.shell.layout-daweiba.theme-dark .knowledge-question-suggestions__row-actions button.is-primary:focus-visible:not(:disabled) {
+  border-color: var(--db-border);
+  background: var(--db-surface);
+  color: var(--db-text-muted);
 }
 
 .shell.layout-daweiba.theme-dark .knowledge-question-suggestions__list button {
@@ -18085,8 +18649,7 @@ tbody tr:hover .row-ai-cell {
 }
 
 .shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration .daweiba-app-bot-profile.is-running {
-  border-left-color: var(--db-primary);
-  background: var(--db-primary-soft);
+  background: var(--db-surface-tint);
 }
 
 .shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-collaboration :is(
@@ -18354,6 +18917,111 @@ tbody tr:hover .row-ai-cell {
   color: #a7cdfb;
 }
 
+/* The memory-review modal still has a few explicit light-mode surfaces. Keep
+   the dark correction scoped to this modal so the light palette is untouched. */
+.shell.layout-daweiba.theme-dark .knowledge-memory-modal {
+  border: 1px solid var(--db-border);
+  background: var(--db-surface);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-memory-modal .modal-title strong,
+.shell.layout-daweiba.theme-dark .knowledge-memory-list > button strong,
+.shell.layout-daweiba.theme-dark .knowledge-memory-detail-head strong,
+.shell.layout-daweiba.theme-dark .knowledge-memory-audit b {
+  color: var(--db-text-strong);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-memory-modal .modal-title small,
+.shell.layout-daweiba.theme-dark .knowledge-memory-list > button small,
+.shell.layout-daweiba.theme-dark .knowledge-memory-detail-head small,
+.shell.layout-daweiba.theme-dark .knowledge-memory-detail dt,
+.shell.layout-daweiba.theme-dark .knowledge-memory-audit,
+.shell.layout-daweiba.theme-dark .knowledge-memory-audit > div,
+.shell.layout-daweiba.theme-dark .knowledge-memory-empty {
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-memory-modal .modal-title > button {
+  border-color: var(--db-border);
+  background: var(--db-surface-tint);
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-memory-modal .modal-title > button:hover {
+  border-color: var(--db-primary);
+  background: var(--db-primary-soft);
+  color: var(--db-text-strong);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-memory-workspace {
+  border-color: var(--db-border);
+  background: var(--db-surface);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-memory-list {
+  border-color: var(--db-border);
+  background: var(--db-surface-tint);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-memory-list > button {
+  border-bottom-color: var(--db-border);
+  background: transparent;
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-memory-list > button:hover,
+.shell.layout-daweiba.theme-dark .knowledge-memory-list > button.is-active {
+  background: var(--db-primary-soft);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-memory-detail {
+  background: var(--db-surface);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-memory-detail dl,
+.shell.layout-daweiba.theme-dark .knowledge-memory-detail dl > div,
+.shell.layout-daweiba.theme-dark .knowledge-memory-audit {
+  border-color: var(--db-border-soft);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-memory-detail dd {
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-memory-status {
+  border-color: var(--db-border-strong);
+  background: var(--db-surface-tint);
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-memory-status.is-confirmed {
+  border-color: #2f855a;
+  background: #10291d;
+  color: #86efac;
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-memory-status.is-pending,
+.shell.layout-daweiba.theme-dark .knowledge-memory-status.is-candidate {
+  border-color: #315987;
+  background: #17345c;
+  color: #a7cdfb;
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-memory-status.is-suspected_stale {
+  border-color: #8a6414;
+  background: #33260b;
+  color: #fcd34d;
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-memory-status.is-rejected,
+.shell.layout-daweiba.theme-dark .knowledge-memory-status.is-revoked {
+  border-color: #7f2c35;
+  background: #35191e;
+  color: #fca5a5;
+}
+
 .shell.layout-daweiba.theme-dark .daweiba-layout-shell.is-ai-collapsed > .ai-dock .ai-dock-rail {
   border-color: var(--db-border);
   background: var(--db-surface);
@@ -18427,4 +19095,216 @@ tbody tr:hover .row-ai-cell {
 
 .shell.layout-daweiba.theme-dark .zhisuan-avatar__error {
   stroke: #fca5a5;
+}
+
+/* Dark-mode palette for the auxiliary pricing modal. Keep this scoped to the
+   modal so the established light palette remains unchanged elsewhere. */
+.shell.layout-daweiba.theme-dark .fill-assist-modal {
+  --db-primary-weak: #121f33;
+  --db-danger: #f87171;
+  --db-success: #4ade80;
+  --db-warning: #fbbf24;
+  --fill-assist-border: var(--db-border);
+  --fill-assist-border-strong: var(--db-border-strong);
+  --fill-assist-text: var(--db-text);
+  --fill-assist-text-strong: var(--db-text-strong);
+  --fill-assist-text-muted: var(--db-text-muted);
+  --fill-assist-danger: #fca5a5;
+  --fill-assist-success: #86efac;
+  --fill-assist-warning: #fcd34d;
+  --fill-assist-scrollbar-thumb: #64748b;
+  --fill-assist-scrollbar-thumb-hover: #94a3b8;
+  border-color: var(--fill-assist-border);
+  background: var(--db-surface);
+  color: var(--fill-assist-text);
+}
+
+.shell.layout-daweiba.theme-dark .fill-assist-modal .settings-modal-head,
+.shell.layout-daweiba.theme-dark .fill-assist-modal .settings-modal-actions {
+  border-color: var(--fill-assist-border);
+  background: var(--db-surface-tint);
+  color: var(--fill-assist-text);
+}
+
+.shell.layout-daweiba.theme-dark .fill-assist-modal .settings-modal-head .icon-button {
+  border-color: var(--fill-assist-border);
+  background: var(--db-surface);
+  color: var(--fill-assist-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark .fill-assist-modal .settings-modal-head .icon-button:hover {
+  background: var(--db-bg-alt);
+  color: var(--fill-assist-text-strong);
+}
+
+.shell.layout-daweiba.theme-dark .fill-assist-body {
+  background: var(--db-bg);
+}
+
+.shell.layout-daweiba.theme-dark .fill-assist-candidate-panel,
+.shell.layout-daweiba.theme-dark .fill-assist-ai-review {
+  border-color: var(--fill-assist-border);
+  background: var(--db-surface);
+  color: var(--fill-assist-text);
+}
+
+.shell.layout-daweiba.theme-dark .fill-assist-sidebar {
+  border-color: var(--fill-assist-border);
+  background: var(--db-surface-tint);
+  color: var(--fill-assist-text);
+}
+
+.shell.layout-daweiba.theme-dark .fill-assist-title-icon,
+.shell.layout-daweiba.theme-dark .fill-assist-column-icon {
+  border-color: #244d82;
+  background: var(--db-primary-soft);
+  color: var(--db-primary);
+}
+
+.shell.layout-daweiba.theme-dark .fill-assist-column-head > small,
+.shell.layout-daweiba.theme-dark .fill-assist-section-heading > span {
+  border-color: var(--fill-assist-border);
+  background: var(--db-bg-alt);
+  color: var(--fill-assist-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark .fill-assist-ai-candidate {
+  border-color: #244d82;
+  background: var(--db-primary-weak);
+}
+
+.shell.layout-daweiba.theme-dark .fill-assist-ai-question textarea,
+.shell.layout-daweiba.theme-dark .fill-assist-note textarea {
+  border-color: var(--fill-assist-border);
+  background: #0e1726;
+  color: var(--fill-assist-text);
+}
+
+.shell.layout-daweiba.theme-dark .fill-assist-ai-answer {
+  border-color: var(--fill-assist-border);
+  background: var(--db-bg-alt);
+}
+
+.shell.layout-daweiba.theme-dark .fill-assist-ai-answer > header {
+  border-color: var(--fill-assist-border);
+  background: var(--db-surface-tint);
+  color: var(--fill-assist-text-strong);
+}
+
+.shell.layout-daweiba.theme-dark .fill-assist-ai-answer > div {
+  color: var(--fill-assist-text);
+}
+
+.shell.layout-daweiba.theme-dark .fill-assist-ai-answer__heading {
+  border-color: #60a5fa;
+  background: #162743;
+  color: var(--fill-assist-text-strong);
+}
+
+.shell.layout-daweiba.theme-dark .fill-assist-ai-answer__source {
+  border-color: var(--fill-assist-border);
+  background: #111e32;
+  color: var(--fill-assist-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark .fill-assist-ai-answer__source-label {
+  color: var(--fill-assist-text-strong);
+}
+
+.shell.layout-daweiba.theme-dark .fill-assist-ai-skeleton__line {
+  background: linear-gradient(90deg, #24344d 0%, #334967 45%, #24344d 100%);
+  background-size: 220% 100%;
+}
+
+.shell.layout-daweiba.theme-dark .fill-assist-ai-submit:disabled {
+  background: var(--db-border);
+  color: var(--db-text-weak) !important;
+  -webkit-text-fill-color: var(--db-text-weak);
+}
+
+.shell.layout-daweiba.theme-dark .fill-assist-candidate {
+  border-color: var(--fill-assist-border);
+  background: var(--db-surface-tint);
+  color: var(--fill-assist-text);
+}
+
+.shell.layout-daweiba.theme-dark .fill-assist-candidate:hover {
+  border-color: var(--fill-assist-border-strong);
+  background: var(--db-bg-alt);
+}
+
+.shell.layout-daweiba.theme-dark .fill-assist-candidate:has(input:checked) {
+  border-color: var(--db-primary);
+  background: var(--db-primary-soft);
+  box-shadow: inset 0 0 0 1px rgb(96 165 250 / 16%);
+}
+
+.shell.layout-daweiba.theme-dark .fill-assist-selection-dot {
+  border-color: var(--fill-assist-border-strong);
+  background: var(--db-surface);
+}
+
+.shell.layout-daweiba.theme-dark .fill-assist-source.is-knowledge {
+  border-color: #1d5b3a;
+  background: #10291d;
+  color: #86efac;
+}
+
+.shell.layout-daweiba.theme-dark .fill-assist-source.is-experience {
+  border-color: #244d82;
+  background: var(--db-primary-soft);
+  color: #93c5fd;
+}
+
+.shell.layout-daweiba.theme-dark .fill-assist-source.is-other {
+  border-color: var(--fill-assist-border);
+  background: var(--db-bg-alt);
+  color: var(--fill-assist-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark .fill-assist-candidate-metrics .fill-assist-similarity {
+  border-color: #244d82;
+  background: var(--db-primary-soft);
+  color: #93c5fd !important;
+  -webkit-text-fill-color: #93c5fd;
+}
+
+.shell.layout-daweiba.theme-dark .fill-assist-context-panel,
+.shell.layout-daweiba.theme-dark .fill-assist-trace,
+.shell.layout-daweiba.theme-dark .fill-assist-note {
+  border-color: var(--fill-assist-border);
+  background: var(--db-surface);
+  color: var(--fill-assist-text);
+}
+
+.shell.layout-daweiba.theme-dark .fill-assist-context-highlight > span {
+  background: var(--db-bg-alt);
+}
+
+.shell.layout-daweiba.theme-dark .fill-assist-trace-card {
+  border-color: var(--fill-assist-border);
+  background: var(--db-primary-weak);
+}
+
+.shell.layout-daweiba.theme-dark .fill-assist-trace-empty {
+  border-color: var(--fill-assist-border-strong);
+  background: var(--db-bg-alt);
+}
+
+.shell.layout-daweiba.theme-dark .fill-assist-trace-kind.is-match {
+  border-color: #1d5b3a;
+  background: #10291d;
+  color: #86efac;
+}
+
+.shell.layout-daweiba.theme-dark .fill-assist-trace-kind.is-experience {
+  border-color: #244d82;
+  background: var(--db-primary-soft);
+  color: #93c5fd;
+}
+
+.shell.layout-daweiba.theme-dark .fill-assist-trace-kind.is-rule {
+  border-color: var(--fill-assist-border-strong);
+  background: var(--db-bg-alt);
+  color: var(--fill-assist-text-muted);
 }

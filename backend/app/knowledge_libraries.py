@@ -11,6 +11,7 @@ from .paths import DEFAULT_KNOWLEDGE_QA_INDEX_PATH, PROJECT_ROOT
 
 
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "knowledge-qa-libraries.json"
+PROFESSIONAL_KNOWLEDGE_LIBRARY_ID = "project-core"
 DEFAULT_LIBRARY_CONFIG: dict[str, Any] = {
     "schemaVersion": 1,
     "libraries": [
@@ -26,7 +27,7 @@ DEFAULT_LIBRARY_CONFIG: dict[str, Any] = {
         {
             "id": "cost-aiw",
             "name": "造价通用知识库",
-            "description": "从造价资料库中经人工筛选的重点文件生成的可追溯问答资产。",
+            "description": "普通依据问答可选的造价资料问答资产；行级勘察测量复核不纳入。",
             "level": "第二层 · 造价通用资料",
             "kind": "static",
             "paths": ["06-知识库问答资料/造价AIW资料库"],
@@ -34,7 +35,7 @@ DEFAULT_LIBRARY_CONFIG: dict[str, Any] = {
             "recursive": True,
             "extensions": [".md"],
             "excludeNames": ["知识资产清单.md"],
-            "defaultSelected": True,
+            "defaultSelected": False,
         },
         {
             "id": "knowledge-memory",

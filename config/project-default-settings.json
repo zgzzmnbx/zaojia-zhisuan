@@ -131,6 +131,7 @@
       "_说明": "enabledIds 控制启用的内置快捷指令；customPrompts 是逐行显示的自定义快捷指令；autoHide 控制快捷指令是否默认收起。",
       "enabledIds": [
         "batch-match",
+        "fee-analysis",
         "experience-warning",
         "risk-report",
         "download-excel",
@@ -141,7 +142,7 @@
         "#知识库："
       ],
       "autoHide": true,
-      "version": 3
+      "version": 4
     },
     "dockVisibility": {
       "rowReview": false,

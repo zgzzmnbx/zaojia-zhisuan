@@ -1048,11 +1048,18 @@ def test_answer_knowledge_event_uses_native_table_card_for_feishu():
     feishu_app_bot.answer_knowledge_event("chat-1", "技术工作费依据是什么？", feishu, Professional())
     assert feishu.texts == []
     card = feishu.cards[-1][1]
-    assert card["header"]["title"]["content"] == "造价智算 · 知识库回答"
+    assert card["header"]["title"]["content"] == "造价智算 · 知识库答复"
     table = next(element for element in card["elements"] if element["tag"] == "table")
     assert [column["display_name"] for column in table["columns"]] == ["复杂程度", "技术工作费调整系数"]
     assert table["rows"] == [{"column_1": "简单", "column_2": "0.27"}]
     assert "依据来源：规则说明" in json.dumps(card, ensure_ascii=False)
+    assert card["elements"][-1] == {
+        "tag": "note",
+        "elements": [{
+            "tag": "plain_text",
+            "content": "由造价智算知识库检索生成；价格与系数仍以项目规则及人工复核为准。",
+        }],
+    }
 
 
 def test_answer_chat_event_uses_classic_compatible_fields_for_weact():
@@ -1093,8 +1100,65 @@ def test_table_answer_card_failure_falls_back_to_plain_list():
     assert feishu.texts == [("chat-1", "知识库查询完成：\n\n【1】项目：A\n• 结论：可用")]
 
 
-def test_answer_without_table_keeps_plain_text_message():
+def test_answer_knowledge_without_table_uses_readable_card_for_feishu():
     feishu = FakeFeishu()
+
+    class Professional:
+        def ask_knowledge(self, question):
+            return "## 核心结论\n系数按项目复杂程度确定。\n\n依据来源：\n- 规则说明"
+
+    feishu_app_bot.answer_knowledge_event("chat-1", "依据是什么？", feishu, Professional())
+
+    assert feishu.texts == []
+    card = feishu.cards[-1][1]
+    assert card["header"]["title"]["content"] == "造价智算 · 知识库答复"
+    assert not any(element["tag"] == "table" for element in card["elements"])
+    body = next(element["text"] for element in card["elements"] if element["tag"] == "div")
+    assert body["tag"] == "lark_md"
+    assert "**核心结论**" in body["content"]
+    assert "**依据来源：**" in body["content"]
+    assert "• 规则说明" in body["content"]
+
+
+def test_answer_knowledge_without_table_uses_classic_card_for_weact():
+    feishu = FakeFeishu()
+    feishu.domain = "https://open.weact.pipechina.com.cn"
+
+    class Professional:
+        def ask_knowledge(self, question):
+            return "结论：\n- 使用项目规则核对\n- 保留人工复核"
+
+    feishu_app_bot.answer_knowledge_event("chat-1", "怎么核对？", feishu, Professional())
+
+    assert feishu.texts == []
+    card = feishu.cards[-1][1]
+    assert card["header"]["title"]["content"] == "造价智算 · 知识库答复"
+    assert not any(element["tag"] == "table" for element in card["elements"])
+    assert not any("schema" in element for element in card["elements"])
+    body = next(element["text"] for element in card["elements"] if element["tag"] == "div")
+    assert body["tag"] == "lark_md"
+    assert "**结论：**" in body["content"]
+
+
+def test_answer_chat_without_table_keeps_plain_text_message():
+    feishu = FakeFeishu()
+
+    class Professional:
+        def ask_chat(self, question):
+            return "这是普通智能问答。"
+
+    feishu_app_bot.answer_chat_event("chat-1", "普通问题", feishu, Professional())
+
+    assert feishu.cards == []
+    assert feishu.texts == [("chat-1", "这是普通智能问答。")]
+
+
+def test_knowledge_card_failure_without_table_falls_back_to_plain_text():
+    class CardFailureFeishu(FakeFeishu):
+        def send_card(self, chat_id: str, card: dict) -> None:
+            raise RuntimeError("card unavailable")
+
+    feishu = CardFailureFeishu()
 
     class Professional:
         def ask_knowledge(self, question):
@@ -1102,7 +1166,6 @@ def test_answer_without_table_keeps_plain_text_message():
 
     feishu_app_bot.answer_knowledge_event("chat-1", "依据是什么？", feishu, Professional())
 
-    assert feishu.cards == []
     assert feishu.texts == [("chat-1", "知识库查询完成：\n\n依据来源：规则说明")]
 
 

@@ -221,6 +221,40 @@ def _plain_markdown_block(value: str) -> str:
     return "\n".join(lines).strip()
 
 
+def _card_markdown_block(value: str) -> str:
+    """Keep lightweight hierarchy while avoiding unsupported Markdown in cards."""
+    lines: list[str] = []
+    in_code_block = False
+    for raw_line in value.splitlines():
+        stripped = raw_line.strip()
+        if stripped.startswith("```"):
+            in_code_block = not in_code_block
+            continue
+
+        heading = re.match(r"^#{1,6}\s+(.+)$", stripped)
+        bullet = re.match(r"^[-*+]\s+(.+)$", stripped)
+        quote = re.match(r"^>\s?(.+)$", stripped)
+        if heading:
+            clean = _safe_lark_markdown(heading.group(1))
+            line = f"**{clean}**" if clean else ""
+        elif bullet:
+            clean = _safe_lark_markdown(bullet.group(1))
+            line = f"• {clean}" if clean else ""
+        elif quote:
+            clean = _safe_lark_markdown(quote.group(1))
+            line = f"> {clean}" if clean else ""
+        else:
+            clean = _safe_lark_markdown(stripped)
+            if clean and re.fullmatch(r"[^\s：:]{1,20}[：:]", clean):
+                line = f"**{clean}**"
+            else:
+                line = clean
+        if in_code_block and line:
+            line = f"  {line}"
+        lines.append(line)
+    return "\n".join(lines).strip()
+
+
 def _safe_lark_markdown(value: str) -> str:
     return (
         _plain_markdown_cell(value)
@@ -295,6 +329,9 @@ def build_markdown_table_answer_card(
     *,
     title: str,
     native_table: bool,
+    require_table: bool = True,
+    rich_text: bool = False,
+    footer_note: str = "",
 ) -> dict[str, Any] | None:
     lines = str(text or "").splitlines()
     elements: list[dict[str, Any]] = []
@@ -303,14 +340,15 @@ def build_markdown_table_answer_card(
     index = 0
 
     def flush_text_buffer() -> None:
-        content = _plain_markdown_block("\n".join(text_buffer))
+        formatter = _card_markdown_block if rich_text else _plain_markdown_block
+        content = formatter("\n".join(text_buffer))
         text_buffer.clear()
         if content:
             if elements and elements[-1].get("tag") != "hr":
                 elements.append({"tag": "hr"})
             elements.append({
                 "tag": "div",
-                "text": {"tag": "plain_text", "content": content},
+                "text": {"tag": "lark_md" if rich_text else "plain_text", "content": content},
             })
 
     while index < len(lines):
@@ -332,8 +370,17 @@ def build_markdown_table_answer_card(
         index = cursor
 
     flush_text_buffer()
-    if table_count == 0 or table_count > 5:
+    if table_count > 5 or (require_table and table_count == 0) or not elements:
         return None
+
+    clean_footer_note = _plain_markdown_block(footer_note)
+    if clean_footer_note:
+        if elements[-1].get("tag") != "hr":
+            elements.append({"tag": "hr"})
+        elements.append({
+            "tag": "note",
+            "elements": [{"tag": "plain_text", "content": clean_footer_note}],
+        })
 
     card = {
         "config": {"wide_screen_mode": True},
@@ -357,9 +404,19 @@ def send_answer_with_table_card(
     fallback_heading: str = "",
     log_category: str,
     profile_id: str = "",
+    always_card: bool = False,
+    rich_text: bool = False,
+    footer_note: str = "",
 ) -> str:
     native_table = getattr(feishu, "domain", DEFAULT_FEISHU_DOMAIN) == DEFAULT_FEISHU_DOMAIN
-    card = build_markdown_table_answer_card(answer, title=title, native_table=native_table)
+    card = build_markdown_table_answer_card(
+        answer,
+        title=title,
+        native_table=native_table,
+        require_table=not always_card,
+        rich_text=rich_text,
+        footer_note=footer_note,
+    )
     if card is not None:
         try:
             feishu.send_card(chat_id, card)
@@ -2637,10 +2694,13 @@ def answer_knowledge_event(
             chat_id,
             answer,
             feishu,
-            title="造价智算 · 知识库回答",
+            title="造价智算 · 知识库答复",
             fallback_heading="知识库查询完成：",
             log_category="knowledge",
             profile_id=profile_id,
+            always_card=True,
+            rich_text=True,
+            footer_note="由造价智算知识库检索生成；价格与系数仍以项目规则及人工复核为准。",
         )
         append_runtime_event("knowledge", "知识库问题查询完成并已回复", level="success", profile_id=profile_id)
     except Exception as exc:

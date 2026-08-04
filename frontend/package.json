@@ -12,6 +12,7 @@
     "preview": "vite preview",
     "sync:file-viewer-assets": "node scripts/sync-file-viewer-assets.mjs",
     "test:agent-workspace": "node --test tests/agentWorkspaceUtils.test.ts",
+    "test:fee-analysis": "node --test tests/feeAnalysis.test.ts",
     "test:project-dashboard": "node --test tests/projectDashboardUtils.test.ts",
     "test:report-preview": "node --test tests/wordReportPreviewUtils.test.ts"
   },

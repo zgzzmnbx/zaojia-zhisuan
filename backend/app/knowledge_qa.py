@@ -256,11 +256,13 @@ def build_knowledge_answer_prompt(
         ]
         if dictionary_lookup
         else [
-            "请用以下结构回答：",
-            "智算解释：",
-            "正式依据：只写 1-3 条最相关依据的资料简称和工作表、章节或行号定位，不输出完整目录路径，不重复罗列同一资料。",
-            "项目记忆：",
-            "提示：本回答只解释依据，不改变程序填价结果。",
+            "请按业务人员“先看结论、再看依据、最后看边界”的阅读顺序回答，并使用以下 Markdown 二级标题：",
+            "## 结论：先用 1-3 句话直接回答问题，不复述用户问题，不只写‘已检索到依据’。",
+            "## 依据与解释：说明结论如何由证据得出；只列最多 3 条最相关依据，每条最多 2 句话，禁止整段复制资料正文；写资料简称和工作表、章节或行号定位，不输出完整目录路径，不重复罗列同一资料。",
+            "## 项目记忆：仅在确实引用已确认通用或项目知识记忆时输出；正式依据与项目记忆必须分开，不命中时不要输出空标题。",
+            "## 适用条件与复核：仅在存在适用条件、例外、冲突、信息缺口或需要人工复核时输出，并写清需要核对什么；没有这些内容时省略。",
+            "## 使用边界：最后固定说明‘本回答只解释依据，不改变程序填价结果。’",
+            "禁止输出空章节；标题必须单独占一行，标题前不要加列表符号；禁止输出 HTML/XML 标签（例如 <text>、<p>）；不要把界面下方已经折叠展示的完整依据路径再次复制到正文。",
         ]
     )
     user_content = "\n\n".join(
@@ -306,12 +308,26 @@ def build_knowledge_answer_prompt(
     ]
 
 
+_UNSUPPORTED_ANSWER_TAG_RE = re.compile(
+    r"</?(?:text|p|span|strong|em|b|i|div|section|article|br)(?:\s+[^<>]*)?/?>",
+    re.IGNORECASE,
+)
+
+
+def normalize_knowledge_answer(answer: str | None) -> str:
+    """清理模型常见的展示性标记，不改变回答正文语义。"""
+    clean_answer = str(answer or "").replace("\r", "").strip()
+    clean_answer = _UNSUPPORTED_ANSWER_TAG_RE.sub("", clean_answer)
+    clean_answer = re.sub(r"(?m)^\s*[-*•]\s+(?=#{1,6}\s+)", "", clean_answer)
+    return re.sub(r"\n{3,}", "\n\n", clean_answer).strip()
+
+
 def ensure_knowledge_answer(
     answer: str | None,
     question: str,
     results: list[KnowledgeSearchResult],
 ) -> str:
-    clean_answer = str(answer or "").strip()
+    clean_answer = normalize_knowledge_answer(answer)
     if _has_substantive_answer(clean_answer):
         return clean_answer
 
@@ -333,15 +349,23 @@ def ensure_knowledge_answer(
         source = candidate.title_path or candidate.source_file
         return "\n".join(
             [
-                "智算解释：",
+                "## 结论",
+                "",
+                "知识库中存在与问题匹配的结构化计价候选，具体如下。",
+                "",
+                "## 依据与解释",
                 "",
                 "| 匹配项目 | 条件 | 单位 | 结构化计价库基价 | 来源定位 |",
                 "| --- | --- | --- | ---: | --- |",
                 f"| {item} | {conditions} | {unit} | {price} | {source} |",
                 "",
+                "## 适用条件与复核",
+                "",
                 "该数值是知识库中的匹配候选；最终是否采用，仍由现有匹配程序和人工复核确定。",
                 "",
-                "提示：本回答只解释依据，不改变程序填价结果。",
+                "## 使用边界",
+                "",
+                "本回答只解释依据，不改变程序填价结果。",
             ]
         )
 
@@ -350,9 +374,10 @@ def ensure_knowledge_answer(
         return evidence_fallback
 
     return (
-        "智算解释：\n\n"
+        "## 结论\n\n"
         "当前检索结果只有零散依据，暂不能形成明确结论。请补充工作表、业务类别、复杂程度、单位或比例尺后再查询。\n\n"
-        "提示：本回答只解释依据，不改变程序填价结果。"
+        "## 使用边界\n\n"
+        "本回答只解释依据，不改变程序填价结果。"
     )
 
 
@@ -398,14 +423,16 @@ def _build_evidence_fallback_answer(
             ]
             source_text = "；".join(source_labels[:2]) or "检索到的技术工作费规则资料"
             return (
-                "智算解释：\n\n"
+                "## 结论\n\n"
                 "技术工作费调整系数按“先判定工作表，再判定业务大类，最后按类别字段映射”的顺序确定，不是所有表共用一张系数表。\n\n"
+                "## 依据与解释\n\n"
                 + "\n".join(table)
-                + "\n\n正式依据："
+                + "\n\n来源定位："
                 + source_text
                 + "。"
                 + _technical_fee_conflict_note(evidence)
-                + "\n\n提示：本回答只解释依据，不改变程序填价结果；具体行若存在专项口径，仍以对应规则和人工复核为准。"
+                + "\n\n## 适用条件与复核\n\n具体行若存在专项口径，仍以对应规则和人工复核为准。"
+                + "\n\n## 使用边界\n\n本回答只解释依据，不改变程序填价结果。"
             )
 
     snippets: list[str] = []
@@ -418,9 +445,10 @@ def _build_evidence_fallback_answer(
         return ""
     source_text = "；".join(source_labels[:2]) or "检索结果"
     return (
-        "智算解释：\n\n根据已检索到的依据，可先确认：\n"
+        "## 结论\n\n根据已检索到的依据，可先确认以下内容。\n\n"
+        "## 依据与解释\n\n"
         + "\n".join(f"- {snippet}" for snippet in snippets)
-        + f"\n\n正式依据：{source_text}。\n\n提示：本回答只解释依据，不改变程序填价结果。"
+        + f"\n\n来源定位：{source_text}。\n\n## 使用边界\n\n本回答只解释依据，不改变程序填价结果。"
     )
 
 
@@ -449,10 +477,14 @@ def _has_substantive_answer(answer: str) -> bool:
         return False
     ignored_headings = {
         "智算解释",
+        "结论",
         "正式依据",
+        "依据与解释",
         "依据来源",
         "项目记忆",
+        "适用条件与复核",
         "提示",
+        "使用边界",
     }
     for line in answer.replace("\r", "").split("\n"):
         clean_line = re.sub(r"^[#>*\-\s]+|[*：:\s]+$", "", line).strip()

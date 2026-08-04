@@ -165,16 +165,17 @@
 .agent-turn.has-user > .agent-message.assistant.agent-message--progress::before { display: none; }
 .agent-progress-message {
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr);
-  gap: 10px;
-  width: min(620px, 100%);
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 8px;
+  width: min(620px, calc(100% - 12px));
+  margin-left: 12px;
 }
 .agent-progress-message__icon {
   display: inline-grid;
-  width: 30px;
-  height: 30px;
+  width: 24px;
+  height: 24px;
   place-items: center;
-  border-radius: 9px;
+  border-radius: 7px;
   background: #eff6ff;
   color: #2563eb;
 }
@@ -184,7 +185,7 @@
   transform-origin: center;
   will-change: transform;
 }
-.agent-progress-message__content { min-width: 0; padding-top: 2px; }
+.agent-progress-message__content { min-width: 0; }
 .agent-progress-message__heading {
   display: flex;
   align-items: center;

@@ -18,7 +18,7 @@
     {
       "id": "cost-aiw",
       "name": "造价通用知识库",
-      "description": "从造价资料库中经人工筛选的重点文件生成，当前包含 2024 全费用清单单价等可追溯问答资产。",
+      "description": "普通依据问答可选的造价资料问答资产；行级勘察测量复核不纳入。",
       "level": "第二层 · 造价通用资料",
       "kind": "static",
       "paths": [
@@ -32,7 +32,7 @@
       "excludeNames": [
         "知识资产清单.md"
       ],
-      "defaultSelected": true
+      "defaultSelected": false
     },
     {
       "id": "knowledge-memory",

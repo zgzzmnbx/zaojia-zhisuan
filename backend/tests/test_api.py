@@ -188,6 +188,7 @@ def test_ui_preferences_are_saved_and_loaded(tmp_path, monkeypatch):
                     "ignored": {"unknown": 999},
                 },
                 "text": {"hero.title": "管勘智算测试"},
+                "commonQuestions": ["问题一", "问题一", "", "问题二"],
             }
         },
     )
@@ -198,11 +199,13 @@ def test_ui_preferences_are_saved_and_loaded(tmp_path, monkeypatch):
     assert payload["preferences"]["styles"]["hero"] == {"fontSize": 44.0, "paddingX": 28.0, "opacity": 88.0}
     assert "ignored" not in payload["preferences"]["styles"]
     assert payload["preferences"]["text"]["hero.title"] == "管勘智算测试"
+    assert payload["preferences"]["commonQuestions"] == ["问题一", "问题二"]
     assert preferences_path.exists()
 
     get_response = client.get("/api/ui-preferences")
     assert get_response.status_code == 200
     assert get_response.json()["preferences"]["text"]["hero.title"] == "管勘智算测试"
+    assert get_response.json()["preferences"]["commonQuestions"] == ["问题一", "问题二"]
 
 
 def test_preview_column_preferences_post_returns_temporary_preferences_without_saving(tmp_path, monkeypatch):

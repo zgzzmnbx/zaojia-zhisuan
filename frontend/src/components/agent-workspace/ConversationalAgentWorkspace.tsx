@@ -25,8 +25,10 @@ type Props<T extends AgentWorkspaceMessage> = {
   actions: ReactNode;
   artifacts: ReactNode;
   knowledgeQuestions: string[];
+  knowledgeDefaultQuestions: string[];
   onInputChange: (value: string) => void;
   onInputFocusChange: (focused: boolean) => void;
+  onSaveKnowledgeQuestions: (questions: string[]) => Promise<boolean>;
   onSelectSkill: (skillId: string) => void;
   onPickFile: () => void;
   onDropFile: (file: File) => void;
@@ -56,8 +58,10 @@ export default function ConversationalAgentWorkspace<T extends AgentWorkspaceMes
   actions,
   artifacts,
   knowledgeQuestions,
+  knowledgeDefaultQuestions,
   onInputChange,
   onInputFocusChange,
+  onSaveKnowledgeQuestions,
   onSelectSkill,
   onPickFile,
   onDropFile,
@@ -101,7 +105,9 @@ export default function ConversationalAgentWorkspace<T extends AgentWorkspaceMes
         actions={actions}
         artifacts={artifacts}
         knowledgeQuestions={knowledgeQuestions}
+        knowledgeDefaultQuestions={knowledgeDefaultQuestions}
         onChange={onInputChange}
+        onSaveKnowledgeQuestions={onSaveKnowledgeQuestions}
         onSelectSkill={onSelectSkill}
         onPickFile={onPickFile}
         onDropFile={onDropFile}

@@ -42,6 +42,9 @@ import KnowledgeLibrarySelector, {
 import KnowledgeQuestionSuggestions from "./components/knowledge/KnowledgeQuestionSuggestions";
 import ConversationalAgentWorkspace from "./components/agent-workspace/ConversationalAgentWorkspace";
 import { agentComposerSpaceCompletion, knowledgeQuestionPrompt } from "./components/agent-workspace/agentWorkspaceUtils";
+import ZhisuanFeeAnalysisCharts from "./components/agent-workspace/ZhisuanFeeAnalysisCharts";
+import { buildFeeAnalysis, type FeeAnalysis } from "./components/agent-workspace/feeAnalysis";
+import { detectZhisuanCommand, type ZhisuanCommand } from "./components/agent-workspace/zhisuanCommands";
 import {
   compactKnowledgeSourceName,
   removeVerboseEvidenceSection,
@@ -74,6 +77,7 @@ const PRICE_KNOWLEDGE_ROW_COUNT = 560;
 const FORCE_KNOWLEDGE_PREFIXES = ["查库：", "查库:", "#知识库"] as const;
 const GENERAL_KNOWLEDGE_NAME = "通用知识";
 const GENERAL_KNOWLEDGE_KEY = "通用知识";
+const ROW_AI_KNOWLEDGE_LIBRARY_ID = "project-core";
 const KNOWLEDGE_PROJECT_NAME_STORAGE_KEY = "zaojiazhisuan-knowledge-project-name";
 const KNOWLEDGE_PROJECT_KEY_STORAGE_KEY = "zaojiazhisuan-knowledge-project-key";
 const KNOWLEDGE_LIBRARY_SELECTION_STORAGE_KEY = "zaojiazhisuan-knowledge-library-selection";
@@ -161,7 +165,7 @@ const OUTPUT_ROW_FILTER_STORAGE_KEY = "guankanzhisuan-output-row-filter-settings
 const WELCOME_SCREEN_HIDDEN_STORAGE_KEY = "guankanzhisuan-welcome-screen-hidden";
 const WELCOME_SCREEN_VERSION_STORAGE_KEY = "guankanzhisuan-welcome-screen-version";
 const WELCOME_SCREEN_VERSION = "brand-v5.15.1-skill-entry";
-const ZHISUAN_QUICK_SETTINGS_VERSION = 3;
+const ZHISUAN_QUICK_SETTINGS_VERSION = 4;
 const LEFT_COLUMN_COLLAPSED_STORAGE_KEY = "guankanzhisuan-left-column-collapsed";
 const COLOR_MODE_STORAGE_KEY = "zaojiazhisuan-color-mode";
 type ColorMode = "light" | "dark";
@@ -275,6 +279,7 @@ type UiPreferences = {
   enabled: boolean;
   styles: Record<string, UiStyleValues>;
   text: Record<string, string>;
+  commonQuestions?: string[];
 };
 
 type UiPreferencesPayload = {
@@ -615,8 +620,11 @@ type ChatMessage = {
   knowledgeCandidate?: KnowledgeCandidateSeed;
   knowledgeSources?: KnowledgeSource[];
   projectMemories?: ProjectMemory[];
+  llmDebug?: LlmDebugInfo;
+  llmDebugAnswer?: string;
   attachment?: ChatFileAttachment;
   inlineAction?: ChatInlineAction;
+  feeAnalysis?: FeeAnalysis;
 };
 
 type ChatFileAttachment = {
@@ -630,13 +638,6 @@ type ChatInlineAction = {
   fileName: string;
 };
 
-type ZhisuanCommand =
-  | "batch-match"
-  | "experience-warning"
-  | "risk-report"
-  | "download-excel"
-  | "download-word"
-  | "send-review";
 type ZhisuanQuickKind = "command" | "suggestion";
 type ZhisuanQuickItem = {
   id: string;
@@ -679,6 +680,7 @@ const ZHISUAN_BATCH_MATCH_ACTION = "[[ZHISUAN_BATCH_MATCH_ACTION]]";
 
 const ZHISUAN_BUILTIN_QUICK_ITEMS: ZhisuanQuickItem[] = [
   { id: "batch-match", label: "批量匹配", prompt: "批量匹配", kind: "command", command: "batch-match" },
+  { id: "fee-analysis", label: "图表分析", prompt: "图表分析", kind: "command", command: "fee-analysis" },
   { id: "experience-warning", label: "经验池预警分析", prompt: "经验池预警分析", kind: "command", command: "experience-warning" },
   { id: "risk-report", label: "输出风险报告", prompt: "输出风险报告", kind: "command", command: "risk-report" },
   { id: "download-excel", label: "输出excel表格", prompt: "输出excel表格", kind: "command", command: "download-excel" },
@@ -729,7 +731,7 @@ const ZHISUAN_DOCK_VISIBILITY_OPTIONS: Array<{
   { id: "review", name: "待复核", description: "显示待复核数量和复核提醒。" },
   { id: "warning", name: "预警", description: "显示经验池预警运行状态。" },
   { id: "ruleNotice", name: "智算只做解释与提示", description: "显示结构化规则裁决边界说明。" },
-  { id: "debugInfo", name: "调试信息", description: "显示最近 10 次大模型请求内容。" },
+  { id: "debugInfo", name: "大模型调试模式", description: "打开后，每条模型回答都可查看检索内容、投喂内容和原始回答；默认关闭。" },
 ];
 const ZHISUAN_DOCK_STYLE_OPTIONS: Array<{ id: ZhisuanDockStyle; name: string; description: string }> = [
   { id: "default", name: "默认", description: "保持当前页面一致风格" },
@@ -782,8 +784,13 @@ type LlmDebugInfo = {
   base_url: string;
   temperature: number;
   max_tokens: number;
-  messages: ChatMessage[];
+  messages: LlmDebugMessage[];
   prompt_markdown?: string;
+};
+
+type LlmDebugMessage = {
+  role: "system" | "user" | "assistant";
+  content: string;
 };
 
 type LlmDebugRecord = LlmDebugInfo & {
@@ -1725,6 +1732,9 @@ function normalizeZhisuanQuickSettings(raw?: Partial<ZhisuanQuickSettings>): Zhi
   if (normalizedVersion < 3 && !migratedEnabledIds.includes("send-review")) {
     migratedEnabledIds.push("send-review");
   }
+  if (normalizedVersion < 4 && !migratedEnabledIds.includes("fee-analysis")) {
+    migratedEnabledIds.splice(Math.min(1, migratedEnabledIds.length), 0, "fee-analysis");
+  }
   const customPrompts = Array.isArray(raw?.customPrompts)
     ? Array.from(
       new Set(
@@ -1810,6 +1820,15 @@ function normalizeUiStyleValues(raw?: Partial<UiStyleValues>): UiStyleValues {
 function normalizeUiPreferences(raw?: Partial<UiPreferences>): UiPreferences {
   const rawStyles = raw?.styles && typeof raw.styles === "object" ? raw.styles : {};
   const rawText = raw?.text && typeof raw.text === "object" ? raw.text : {};
+  const commonQuestions = Array.isArray(raw?.commonQuestions)
+    ? Array.from(
+      new Set(
+        raw.commonQuestions
+          .map((value) => String(value).replace(/\r/g, "").trim())
+          .filter(Boolean),
+      ),
+    ).slice(0, 60)
+    : undefined;
   const styles = Object.entries(rawStyles).reduce<Record<string, UiStyleValues>>((mapping, [key, value]) => {
     const cleanedKey = key.trim();
     if (!cleanedKey || !value || typeof value !== "object") return mapping;
@@ -1826,6 +1845,7 @@ function normalizeUiPreferences(raw?: Partial<UiPreferences>): UiPreferences {
     enabled: Boolean(raw?.enabled),
     styles,
     text,
+    ...(commonQuestions ? { commonQuestions } : {}),
   };
 }
 
@@ -2025,10 +2045,11 @@ function DaweibaApp() {
   const [inputFieldDefaults, setInputFieldDefaults] = useState<InputFieldPreferences>(EMPTY_INPUT_FIELD_PREFERENCES);
   const [inputFieldDraft, setInputFieldDraft] = useState<InputFieldPreferences>(EMPTY_INPUT_FIELD_PREFERENCES);
   const [inputFieldPreferencesPath, setInputFieldPreferencesPath] = useState("");
-  const [isLlmSettingsOpen, setIsLlmSettingsOpen] = useState(false);
   const [isPageSettingsOpen, setIsPageSettingsOpen] = useState(false);
+  const [activePageSettingsTab, setActivePageSettingsTab] = useState<"page" | "zhisuan" | "memory">("page");
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isLlmDebugOpen, setIsLlmDebugOpen] = useState(false);
+  const [openZhisuanDebugMessageId, setOpenZhisuanDebugMessageId] = useState<string | null>(null);
   const [isAiDockCollapsed, setIsAiDockCollapsed] = useState(false);
   const [activePreviewSheetName, setActivePreviewSheetName] = useState("");
   const [isPreviewSettingsOpen, setIsPreviewSettingsOpen] = useState(false);
@@ -2935,6 +2956,7 @@ function DaweibaApp() {
   const activeUiStyle = uiPreferencesDraft.styles[activeUiTarget] ?? {};
   const activeUiTextTarget = UI_TEXT_TARGETS.find((target) => target.id === activeUiTextKey) ?? UI_TEXT_TARGETS[0];
   const activeUiTextValue = uiPreferencesDraft.text[activeUiTextKey] ?? activeUiTextTarget.defaultText;
+  const activeKnowledgeQuestions = uiPreferences.commonQuestions ?? zhisuanWindowDefaults.commonQuestions;
 
   function applyUiPreferencesDraft(next: UiPreferences) {
     const normalized = normalizeUiPreferences(next);
@@ -2989,29 +3011,57 @@ function DaweibaApp() {
     void loadUiPreferences(true);
   }
 
-  async function saveUiPreferences() {
+  function openUnifiedSettings(tab: "page" | "zhisuan" | "memory" = "page") {
+    setActivePageSettingsTab(tab);
+    setIsPageSettingsOpen(true);
+    if (tab === "memory") {
+      const projectKey = normalizeKnowledgeProjectKey(knowledgeProjectKey || knowledgeProjectName) || GENERAL_KNOWLEDGE_KEY;
+      if (!knowledgeProjectKey) {
+        setKnowledgeProjectName(GENERAL_KNOWLEDGE_NAME);
+        setKnowledgeProjectKey(GENERAL_KNOWLEDGE_KEY);
+      }
+      void loadKnowledgeMemoryItems(projectKey);
+    }
+  }
+
+  async function saveUiPreferences(nextDraft: UiPreferences = uiPreferencesDraft): Promise<boolean> {
     setIsSavingUiPreferences(true);
     setError("");
     try {
+      const normalizedDraft = normalizeUiPreferences(nextDraft);
       const response = await fetch(`${API_BASE}/api/ui-preferences`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ preferences: uiPreferencesDraft }),
+        body: JSON.stringify({ preferences: normalizedDraft }),
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
         throw new Error(payload?.detail ?? `保存页面用户设置失败：${response.status}`);
       }
       const payload = (await response.json()) as UiPreferencesPayload;
-      const next = normalizeUiPreferences(payload.preferences ?? uiPreferencesDraft);
+      const next = normalizeUiPreferences(payload.preferences ?? normalizedDraft);
       setUiPreferences(next);
       setUiPreferencesDraft(next);
       setUiPreferencesPath(payload.file_path ?? "");
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "保存页面用户设置失败");
+      return false;
     } finally {
       setIsSavingUiPreferences(false);
     }
+  }
+
+  function saveKnowledgeQuestions(questions: string[]) {
+    const nextPreferences = { ...uiPreferencesDraft };
+    const isProjectDefault = questions.length === zhisuanWindowDefaults.commonQuestions.length
+      && questions.every((question, index) => question === zhisuanWindowDefaults.commonQuestions[index]);
+    if (isProjectDefault) {
+      delete nextPreferences.commonQuestions;
+    } else {
+      nextPreferences.commonQuestions = questions;
+    }
+    return saveUiPreferences(normalizeUiPreferences(nextPreferences));
   }
 
   function updateUiEnabled(enabled: boolean) {
@@ -3114,7 +3164,10 @@ function DaweibaApp() {
       knowledgeCandidate?: KnowledgeCandidateSeed;
       knowledgeSources?: KnowledgeSource[];
       projectMemories?: ProjectMemory[];
+      llmDebug?: LlmDebugInfo;
+      llmDebugAnswer?: string;
       inlineAction?: ChatInlineAction;
+      feeAnalysis?: FeeAnalysis;
     } = {},
   ) {
     const id = makeZhisuanMessageId();
@@ -3134,6 +3187,7 @@ function DaweibaApp() {
         knowledgeSources: options.knowledgeSources,
         projectMemories: options.projectMemories,
         inlineAction: options.inlineAction,
+        feeAnalysis: options.feeAnalysis,
       },
     ]);
     return id;
@@ -3149,6 +3203,8 @@ function DaweibaApp() {
       knowledgeCandidate?: KnowledgeCandidateSeed;
       knowledgeSources?: KnowledgeSource[];
       projectMemories?: ProjectMemory[];
+      llmDebug?: LlmDebugInfo;
+      llmDebugAnswer?: string;
     } = {},
   ) {
     const shouldType = options.typing ?? true;
@@ -3165,6 +3221,8 @@ function DaweibaApp() {
               knowledgeCandidate: options.knowledgeCandidate ?? message.knowledgeCandidate,
               knowledgeSources: options.knowledgeSources ?? message.knowledgeSources,
               projectMemories: options.projectMemories ?? message.projectMemories,
+              llmDebug: options.llmDebug ?? message.llmDebug,
+              llmDebugAnswer: options.llmDebugAnswer ?? message.llmDebugAnswer,
             }
           : message,
       ),
@@ -3282,26 +3340,6 @@ function DaweibaApp() {
   function openDownload(url: string, label: string) {
     window.open(url, "_blank", "noopener,noreferrer");
     appendZhisuanMessage(`${label}已经准备好，我已触发下载。文件仍然来自系统原始输出，不经过大模型改写。`, "command");
-  }
-
-  function detectZhisuanCommand(message: string): ZhisuanCommand | null {
-    const compact = message.replace(/\s+/g, "").toLowerCase();
-    const asksAboutCommand =
-      compact.includes("怎么") ||
-      compact.includes("如何") ||
-      compact.includes("为什么") ||
-      compact.includes("是什么") ||
-      compact.includes("什么意思") ||
-      compact.includes("依据") ||
-      compact.includes("来源");
-    if (asksAboutCommand) return null;
-    if (compact === "批量匹配" || compact.includes("执行批量匹配") || compact.includes("开始批量匹配")) return "batch-match";
-    if (compact.includes("预警分析") || compact.includes("运行经验池") || compact === "经验池预警") return "experience-warning";
-    if (compact.includes("输出风险报告") || compact.includes("生成ai审查摘要") || compact.includes("生成审查摘要")) return "risk-report";
-    if (compact.includes("输出excel") || compact.includes("下载excel") || compact.includes("下载xlsx") || compact.includes("输出表格")) return "download-excel";
-    if (compact.includes("输出word") || compact.includes("下载word") || compact.includes("下载docx") || compact.includes("输出报告")) return "download-word";
-    if (compact === "发送同事复核" || compact === "发送给同事复核" || compact === "发给同事复核") return "send-review";
-    return null;
   }
 
   function parseForceKnowledgePrompt(message: string) {
@@ -3849,6 +3887,27 @@ function DaweibaApp() {
   }
 
   async function handleZhisuanCommand(command: ZhisuanCommand) {
+    if (command === "fee-analysis") {
+      if (!result) {
+        appendZhisuanMessage("当前还没有可分析的费用结果。请先上传 Excel，并完成转换和批量匹配。", "command");
+        return;
+      }
+      if (result.summary.matching_status === "pending") {
+        appendZhisuanMessage("当前只有待匹配预览，费用尚未正式计算。请先完成“批量匹配”，我再生成费用洞察。", "command");
+        return;
+      }
+      const feeAnalysis = buildFeeAnalysis(result.summary.table_preview);
+      if (!feeAnalysis) {
+        appendZhisuanMessage("当前结果中没有找到可用于图表分析的“费用汇总”，我不会用匹配行数或模拟数据代替费用。", "command");
+        return;
+      }
+      appendZhisuanMessage(
+        "费用洞察已生成。下方图表读取当前任务真实“费用汇总”，同时展示最终含税费用构成和浮动前专业费用占比。",
+        "command",
+        { feeAnalysis },
+      );
+      return;
+    }
     if (command === "batch-match") {
       if (!result) {
         appendZhisuanMessage("现在还没有待匹配的预览结果。请先上传 Excel 并点击“开始转换”，生成表格预览后我再执行批量匹配。", "command");
@@ -4054,6 +4113,7 @@ function DaweibaApp() {
     setZhisuanDockVisibility((current) => ({ ...current, [key]: visible }));
     if (key === "debugInfo" && !visible) {
       setIsLlmDebugOpen(false);
+      setOpenZhisuanDebugMessageId(null);
     }
   }
 
@@ -4108,7 +4168,10 @@ function DaweibaApp() {
     setZhisuanWelcomeDraft(defaults.welcomeMessage);
     setZhisuanDockStyle(defaults.dockStyle);
     setShowZhisuanAssistantAvatar(defaults.showAssistantAvatar);
-    if (!defaults.dockVisibility.debugInfo) setIsLlmDebugOpen(false);
+    if (!defaults.dockVisibility.debugInfo) {
+      setIsLlmDebugOpen(false);
+      setOpenZhisuanDebugMessageId(null);
+    }
   }
 
   function restoreZhisuanWindowProjectDefaults() {
@@ -6483,7 +6546,9 @@ function DaweibaApp() {
       setActivePreviewSheetName((current) => current || previewSheetLabel(previewSheetsFromTablePreview(payload.summary.table_preview)[0] ?? activePreview, 0));
       markReportPreviewUpdated(requestJobId, "批量匹配已完成并生成 Word 报告，正在加载真实预览…");
       await completeBatchMatchProgress();
-      appendZhisuanMessage(summarizeResultForZhisuan(payload), "command");
+      appendZhisuanMessage(summarizeResultForZhisuan(payload), "command", {
+        feeAnalysis: buildFeeAnalysis(payload.summary.table_preview) ?? undefined,
+      });
       void sendCollaborationNotification("task_completed", {
         task_name: file?.name ?? "当前造价任务",
         job_id: payload.job_id,
@@ -6843,7 +6908,10 @@ function DaweibaApp() {
       setRiskReport(payload.risk_report);
       markReportPreviewUpdated(requestJobId, "风险报告已写入 Word，正在刷新真实预览…");
       recordLlmDebug("风险报告", payload.debug);
-      replaceZhisuanMessage(thinking, `风险报告已生成，也会照常写入 Word 报告。\n\n${payload.risk_report}`, "model");
+      replaceZhisuanMessage(thinking, `风险报告已生成，也会照常写入 Word 报告。\n\n${payload.risk_report}`, "model", {
+        llmDebug: payload.debug,
+        llmDebugAnswer: payload.risk_report,
+      });
       appendZhisuanMessage(
         `风险内容已经整合进 Word 报告。点击下方按钮可以跳转到“Word 报告”页查看，也可以直接下载。\n${ZHISUAN_WORD_REPORT_ACTION}`,
         "command",
@@ -6906,7 +6974,10 @@ function DaweibaApp() {
         throw new Error(payload?.detail ?? `大模型问答失败：${response.status}`);
       }
       const payload = (await response.json()) as { answer: string; debug?: LlmDebugInfo };
-      replaceZhisuanMessage(thinking, payload.answer, "model");
+      replaceZhisuanMessage(thinking, payload.answer, "model", {
+        llmDebug: payload.debug,
+        llmDebugAnswer: payload.answer,
+      });
       recordLlmDebug("问答测试", payload.debug);
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
@@ -6931,15 +7002,24 @@ function DaweibaApp() {
     setIsChatting(true);
     setError("");
     const controller = beginChatRequest();
+    const isRowReview = Boolean(options.rowDetailContext);
     const thinking = appendZhisuanMessage(
-      options.forcedKnowledge ? "已进入知识库模式，正在检索本地规则和知识库..." : "正在检索本地规则和知识库...",
+      options.forcedKnowledge
+        ? "已进入知识库模式，正在检索本地规则和知识库..."
+        : isRowReview
+          ? "正在检索勘察测量规则知识库..."
+          : "正在检索本地规则和知识库...",
       "thinking",
       { typing: false },
     );
     const evidenceTimer = window.setTimeout(() => {
       replaceZhisuanMessage(
         thinking,
-        options.forcedKnowledge ? "已调用知识库，正在整理依据来源和当前行上下文..." : "正在整理依据来源和当前行上下文...",
+        options.forcedKnowledge
+          ? "已调用知识库，正在整理依据来源和当前行上下文..."
+          : isRowReview
+            ? "已调用勘察测量规则知识库，正在整理当前行依据..."
+            : "正在整理依据来源和当前行上下文...",
         "thinking",
         { typing: false },
       );
@@ -6962,7 +7042,11 @@ function DaweibaApp() {
           limit: 8,
           force_knowledge: Boolean(options.forcedKnowledge),
           project_key: knowledgeProjectKey || null,
-          library_ids: selectedKnowledgeLibraryIds.length ? selectedKnowledgeLibraryIds : undefined,
+          library_ids: isRowReview
+            ? [ROW_AI_KNOWLEDGE_LIBRARY_ID]
+            : selectedKnowledgeLibraryIds.length
+              ? selectedKnowledgeLibraryIds
+              : undefined,
           job_id: result?.job_id ?? null,
           skill_id: result ? null : selectedProfessionalSkill?.id ?? null,
           skill_version: result ? null : selectedProfessionalSkill?.version ?? null,
@@ -6995,6 +7079,8 @@ function DaweibaApp() {
         rowDetailContext: options.rowDetailContext,
         knowledgeSources: payload.sources,
         projectMemories,
+        llmDebug: payload.debug ?? undefined,
+        llmDebugAnswer: payload.answer,
         knowledgeCandidate: payload.evidence_found
           ? {
               title: question.length > 30 ? `${question.slice(0, 30)}…` : question,
@@ -7589,6 +7675,12 @@ function DaweibaApp() {
     return nodes.length > 0 ? nodes : text;
   }
 
+  function normalizeZhisuanAnswerMarkup(text: string) {
+    return text
+      .replace(/<\/?(?:text|p|span|strong|em|b|i|div|section|article|br)(?:\s+[^<>]*)?\/?>/gi, "")
+      .replace(/(^|\n)\s*[-*•]\s+(?=#{1,6}\s+)/g, "$1");
+  }
+
   function renderZhisuanRichInlineText(text: string) {
     const renderTokens = (tokens: ZhisuanInlineMarkdownToken[], keyPrefix: string): ReactNode[] =>
       tokens.map((token, index) => {
@@ -7622,7 +7714,7 @@ function DaweibaApp() {
         return <del key={key}>{children}</del>;
       });
 
-    return renderTokens(parseZhisuanInlineMarkdown(text), "markdown");
+    return renderTokens(parseZhisuanInlineMarkdown(normalizeZhisuanAnswerMarkup(text)), "markdown");
   }
 
   function zhisuanLineTone(text: string) {
@@ -7793,7 +7885,7 @@ function DaweibaApp() {
   }
 
   function renderZhisuanMessageText(text: string) {
-    const lines = text.replace(/\r/g, "").split("\n");
+    const lines = normalizeZhisuanAnswerMarkup(text.replace(/\r/g, "")).split("\n");
     const nodes: ReactNode[] = [];
     let paragraph: string[] = [];
     let listItems: string[] = [];
@@ -7945,6 +8037,16 @@ function DaweibaApp() {
         lineIndex += 1;
         continue;
       }
+      const headingMatch = line.match(/^(?:[-*•]\s*)?#{1,4}\s+(.+)$/) || line.match(/^([一二三四五六七八九十]+[、.].{2,32})$/);
+      const colonHeading = /^[^：:]{2,18}[：:]$/.test(line);
+      if (headingMatch || colonHeading) {
+        flushParagraph();
+        flushList();
+        const headingText = (headingMatch?.[1] ?? line).replace(/[：:]$/, "");
+        nodes.push(renderZhisuanSectionHeading(headingText, `heading-${nodes.length}`));
+        lineIndex += 1;
+        continue;
+      }
       const bulletMatch = line.match(/^([-*•]|\d+[.、]|[一二三四五六七八九十]+[.、])\s*(.+)$/);
       if (bulletMatch) {
         flushParagraph();
@@ -7974,16 +8076,6 @@ function DaweibaApp() {
         lineIndex += 1;
         continue;
       }
-      const headingMatch = line.match(/^#{1,4}\s+(.+)$/) || line.match(/^([一二三四五六七八九十]+[、.].{2,32})$/);
-      const colonHeading = /^[^：:]{2,18}[：:]$/.test(line);
-      if (headingMatch || colonHeading) {
-        flushParagraph();
-        flushList();
-        const headingText = (headingMatch?.[1] ?? line).replace(/[：:]$/, "");
-        nodes.push(renderZhisuanSectionHeading(headingText, `heading-${nodes.length}`));
-        lineIndex += 1;
-        continue;
-      }
       const severity = /高风险/.test(line) ? "high" : /低风险/.test(line) ? "low" : undefined;
       const warning = findWarningDetailFromZhisuanLine(line, severity);
       if (warning) {
@@ -8004,6 +8096,84 @@ function DaweibaApp() {
     flushParagraph();
     flushList();
 
+    return nodes.length > 0 ? nodes : renderZhisuanRichInlineText(text);
+  }
+
+  function normalizeFillAssistAiAnswer(text: string) {
+    return text
+      .replace(/\r/g, "")
+      .trim()
+      // Some model responses collapse Markdown blocks into one line. Put the
+      // structural markers back on their own lines before parsing them.
+      .replace(/([^\n])\s+(?=#{1,6}\s+)/g, "$1\n")
+      .replace(/([^\n])\s+(?=>\s?)/g, "$1\n")
+      .replace(/([^\n])\s+(?=(?:来源定位|依据来源|资料来源|出处|来源)\s*[：:])/g, "$1\n")
+      .replace(/(^|\n)\s*[•*-]\s+(?=#{1,6}\s+)/g, "$1")
+      .replace(/(^|\n)\s*\*{0,2}智算解释(?:\s*[：:])?\s*\*{0,2}\s*/g, "$1")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line, index, lines) => line || lines[index - 1])
+      .join("\n");
+  }
+
+  function renderFillAssistAiAnswer(text: string) {
+    const lines = normalizeFillAssistAiAnswer(text).split("\n");
+    const nodes: ReactNode[] = [];
+    let contentLines: string[] = [];
+
+    const flushContent = () => {
+      if (!contentLines.length) return;
+      const content = contentLines.join("\n").trim();
+      if (content) {
+        nodes.push(
+          <div className="fill-assist-ai-answer__content" key={`content-${nodes.length}`}>
+            {renderZhisuanMessageText(content)}
+          </div>,
+        );
+      }
+      contentLines = [];
+    };
+
+    for (const line of lines) {
+      const cleanLine = line.trim();
+      if (!cleanLine) {
+        contentLines.push("");
+        continue;
+      }
+      if (/^>\s*$/.test(cleanLine)) continue;
+
+      const headingMatch = cleanLine.match(/^(?:[-*•]\s*)?#{1,6}\s+(.+)$/);
+      if (headingMatch) {
+        flushContent();
+        nodes.push(
+          <div className="fill-assist-ai-answer__heading" key={`heading-${nodes.length}`}>
+            <BookOpen size={13} aria-hidden="true" />
+            <strong>{renderZhisuanRichInlineText(headingMatch[1].trim())}</strong>
+          </div>,
+        );
+        continue;
+      }
+
+      const sourceLine = cleanLine
+        .replace(/^(?:[-*•]\s*)?/, "")
+        .replace(/^>\s?/, "")
+        .match(/^(来源定位|依据来源|资料来源|出处|来源)\s*[：:]\s*(.+)$/);
+      if (sourceLine) {
+        flushContent();
+        nodes.push(
+          <div className="fill-assist-ai-answer__source" key={`source-${nodes.length}`}>
+            <BookOpen size={13} aria-hidden="true" />
+            <span className="fill-assist-ai-answer__source-label">{sourceLine[1]}</span>
+            <span className="fill-assist-ai-answer__source-text">{renderZhisuanRichInlineText(sourceLine[2].trim())}</span>
+          </div>,
+        );
+        continue;
+      }
+
+      contentLines.push(cleanLine);
+    }
+
+    flushContent();
     return nodes.length > 0 ? nodes : renderZhisuanRichInlineText(text);
   }
 
@@ -8229,6 +8399,9 @@ function DaweibaApp() {
     if (message.source === "thinking") {
       return { title: "正在处理", tone: "processing", icon: <Loader2 className="spin" size={15} /> };
     }
+    if (message.feeAnalysis) {
+      return { title: "费用洞察", tone: "table", icon: <PanelTop size={15} /> };
+    }
     if (/经验池预警分析完成|高风险前5条|低风险前5条/.test(content)) {
       return { title: "预警分析结果", tone: "warning", icon: <AlertTriangle size={15} /> };
     }
@@ -8269,6 +8442,111 @@ function DaweibaApp() {
     );
   }
 
+  function renderZhisuanDebugPanel(message: ChatMessage) {
+    const debug = message.llmDebug;
+    if (
+      !zhisuanDockVisibility.debugInfo
+      || message.role !== "assistant"
+      || message.isTyping
+      || !debug
+      || !message.id
+    ) {
+      return null;
+    }
+    const sources = uniqueKnowledgeSources(message.knowledgeSources ?? []);
+    const memories = message.projectMemories ?? [];
+    const debugMessages = Array.isArray(debug.messages) ? debug.messages : [];
+    const isOpen = openZhisuanDebugMessageId === message.id;
+    const retrievedCount = sources.length + memories.length;
+
+    return (
+      <div className="zhisuan-debug-block">
+        <div className="zhisuan-message-actions zhisuan-debug-actions">
+          <button
+            className={`zhisuan-action-button secondary zhisuan-debug-trigger ${isOpen ? "is-active" : ""}`}
+            type="button"
+            aria-expanded={isOpen}
+            onClick={(event) => {
+              event.stopPropagation();
+              setOpenZhisuanDebugMessageId((current) => current === message.id ? null : message.id ?? null);
+            }}
+          >
+            <Settings size={13} />
+            {isOpen ? "收起调试" : "查看调试"}
+          </button>
+        </div>
+        {isOpen && (
+          <div className="zhisuan-debug-panel" aria-label="大模型问答调试信息">
+            <section className="zhisuan-debug-section">
+              <div className="zhisuan-debug-section-head">
+                <span><Database size={14} />检索到的内容</span>
+                <small>{retrievedCount > 0 ? `${retrievedCount} 条` : "无独立来源"}</small>
+              </div>
+              {retrievedCount > 0 ? (
+                <div className="zhisuan-debug-source-list">
+                  {sources.map((source, index) => (
+                    <article className="zhisuan-debug-source" key={`${source.source_file}-${source.title_path ?? ""}-${index}`}>
+                      <div className="zhisuan-debug-source-meta">
+                        <strong>{source.library_name || "知识库"}</strong>
+                        <span>{compactKnowledgeSourceName(source.source_file)}</span>
+                      </div>
+                      {source.title_path && <small>{source.title_path}</small>}
+                      <p>{source.snippet || "未返回正文片段"}</p>
+                    </article>
+                  ))}
+                  {memories.map((memory) => (
+                    <article className="zhisuan-debug-source is-memory" key={`memory-${memory.id}`}>
+                      <div className="zhisuan-debug-source-meta">
+                        <strong>{memory.scope_type === "general" ? "通用知识记忆" : "项目知识记忆"}</strong>
+                        <span>{memory.title}</span>
+                      </div>
+                      <small>{memory.source_reference || "未记录来源定位"}</small>
+                      <p>{memory.conclusion || "未返回记忆结论"}</p>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <p className="zhisuan-debug-empty">本次请求没有单独返回检索来源；如果是通用大模型问答，请查看下面的“给大模型的内容”。</p>
+              )}
+            </section>
+
+            <section className="zhisuan-debug-section">
+              <div className="zhisuan-debug-section-head">
+                <span><Send size={14} />给大模型的内容</span>
+                <small>{debugMessages.length} 条消息</small>
+              </div>
+              {debugMessages.length > 0 ? (
+                <div className="zhisuan-debug-message-list">
+                  {debugMessages.map((item, index) => (
+                    <article className="zhisuan-debug-prompt" key={`${item.role}-${index}`}>
+                      <div className="zhisuan-debug-prompt-label">
+                        {item.role === "system" ? "系统提示词" : item.role === "user" ? "用户问题与检索上下文" : "历史回答"}
+                      </div>
+                      <pre>{item.content}</pre>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <p className="zhisuan-debug-empty">本次请求没有返回可展示的消息内容。</p>
+              )}
+              {debug.prompt_markdown && (
+                <p className="zhisuan-debug-path">完整提示词已保存：{debug.prompt_markdown}</p>
+              )}
+            </section>
+
+            <section className="zhisuan-debug-section">
+              <div className="zhisuan-debug-section-head">
+                <span><Sparkles size={14} />大模型回答</span>
+                <small>原始回答</small>
+              </div>
+              <pre className="zhisuan-debug-answer">{message.llmDebugAnswer || message.content}</pre>
+            </section>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   function renderZhisuanMessageBody(message: ChatMessage) {
     return (
       <div className="chat-message-body">
@@ -8276,12 +8554,16 @@ function DaweibaApp() {
         {message.attachment
           ? renderZhisuanFileAttachment(message.attachment)
           : renderZhisuanMessageText(zhisuanMessageDisplayText(message))}
+        {message.role === "assistant" && !message.isTyping && message.feeAnalysis && (
+          <ZhisuanFeeAnalysisCharts analysis={message.feeAnalysis} />
+        )}
         {message.role === "assistant"
           && !message.isTyping
           && message.content === zhisuanWelcomeMessage
           && renderZhisuanModuleLinks()}
         {message.role === "assistant" && !message.isTyping && renderZhisuanInlineAction(message)}
         {message.role === "assistant" && !message.isTyping && renderKnowledgeEvidenceSummary(message)}
+        {renderZhisuanDebugPanel(message)}
         {message.role === "assistant" && message.isTyping && <i className="typing-caret" />}
         {renderKnowledgeMemorySection(message)}
         {message.role === "assistant" && !message.isTyping && message.rowDetailContext && (
@@ -8659,6 +8941,9 @@ function DaweibaApp() {
       <button className="is-primary" type="button" disabled={!isBatchMatchPending || agentTaskBusy} onClick={() => void runZhisuanQuickCommand("batch-match", "批量匹配")}>
         {isBatchMatching ? <Loader2 className="spin" size={14} /> : <ShieldCheck size={14} />}批量匹配
       </button>
+      <button type="button" disabled={agentTaskBusy} onClick={() => void runZhisuanQuickCommand("fee-analysis", "图表分析")}>
+        <PanelTop size={14} />图表分析
+      </button>
       <button type="button" disabled={!result || isBatchMatchPending || agentTaskBusy} onClick={() => void runZhisuanQuickCommand("experience-warning", "运行经验池预警")}>
         <AlertTriangle size={14} />运行预警
       </button>
@@ -8811,6 +9096,332 @@ function DaweibaApp() {
     });
   }
 
+  function renderZhisuanSettingsContent() {
+    return (
+      <div className="daweiba-settings-scroll zhisuan-settings-scroll">
+        <nav className="daweiba-settings-tabs zhisuan-settings-tabs" role="tablist" aria-label="智算设置分区">
+          <button type="button" role="tab" aria-selected={activeLlmSettingsTab === "model"} className={activeLlmSettingsTab === "model" ? "is-active" : ""} onClick={() => setActiveLlmSettingsTab("model")}>模型接入</button>
+          <button type="button" role="tab" aria-selected={activeLlmSettingsTab === "window"} className={activeLlmSettingsTab === "window" ? "is-active" : ""} onClick={() => setActiveLlmSettingsTab("window")}>智算窗口</button>
+          <button type="button" role="tab" aria-selected={activeLlmSettingsTab === "commands"} className={activeLlmSettingsTab === "commands" ? "is-active" : ""} onClick={() => setActiveLlmSettingsTab("commands")}>快捷指令</button>
+        </nav>
+        <div className="zhisuan-settings-content">
+          {activeLlmSettingsTab === "model" && <section className="daweiba-settings-pane" aria-label="模型接入">
+            <label className="field-preference-item">
+              <span>模型选择</span>
+              <select
+                value={LLM_PRESETS.find((preset) => (
+                  preset.provider === llmSettings.provider
+                  && preset.model === llmSettings.model
+                  && preset.baseUrl === llmSettings.baseUrl
+                ))?.id ?? "custom"}
+                onChange={(event) => applyLlmPreset(event.target.value)}
+              >
+                {LLM_PRESETS.map((preset) => (
+                  <option key={preset.id} value={preset.id}>{preset.name} - {preset.description}</option>
+                ))}
+                <option value="custom">自定义</option>
+              </select>
+            </label>
+            <label className="field-preference-item">
+              <span>接入标识</span>
+              <input value={llmSettings.provider} onChange={(event) => setLlmSettings((current) => ({ ...current, provider: event.target.value }))} />
+            </label>
+            <label className="field-preference-item">
+              <span>模型</span>
+              <input value={llmSettings.model} onChange={(event) => setLlmSettings((current) => ({ ...current, model: event.target.value }))} />
+            </label>
+            <label className="field-preference-item">
+              <span>接口地址</span>
+              <input value={llmSettings.baseUrl} onChange={(event) => setLlmSettings((current) => ({ ...current, baseUrl: event.target.value }))} />
+            </label>
+            <p className="settings-hint"><ShieldCheck size={15} />API Key 由后端环境变量提供，前端不读取、不保存，也不会在界面回显。</p>
+          </section>}
+
+          {activeLlmSettingsTab === "window" && <div className="settings-subsection zhisuan-window-settings daweiba-settings-pane">
+            <span className="settings-subsection-title">智算窗口</span>
+            <label className="field-preference-item">
+              <span>聊天消息区高度（px）</span>
+              <input
+                min={300}
+                max={720}
+                step={10}
+                type="number"
+                value={zhisuanChatHeightDraft}
+                onChange={(event) => setZhisuanChatHeightDraft(event.target.value)}
+              />
+            </label>
+            <label className="field-preference-item">
+              <span>智算窗口横向宽度（px）</span>
+              <input
+                min={300}
+                max={560}
+                step={10}
+                type="number"
+                value={zhisuanDockWidthDraft}
+                onChange={(event) => setZhisuanDockWidthDraft(event.target.value)}
+              />
+            </label>
+            <label className="preference-row">
+              <span>
+                <strong>纵向高度跟随当前窗口</strong>
+                <small>开启后右侧智算 Dock 的高度按当前浏览器窗口自动适配，适合宽屏常驻。</small>
+              </span>
+              <input
+                checked={useZhisuanDockViewportHeight}
+                type="checkbox"
+                onChange={(event) => setUseZhisuanDockViewportHeight(event.target.checked)}
+              />
+            </label>
+            <label className="preference-row">
+              <span>
+                <strong>自动隐藏快捷指令</strong>
+                <small>开启后只露出“快捷指令”把手，鼠标移上去弹出完整按钮区。</small>
+              </span>
+              <input
+                checked={zhisuanQuickSettings.autoHide}
+                type="checkbox"
+                onChange={(event) => updateZhisuanQuickAutoHide(event.target.checked)}
+              />
+            </label>
+            <label className="preference-row">
+              <span>
+                <strong>显示智算消息头像</strong>
+                <small>默认关闭；关闭后隐藏助手消息左侧的 Z 头像，并释放对应的横向空间。</small>
+              </span>
+              <input
+                checked={showZhisuanAssistantAvatar}
+                type="checkbox"
+                onChange={(event) => setShowZhisuanAssistantAvatar(event.target.checked)}
+              />
+            </label>
+            <label className="field-preference-item">
+              <span>智算外观风格</span>
+              <select
+                value={zhisuanDockStyle}
+                onChange={(event) => setZhisuanDockStyle(event.target.value as ZhisuanDockStyle)}
+              >
+                {ZHISUAN_DOCK_STYLE_OPTIONS.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.name} - {option.description}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="zhisuan-visibility-settings">
+              <span className="settings-mini-title">显示项</span>
+              <div className="zhisuan-visibility-grid">
+                {ZHISUAN_DOCK_VISIBILITY_OPTIONS.map((option) => (
+                  <label className="preference-row" key={option.id}>
+                    <span>
+                      <strong>{option.name}</strong>
+                      <small>{option.description}</small>
+                    </span>
+                    <input
+                      checked={zhisuanDockVisibility[option.id]}
+                      type="checkbox"
+                      onChange={(event) => updateZhisuanDockVisibility(option.id, event.target.checked)}
+                    />
+                  </label>
+                ))}
+              </div>
+            </div>
+            <label className="field-preference-item">
+              <span>开场欢迎语</span>
+              <textarea
+                value={zhisuanWelcomeDraft}
+                rows={3}
+                onChange={(event) => setZhisuanWelcomeDraft(event.target.value)}
+              />
+            </label>
+            <div className="settings-action-row compact">
+              <button className="ghost-button" type="button" onClick={resetZhisuanWelcomeMessage}>
+                恢复项目默认欢迎语
+              </button>
+              <button className="ghost-button" type="button" onClick={restoreZhisuanWindowProjectDefaults}>
+                恢复项目默认
+              </button>
+              <button className="primary-button" type="button" onClick={() => {
+                saveZhisuanChatHeightSetting();
+                saveZhisuanDockWidthSetting();
+                saveZhisuanWelcomeMessage();
+              }}>
+                <Settings size={17} />
+                应用当前会话设置
+              </button>
+            </div>
+            <p className="settings-hint">聊天区高度、横向宽度、纵向高度偏好、欢迎语、消息头像、智算外观风格和显示项统一来自项目默认配置；本页调整仅在当前会话生效，不写入浏览器本地。横向宽度默认 400px；纵向高度跟随窗口、智算消息头像和大模型调试模式默认关闭；显示项默认全部关闭；两版新外观默认不启用，只改变右侧智算 Dock 的外在表现，不改变功能逻辑。</p>
+          </div>}
+
+          {activeLlmSettingsTab === "commands" && <div className="settings-subsection zhisuan-quick-settings daweiba-settings-pane">
+            <span className="settings-subsection-title">问问智算快捷指令</span>
+            <div className="zhisuan-quick-settings-grid">
+              {ZHISUAN_BUILTIN_QUICK_ITEMS.map((item) => (
+                <label className="mapping-check-field" key={item.id}>
+                  <input
+                    checked={zhisuanQuickSettings.enabledIds.includes(item.id)}
+                    type="checkbox"
+                    onChange={(event) => toggleZhisuanQuickItem(item.id, event.target.checked)}
+                  />
+                  <span>{item.label}</span>
+                </label>
+              ))}
+            </div>
+            <label className="field-preference-item">
+              <span>自定义快捷指令</span>
+              <textarea
+                value={customQuickCommandDraft}
+                rows={4}
+                placeholder="一行一个，例如：帮我解释本次未找到同类记录"
+                onChange={(event) => setCustomQuickCommandDraft(event.target.value)}
+              />
+            </label>
+            <div className="settings-action-row compact">
+              <button className="ghost-button" type="button" onClick={resetZhisuanQuickSettings}>
+                恢复项目默认快捷指令
+              </button>
+              <button className="primary-button" type="button" onClick={saveCustomZhisuanQuickCommands}>
+                <Settings size={17} />
+                保存自定义快捷指令
+              </button>
+            </div>
+            <p className="settings-hint">内置指令开关和自定义指令只在当前会话生效；自定义指令按行应用，点击后只填入“问问智算”输入框，由用户按 Enter 或点击发送确认。</p>
+          </div>}
+        </div>
+      </div>
+    );
+  }
+
+  function renderKnowledgeMemoryContent() {
+    return (
+      <>
+        <div className="knowledge-memory-scope-grid">
+          <label>
+            <span>当前知识范围</span>
+            <input value={knowledgeProjectName} onChange={(event) => setKnowledgeProjectName(event.target.value)} />
+          </label>
+          <label>
+            <span>scope_key</span>
+            <input value={knowledgeProjectKey} onChange={(event) => setKnowledgeProjectKey(event.target.value)} />
+          </label>
+          <label>
+            <span>操作人</span>
+            <input value={knowledgeOperator} onChange={(event) => setKnowledgeOperator(event.target.value)} />
+          </label>
+          <label>
+            <span>本地试点确认角色</span>
+            <select value={knowledgeActorRole} onChange={(event) => setKnowledgeActorRole(event.target.value)}>
+              <option value="project_owner">项目负责人</option>
+              <option value="reviewer">复核人</option>
+              <option value="rule_maintainer">规则维护人</option>
+              <option value="viewer">普通查看人</option>
+            </select>
+          </label>
+        </div>
+        <div className="knowledge-memory-toolbar">
+          <select value={knowledgeMemoryStatus} onChange={(event) => setKnowledgeMemoryStatus(event.target.value as KnowledgeMemoryStatus | "all")}>
+            <option value="all">全部状态</option>
+            <option value="confirmed">已确认</option>
+            <option value="pending">待确认</option>
+            <option value="candidate">候选</option>
+            <option value="suspected_stale">疑似失效</option>
+            <option value="rejected">已驳回</option>
+            <option value="revoked">已撤销</option>
+          </select>
+          <input placeholder="关键词查询" value={knowledgeMemoryQuery} onChange={(event) => setKnowledgeMemoryQuery(event.target.value)} />
+          <button className="ghost-button" type="button" disabled={isKnowledgeMemoryLoading} onClick={() => {
+            const projectKey = applyKnowledgeProjectScope();
+            if (projectKey) void loadKnowledgeMemoryItems(projectKey);
+          }}>
+            <RefreshCw className={isKnowledgeMemoryLoading ? "spin" : ""} size={16} />
+            查询
+          </button>
+        </div>
+        <div className="knowledge-memory-workspace">
+          <div className="knowledge-memory-list" aria-label="知识记忆列表">
+            {knowledgeMemoryItems.length === 0 ? (
+              <div className="knowledge-memory-empty">当前知识范围暂无匹配知识。</div>
+            ) : knowledgeMemoryItems.map((item) => (
+              <button
+                className={selectedKnowledgeMemory?.id === item.id ? "is-active" : ""}
+                key={item.id}
+                type="button"
+                onClick={() => void selectKnowledgeMemory(item)}
+              >
+                <span className={`knowledge-memory-status is-${item.status}`}>{knowledgeStatusLabel(item.status)}</span>
+                <strong>{item.title}</strong>
+                <small>{knowledgeTypeLabel(item.knowledge_type)} · v{item.version} · {item.submitter} · {item.updated_at.replace("T", " ")}</small>
+              </button>
+            ))}
+          </div>
+          <div className="knowledge-memory-detail">
+            {!selectedKnowledgeMemory ? (
+              <div className="knowledge-memory-empty">选择一条知识查看详情、来源和审计记录。</div>
+            ) : (
+              <>
+                <div className="knowledge-memory-detail-head">
+                  <span className={`knowledge-memory-status is-${selectedKnowledgeMemory.status}`}>{knowledgeStatusLabel(selectedKnowledgeMemory.status)}</span>
+                  <strong>{selectedKnowledgeMemory.title}</strong>
+                  <small>{selectedKnowledgeMemory.id} · v{selectedKnowledgeMemory.version}</small>
+                </div>
+                <dl>
+                  <div><dt>所属范围</dt><dd>{selectedKnowledgeMemory.project_name}（{selectedKnowledgeMemory.project_key}）</dd></div>
+                  <div><dt>知识类型</dt><dd>{knowledgeTypeLabel(selectedKnowledgeMemory.knowledge_type)}</dd></div>
+                  <div><dt>审核策略</dt><dd>{selectedKnowledgeMemory.review_policy === "auto_approve" ? "自动通过" : "人工确认"}{selectedKnowledgeMemory.review_reason ? `；${selectedKnowledgeMemory.review_reason}` : ""}</dd></div>
+                  <div><dt>原问题</dt><dd>{selectedKnowledgeMemory.question}</dd></div>
+                  <div><dt>确认结论</dt><dd>{selectedKnowledgeMemory.conclusion}</dd></div>
+                  <div><dt>适用条件</dt><dd>{selectedKnowledgeMemory.conditions || "未填写"}</dd></div>
+                  <div><dt>例外情况</dt><dd>{selectedKnowledgeMemory.exceptions || "未填写"}</dd></div>
+                  <div><dt>来源</dt><dd>{selectedKnowledgeMemory.source_reference}</dd></div>
+                  <div><dt>提交 / 确认</dt><dd>{selectedKnowledgeMemory.submitter} / {selectedKnowledgeMemory.confirmer || "尚未确认"}</dd></div>
+                </dl>
+                <label>
+                  <span>状态变更原因</span>
+                  <textarea value={knowledgeTransitionReason} onChange={(event) => setKnowledgeTransitionReason(event.target.value)} placeholder="驳回、撤销或标记疑似失效时必须填写" />
+                </label>
+                <div className="knowledge-memory-detail-actions">
+                  {["candidate", "pending"].includes(selectedKnowledgeMemory.status) && (
+                    <button className="ghost-button" type="button" onClick={() => editKnowledgeMemory(selectedKnowledgeMemory)}>编辑候选</button>
+                  )}
+                  {selectedKnowledgeMemory.status === "candidate" && (
+                    <button className="primary-button" type="button" onClick={() => void transitionKnowledgeMemory("submit")}>提交确认</button>
+                  )}
+                  {selectedKnowledgeMemory.status === "pending" && (
+                    <button className="primary-button" type="button" onClick={() => void transitionKnowledgeMemory("confirm")}>确认</button>
+                  )}
+                  {["candidate", "pending"].includes(selectedKnowledgeMemory.status) && (
+                    <button className="ghost-button danger" type="button" onClick={() => void transitionKnowledgeMemory("reject")}>驳回</button>
+                  )}
+                  {selectedKnowledgeMemory.status === "confirmed" && (
+                    <>
+                      {selectedKnowledgeMemory.scope_type !== "general" && (
+                        <button className="primary-button" type="button" onClick={() => void promoteKnowledgeMemoryToGeneral()}>提升为通用知识</button>
+                      )}
+                      <button className="ghost-button danger" type="button" onClick={() => void transitionKnowledgeMemory("mark-stale")}>标记疑似失效</button>
+                      <button className="ghost-button danger" type="button" onClick={() => void transitionKnowledgeMemory("revoke")}>撤销</button>
+                    </>
+                  )}
+                  {selectedKnowledgeMemory.status === "suspected_stale" && (
+                    <button className="ghost-button danger" type="button" onClick={() => void transitionKnowledgeMemory("revoke")}>撤销</button>
+                  )}
+                </div>
+                <div className="knowledge-memory-audit">
+                  <strong>审计记录</strong>
+                  {knowledgeMemoryAudit.map((record) => (
+                    <div key={record.id}>
+                      <span>{record.created_at.replace("T", " ")}</span>
+                      <b>{record.actor} · {record.action}</b>
+                      <small>{record.reason || `${record.from_status || "无"} → ${record.to_status || "无"}`}</small>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </>
+    );
+  }
+
   return (
     <main
       className={`shell layout-daweiba ${isDarkMode ? "theme-dark" : ""} ${useZhisuanDockViewportHeight ? "is-zhisuan-viewport-height" : ""} ${uiPreferences.enabled ? "ui-tune-enabled" : ""} ${isUiPickMode ? "ui-pick-mode" : ""}`}
@@ -8830,7 +9441,7 @@ function DaweibaApp() {
           onSelect={(skill) => setSelectedProfessionalSkillId(skill.id)}
           onReload={() => void loadProfessionalSkills()}
         />
-        <span className="nav-status">工程造价辅助 · 本地结构化匹配 · {API_BASE_LABEL} · {APP_VERSION}</span>
+        <span className="nav-status">{API_BASE_LABEL} · {APP_VERSION}</span>
         <div className="nav-bot-statuses" aria-label="第二层机器人连接状态">
           {APP_BOT_STATUS_TAGS.map((item) => {
             const profile = feishuAppBotStatus?.profiles.find((candidate) => candidate.profile_id === item.profileId);
@@ -8860,9 +9471,9 @@ function DaweibaApp() {
           <button
             className="nav-settings-button"
             type="button"
-            aria-label="页面设置"
-            title="页面设置"
-            onClick={() => setIsPageSettingsOpen(true)}
+            aria-label="统一设置"
+            title="统一设置"
+            onClick={() => openUnifiedSettings("page")}
           >
             <Settings size={16} />
           </button>
@@ -9053,7 +9664,7 @@ function DaweibaApp() {
                   {item.icon}
                 </button>
               ))}
-              <button className="daweiba-icon-link" type="button" title="页面设置" onClick={() => setIsPageSettingsOpen(true)}>
+              <button className="daweiba-icon-link" type="button" title="统一设置" onClick={() => openUnifiedSettings("page")}>
                 <Settings size={18} />
               </button>
             </div>
@@ -11188,8 +11799,10 @@ function DaweibaApp() {
             isBusy={agentTaskBusy}
             actions={agentWorkspaceActions}
             artifacts={agentWorkspaceArtifacts}
-            knowledgeQuestions={zhisuanWindowDefaults.commonQuestions}
+            knowledgeQuestions={activeKnowledgeQuestions}
+            knowledgeDefaultQuestions={zhisuanWindowDefaults.commonQuestions}
             onInputChange={setChatInput}
+            onSaveKnowledgeQuestions={saveKnowledgeQuestions}
             onInputFocusChange={setIsChatInputFocused}
             onSelectSkill={selectAgentSkill}
             onPickFile={() => agentFileInputRef.current?.click()}
@@ -11223,12 +11836,6 @@ function DaweibaApp() {
                 <div className="ai-dock-actions">
                   <button className="icon-button ai-focus-mode-button" type="button" aria-label="进入智算助手" title="进入智算助手" onClick={openAgentWorkspace}>
                     <Sparkles size={18} />
-                  </button>
-                  <button className="icon-button" type="button" aria-label="知识记忆" title="知识记忆" onClick={() => void openKnowledgeMemory()}>
-                    <Database size={18} />
-                  </button>
-                  <button className="icon-button" type="button" aria-label="大模型设置" onClick={() => setIsLlmSettingsOpen(true)}>
-                    <Settings size={18} />
                   </button>
                   <button className="ai-collapse-button" type="button" onClick={() => setIsAiDockCollapsed(true)}>
                     收起
@@ -11279,6 +11886,7 @@ function DaweibaApp() {
                                 && renderZhisuanModuleLinks()}
                               {message.role === "assistant" && !message.isTyping && renderZhisuanInlineAction(message)}
                               {message.role === "assistant" && !message.isTyping && renderKnowledgeEvidenceSummary(message)}
+                              {renderZhisuanDebugPanel(message)}
                               {message.role === "assistant" && message.isTyping && <i className="typing-caret" />}
                               {renderKnowledgeMemorySection(message)}
                               {message.role === "assistant" && !message.isTyping && message.rowDetailContext && (
@@ -11322,8 +11930,10 @@ function DaweibaApp() {
                     <div className="chat-compose">
                       <KnowledgeQuestionSuggestions
                         value={chatInput}
-                        questions={zhisuanWindowDefaults.commonQuestions}
+                        questions={activeKnowledgeQuestions}
+                        defaultQuestions={zhisuanWindowDefaults.commonQuestions}
                         placement="dock"
+                        onSaveQuestions={saveKnowledgeQuestions}
                         onSelect={(question) => {
                           setChatInput(knowledgeQuestionPrompt(question));
                           window.requestAnimationFrame(() => chatInputRef.current?.focus());
@@ -11808,9 +12418,16 @@ function DaweibaApp() {
                         </header>
                         <div>
                           {isRowAiLoading ? (
-                            <span>正在结合本行要素、三个数字、候选值与知识库依据生成复核意见...</span>
+                            <div className="fill-assist-ai-skeleton" role="status" aria-label="正在生成复核意见">
+                              <span className="fill-assist-ai-skeleton__line is-wide" />
+                              <span className="fill-assist-ai-skeleton__line" />
+                              <span className="fill-assist-ai-skeleton__line is-medium" />
+                              <span className="fill-assist-ai-skeleton__line is-short" />
+                              <span className="fill-assist-ai-skeleton__line is-wide" />
+                              <span className="fill-assist-ai-skeleton__line is-medium" />
+                            </div>
                           ) : rowAiAnswer ? (
-                            renderZhisuanMessageText(rowAiAnswer)
+                            renderFillAssistAiAnswer(rowAiAnswer)
                           ) : (
                             <span>点击“开始AI复核”，即可在这里对照查看模型意见。模型不会替您采用或写入候选值。</span>
                           )}
@@ -12547,76 +13164,101 @@ function DaweibaApp() {
       )}
 
       {isPageSettingsOpen && (
-        <div className="modal-backdrop" role="presentation" onClick={() => setIsPageSettingsOpen(false)}>
-          <div className="settings-modal page-settings-modal" role="dialog" aria-modal="true" aria-label="页面设置" onClick={(event) => event.stopPropagation()}>
+        <div className="modal-backdrop daweiba-settings-backdrop" role="presentation" onClick={() => setIsPageSettingsOpen(false)}>
+          <div className="settings-modal unified-settings-modal" role="dialog" aria-modal="true" aria-label="统一设置" onClick={(event) => event.stopPropagation()}>
             <div className="modal-title">
-              <strong>页面设置</strong>
-              <button type="button" onClick={() => setIsPageSettingsOpen(false)}>关闭</button>
+              <span>
+                <strong>统一设置</strong>
+                <small>页面偏好和智算配置统一管理，调整只影响当前会话。</small>
+              </span>
+              <button type="button" aria-label="关闭统一设置" onClick={() => setIsPageSettingsOpen(false)}><X size={16} /></button>
             </div>
-            <div className="settings-subsection">
-              <span className="settings-subsection-title">界面微调</span>
-              <label className="preference-row">
-                <span>
-                  <strong>启用用户界面微调</strong>
-                  <small>只叠加间距、字号、圆角和文案，不改变转换逻辑。</small>
-                </span>
-                <input
-                  checked={uiPreferencesDraft.enabled}
-                  type="checkbox"
-                  onChange={(event) => updateUiEnabled(event.target.checked)}
-                />
-              </label>
-              <div className="settings-action-row compact">
-                <button className="ghost-button" type="button" disabled={isLoadingUiPreferences} onClick={openUiTuner}>
-                  {isLoadingUiPreferences ? <Loader2 className="spin" size={17} /> : <Settings size={17} />}
-                  打开微调面板
-                </button>
-                <button className="primary-button" type="button" disabled={isSavingUiPreferences} onClick={saveUiPreferences}>
-                  {isSavingUiPreferences ? <Loader2 className="spin" size={17} /> : <Settings size={17} />}
-                  保存用户设置
-                </button>
+            <nav className="daweiba-settings-tabs unified-settings-tabs" role="tablist" aria-label="统一设置分区">
+              <button type="button" role="tab" aria-selected={activePageSettingsTab === "page"} className={activePageSettingsTab === "page" ? "is-active" : ""} onClick={() => setActivePageSettingsTab("page")}>页面设置</button>
+              <button type="button" role="tab" aria-selected={activePageSettingsTab === "zhisuan"} className={activePageSettingsTab === "zhisuan" ? "is-active" : ""} onClick={() => setActivePageSettingsTab("zhisuan")}>智算设置</button>
+              <button type="button" role="tab" aria-selected={activePageSettingsTab === "memory"} className={activePageSettingsTab === "memory" ? "is-active" : ""} onClick={() => openUnifiedSettings("memory")}>知识记忆</button>
+            </nav>
+            {activePageSettingsTab === "page" && (
+              <div className="daweiba-settings-scroll unified-page-settings-scroll">
+                <div className="settings-subsection">
+                  <span className="settings-subsection-title">界面微调</span>
+                  <label className="preference-row">
+                    <span>
+                      <strong>启用用户界面微调</strong>
+                      <small>只叠加间距、字号、圆角和文案，不改变转换逻辑。</small>
+                    </span>
+                    <input
+                      checked={uiPreferencesDraft.enabled}
+                      type="checkbox"
+                      onChange={(event) => updateUiEnabled(event.target.checked)}
+                    />
+                  </label>
+                  <div className="settings-action-row compact">
+                    <button className="ghost-button" type="button" disabled={isLoadingUiPreferences} onClick={openUiTuner}>
+                      {isLoadingUiPreferences ? <Loader2 className="spin" size={17} /> : <Settings size={17} />}
+                      打开微调面板
+                    </button>
+                    <button className="primary-button" type="button" disabled={isSavingUiPreferences} onClick={() => void saveUiPreferences()}>
+                      {isSavingUiPreferences ? <Loader2 className="spin" size={17} /> : <Settings size={17} />}
+                      保存用户设置
+                    </button>
+                  </div>
+                  <p className="settings-hint">
+                    用户偏好仅保存在本机运行目录，刷新页面后仍可恢复。
+                  </p>
+                </div>
+                <div className="settings-subsection">
+                  <span className="settings-subsection-title">输出与预览</span>
+                  <label className="preference-row">
+                    <span>
+                      <strong>隐藏指定列无值的行</strong>
+                      <small>下载 Excel 和填价结果预览中，表2/表3/表4 第5行起生效，不改变匹配结果。</small>
+                    </span>
+                    <input
+                      checked={outputRowFilterSettings.enabled}
+                      type="checkbox"
+                      onChange={(event) =>
+                        setOutputRowFilterSettings((current) => ({
+                          ...current,
+                          enabled: event.target.checked,
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="settings-field-row">
+                    <span>指定列</span>
+                    <select
+                      disabled={!outputRowFilterSettings.enabled}
+                      value={outputRowFilterSettings.value_filter_field}
+                      onChange={(event) =>
+                        setOutputRowFilterSettings((current) => ({
+                          ...current,
+                          value_filter_field: event.target.value as WarningFilterField,
+                        }))
+                      }
+                    >
+                      {experienceWarningFilterFields.map((field) => (
+                        <option key={field} value={field}>{field}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <p className="settings-hint">字段选择和默认值复用预警模块“只核查指定列有值的行”的口径：当前默认按“数量”判断，空白和 0 都视为无值。</p>
+                </div>
               </div>
-              <p className="settings-hint">
-                用户偏好仅保存在本机运行目录，刷新页面后仍可恢复。
-              </p>
-            </div>
-            <div className="settings-subsection">
-              <span className="settings-subsection-title">输出与预览</span>
-              <label className="preference-row">
-                <span>
-                  <strong>隐藏指定列无值的行</strong>
-                  <small>下载 Excel 和填价结果预览中，表2/表3/表4 第5行起生效，不改变匹配结果。</small>
-                </span>
-                <input
-                  checked={outputRowFilterSettings.enabled}
-                  type="checkbox"
-                  onChange={(event) =>
-                    setOutputRowFilterSettings((current) => ({
-                      ...current,
-                      enabled: event.target.checked,
-                    }))
-                  }
-                />
-              </label>
-              <label className="settings-field-row">
-                <span>指定列</span>
-                <select
-                  disabled={!outputRowFilterSettings.enabled}
-                  value={outputRowFilterSettings.value_filter_field}
-                  onChange={(event) =>
-                    setOutputRowFilterSettings((current) => ({
-                      ...current,
-                      value_filter_field: event.target.value as WarningFilterField,
-                    }))
-                  }
-                >
-                  {experienceWarningFilterFields.map((field) => (
-                    <option key={field} value={field}>{field}</option>
-                  ))}
-                </select>
-              </label>
-              <p className="settings-hint">字段选择和默认值复用预警模块“只核查指定列有值的行”的口径：当前默认按“数量”判断，空白和 0 都视为无值。</p>
-            </div>
+            )}
+            {activePageSettingsTab === "zhisuan" && renderZhisuanSettingsContent()}
+            {activePageSettingsTab === "memory" && (
+              <div className="daweiba-settings-scroll unified-memory-settings-scroll">
+                <div className="unified-memory-settings-content">
+                  <p className="settings-hint">通用知识按类型审核：低风险知识可自动通过，价格系数、正式标准、冲突内容及项目知识需人工确认。所有操作保留版本与审计。</p>
+                  {renderKnowledgeMemoryContent()}
+                </div>
+              </div>
+            )}
+            <footer className="daweiba-settings-footer">
+              <span>设置仅在当前会话生效，业务规则与价格裁决不受影响。</span>
+              <button className="primary-button" type="button" onClick={() => setIsPageSettingsOpen(false)}>完成</button>
+            </footer>
           </div>
         </div>
       )}
@@ -12702,7 +13344,7 @@ function DaweibaApp() {
             <button className="ghost-button" type="button" onClick={resetActiveUiStyle}>恢复当前元素</button>
             <button className="ghost-button" type="button" onClick={resetActiveUiText}>恢复当前文字</button>
             <button className="ghost-button" type="button" onClick={resetAllUiPreferences}>全部恢复默认</button>
-            <button className="primary-button" type="button" disabled={isSavingUiPreferences} onClick={saveUiPreferences}>
+            <button className="primary-button" type="button" disabled={isSavingUiPreferences} onClick={() => void saveUiPreferences()}>
               {isSavingUiPreferences ? <Loader2 className="spin" size={17} /> : <Settings size={17} />}
               保存用户设置
             </button>
@@ -12892,337 +13534,11 @@ function DaweibaApp() {
               </span>
               <button type="button" onClick={() => setIsKnowledgeMemoryOpen(false)}>关闭</button>
             </div>
-            <div className="knowledge-memory-scope-grid">
-              <label>
-                <span>当前知识范围</span>
-                <input value={knowledgeProjectName} onChange={(event) => setKnowledgeProjectName(event.target.value)} />
-              </label>
-              <label>
-                <span>scope_key</span>
-                <input value={knowledgeProjectKey} onChange={(event) => setKnowledgeProjectKey(event.target.value)} />
-              </label>
-              <label>
-                <span>操作人</span>
-                <input value={knowledgeOperator} onChange={(event) => setKnowledgeOperator(event.target.value)} />
-              </label>
-              <label>
-                <span>本地试点确认角色</span>
-                <select value={knowledgeActorRole} onChange={(event) => setKnowledgeActorRole(event.target.value)}>
-                  <option value="project_owner">项目负责人</option>
-                  <option value="reviewer">复核人</option>
-                  <option value="rule_maintainer">规则维护人</option>
-                  <option value="viewer">普通查看人</option>
-                </select>
-              </label>
-            </div>
-            <div className="knowledge-memory-toolbar">
-              <select value={knowledgeMemoryStatus} onChange={(event) => setKnowledgeMemoryStatus(event.target.value as KnowledgeMemoryStatus | "all")}>
-                <option value="all">全部状态</option>
-                <option value="confirmed">已确认</option>
-                <option value="pending">待确认</option>
-                <option value="candidate">候选</option>
-                <option value="suspected_stale">疑似失效</option>
-                <option value="rejected">已驳回</option>
-                <option value="revoked">已撤销</option>
-              </select>
-              <input placeholder="关键词查询" value={knowledgeMemoryQuery} onChange={(event) => setKnowledgeMemoryQuery(event.target.value)} />
-              <button className="ghost-button" type="button" disabled={isKnowledgeMemoryLoading} onClick={() => {
-                const projectKey = applyKnowledgeProjectScope();
-                if (projectKey) void loadKnowledgeMemoryItems(projectKey);
-              }}>
-                <RefreshCw className={isKnowledgeMemoryLoading ? "spin" : ""} size={16} />
-                查询
-              </button>
-            </div>
-            <div className="knowledge-memory-workspace">
-              <div className="knowledge-memory-list" aria-label="知识记忆列表">
-                {knowledgeMemoryItems.length === 0 ? (
-                  <div className="knowledge-memory-empty">当前知识范围暂无匹配知识。</div>
-                ) : knowledgeMemoryItems.map((item) => (
-                  <button
-                    className={selectedKnowledgeMemory?.id === item.id ? "is-active" : ""}
-                    key={item.id}
-                    type="button"
-                    onClick={() => void selectKnowledgeMemory(item)}
-                  >
-                    <span className={`knowledge-memory-status is-${item.status}`}>{knowledgeStatusLabel(item.status)}</span>
-                    <strong>{item.title}</strong>
-                    <small>{knowledgeTypeLabel(item.knowledge_type)} · v{item.version} · {item.submitter} · {item.updated_at.replace("T", " ")}</small>
-                  </button>
-                ))}
-              </div>
-              <div className="knowledge-memory-detail">
-                {!selectedKnowledgeMemory ? (
-                  <div className="knowledge-memory-empty">选择一条知识查看详情、来源和审计记录。</div>
-                ) : (
-                  <>
-                    <div className="knowledge-memory-detail-head">
-                      <span className={`knowledge-memory-status is-${selectedKnowledgeMemory.status}`}>{knowledgeStatusLabel(selectedKnowledgeMemory.status)}</span>
-                      <strong>{selectedKnowledgeMemory.title}</strong>
-                      <small>{selectedKnowledgeMemory.id} · v{selectedKnowledgeMemory.version}</small>
-                    </div>
-                    <dl>
-                      <div><dt>所属范围</dt><dd>{selectedKnowledgeMemory.project_name}（{selectedKnowledgeMemory.project_key}）</dd></div>
-                      <div><dt>知识类型</dt><dd>{knowledgeTypeLabel(selectedKnowledgeMemory.knowledge_type)}</dd></div>
-                      <div><dt>审核策略</dt><dd>{selectedKnowledgeMemory.review_policy === "auto_approve" ? "自动通过" : "人工确认"}{selectedKnowledgeMemory.review_reason ? `；${selectedKnowledgeMemory.review_reason}` : ""}</dd></div>
-                      <div><dt>原问题</dt><dd>{selectedKnowledgeMemory.question}</dd></div>
-                      <div><dt>确认结论</dt><dd>{selectedKnowledgeMemory.conclusion}</dd></div>
-                      <div><dt>适用条件</dt><dd>{selectedKnowledgeMemory.conditions || "未填写"}</dd></div>
-                      <div><dt>例外情况</dt><dd>{selectedKnowledgeMemory.exceptions || "未填写"}</dd></div>
-                      <div><dt>来源</dt><dd>{selectedKnowledgeMemory.source_reference}</dd></div>
-                      <div><dt>提交 / 确认</dt><dd>{selectedKnowledgeMemory.submitter} / {selectedKnowledgeMemory.confirmer || "尚未确认"}</dd></div>
-                    </dl>
-                    <label>
-                      <span>状态变更原因</span>
-                      <textarea value={knowledgeTransitionReason} onChange={(event) => setKnowledgeTransitionReason(event.target.value)} placeholder="驳回、撤销或标记疑似失效时必须填写" />
-                    </label>
-                    <div className="knowledge-memory-detail-actions">
-                      {["candidate", "pending"].includes(selectedKnowledgeMemory.status) && (
-                        <button className="ghost-button" type="button" onClick={() => editKnowledgeMemory(selectedKnowledgeMemory)}>编辑候选</button>
-                      )}
-                      {selectedKnowledgeMemory.status === "candidate" && (
-                        <button className="primary-button" type="button" onClick={() => void transitionKnowledgeMemory("submit")}>提交确认</button>
-                      )}
-                      {selectedKnowledgeMemory.status === "pending" && (
-                        <button className="primary-button" type="button" onClick={() => void transitionKnowledgeMemory("confirm")}>确认</button>
-                      )}
-                      {["candidate", "pending"].includes(selectedKnowledgeMemory.status) && (
-                        <button className="ghost-button danger" type="button" onClick={() => void transitionKnowledgeMemory("reject")}>驳回</button>
-                      )}
-                      {selectedKnowledgeMemory.status === "confirmed" && (
-                        <>
-                          {selectedKnowledgeMemory.scope_type !== "general" && (
-                            <button className="primary-button" type="button" onClick={() => void promoteKnowledgeMemoryToGeneral()}>提升为通用知识</button>
-                          )}
-                          <button className="ghost-button danger" type="button" onClick={() => void transitionKnowledgeMemory("mark-stale")}>标记疑似失效</button>
-                          <button className="ghost-button danger" type="button" onClick={() => void transitionKnowledgeMemory("revoke")}>撤销</button>
-                        </>
-                      )}
-                      {selectedKnowledgeMemory.status === "suspected_stale" && (
-                        <button className="ghost-button danger" type="button" onClick={() => void transitionKnowledgeMemory("revoke")}>撤销</button>
-                      )}
-                    </div>
-                    <div className="knowledge-memory-audit">
-                      <strong>审计记录</strong>
-                      {knowledgeMemoryAudit.map((record) => (
-                        <div key={record.id}>
-                          <span>{record.created_at.replace("T", " ")}</span>
-                          <b>{record.actor} · {record.action}</b>
-                          <small>{record.reason || `${record.from_status || "无"} → ${record.to_status || "无"}`}</small>
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
+            {renderKnowledgeMemoryContent()}
           </div>
         </div>
       )}
 
-      {isLlmSettingsOpen && (
-        <div className="modal-backdrop daweiba-settings-backdrop" role="presentation" onClick={() => setIsLlmSettingsOpen(false)}>
-          <div className="settings-modal daweiba-llm-settings-modal" role="dialog" aria-modal="true" aria-label="大模型设置" onClick={(event) => event.stopPropagation()}>
-            <div className="modal-title">
-              <span>
-                <strong>大模型与智算设置</strong>
-                <small>模型接入、窗口外观和快捷指令分区管理，调整只影响当前会话。</small>
-              </span>
-              <button type="button" aria-label="关闭大模型设置" onClick={() => setIsLlmSettingsOpen(false)}><X size={16} /></button>
-            </div>
-            <nav className="daweiba-settings-tabs" role="tablist" aria-label="大模型设置分区">
-              <button type="button" role="tab" aria-selected={activeLlmSettingsTab === "model"} className={activeLlmSettingsTab === "model" ? "is-active" : ""} onClick={() => setActiveLlmSettingsTab("model")}>模型接入</button>
-              <button type="button" role="tab" aria-selected={activeLlmSettingsTab === "window"} className={activeLlmSettingsTab === "window" ? "is-active" : ""} onClick={() => setActiveLlmSettingsTab("window")}>智算窗口</button>
-              <button type="button" role="tab" aria-selected={activeLlmSettingsTab === "commands"} className={activeLlmSettingsTab === "commands" ? "is-active" : ""} onClick={() => setActiveLlmSettingsTab("commands")}>快捷指令</button>
-            </nav>
-            <div className="daweiba-settings-scroll">
-            {activeLlmSettingsTab === "model" && <section className="daweiba-settings-pane" aria-label="模型接入">
-            <label className="field-preference-item">
-              <span>模型选择</span>
-              <select
-                value={LLM_PRESETS.find((preset) => (
-                  preset.provider === llmSettings.provider
-                  && preset.model === llmSettings.model
-                  && preset.baseUrl === llmSettings.baseUrl
-                ))?.id ?? "custom"}
-                onChange={(event) => applyLlmPreset(event.target.value)}
-              >
-                {LLM_PRESETS.map((preset) => (
-                  <option key={preset.id} value={preset.id}>{preset.name} - {preset.description}</option>
-                ))}
-                <option value="custom">自定义</option>
-              </select>
-            </label>
-            <label className="field-preference-item">
-              <span>接入标识</span>
-              <input value={llmSettings.provider} onChange={(event) => setLlmSettings((current) => ({ ...current, provider: event.target.value }))} />
-            </label>
-            <label className="field-preference-item">
-              <span>模型</span>
-              <input value={llmSettings.model} onChange={(event) => setLlmSettings((current) => ({ ...current, model: event.target.value }))} />
-            </label>
-            <label className="field-preference-item">
-              <span>接口地址</span>
-              <input value={llmSettings.baseUrl} onChange={(event) => setLlmSettings((current) => ({ ...current, baseUrl: event.target.value }))} />
-            </label>
-            <p className="settings-hint"><ShieldCheck size={15} />API Key 由后端环境变量提供，前端不读取、不保存，也不会在界面回显。</p>
-            </section>}
-            {activeLlmSettingsTab === "window" && <div className="settings-subsection zhisuan-window-settings daweiba-settings-pane">
-              <span className="settings-subsection-title">智算窗口</span>
-              <label className="field-preference-item">
-                <span>聊天消息区高度（px）</span>
-                <input
-                  min={300}
-                  max={720}
-                  step={10}
-                  type="number"
-                  value={zhisuanChatHeightDraft}
-                  onChange={(event) => setZhisuanChatHeightDraft(event.target.value)}
-                />
-              </label>
-              <label className="field-preference-item">
-                <span>智算窗口横向宽度（px）</span>
-                <input
-                  min={300}
-                  max={560}
-                  step={10}
-                  type="number"
-                  value={zhisuanDockWidthDraft}
-                  onChange={(event) => setZhisuanDockWidthDraft(event.target.value)}
-                />
-              </label>
-              <label className="preference-row">
-                <span>
-                  <strong>纵向高度跟随当前窗口</strong>
-                  <small>开启后右侧智算 Dock 的高度按当前浏览器窗口自动适配，适合宽屏常驻。</small>
-                </span>
-                <input
-                  checked={useZhisuanDockViewportHeight}
-                  type="checkbox"
-                  onChange={(event) => setUseZhisuanDockViewportHeight(event.target.checked)}
-                />
-              </label>
-              <label className="preference-row">
-                <span>
-                  <strong>自动隐藏快捷指令</strong>
-                  <small>开启后只露出“快捷指令”把手，鼠标移上去弹出完整按钮区。</small>
-                </span>
-                <input
-                  checked={zhisuanQuickSettings.autoHide}
-                  type="checkbox"
-                  onChange={(event) => updateZhisuanQuickAutoHide(event.target.checked)}
-                />
-              </label>
-              <label className="preference-row">
-                <span>
-                  <strong>显示智算消息头像</strong>
-                  <small>默认关闭；关闭后隐藏助手消息左侧的 Z 头像，并释放对应的横向空间。</small>
-                </span>
-                <input
-                  checked={showZhisuanAssistantAvatar}
-                  type="checkbox"
-                  onChange={(event) => setShowZhisuanAssistantAvatar(event.target.checked)}
-                />
-              </label>
-              <label className="field-preference-item">
-                <span>智算外观风格</span>
-                <select
-                  value={zhisuanDockStyle}
-                  onChange={(event) => setZhisuanDockStyle(event.target.value as ZhisuanDockStyle)}
-                >
-                  {ZHISUAN_DOCK_STYLE_OPTIONS.map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.name} - {option.description}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div className="zhisuan-visibility-settings">
-                <span className="settings-mini-title">显示项</span>
-                <div className="zhisuan-visibility-grid">
-                  {ZHISUAN_DOCK_VISIBILITY_OPTIONS.map((option) => (
-                    <label className="preference-row" key={option.id}>
-                      <span>
-                        <strong>{option.name}</strong>
-                        <small>{option.description}</small>
-                      </span>
-                      <input
-                        checked={zhisuanDockVisibility[option.id]}
-                        type="checkbox"
-                        onChange={(event) => updateZhisuanDockVisibility(option.id, event.target.checked)}
-                      />
-                    </label>
-                  ))}
-                </div>
-              </div>
-              <label className="field-preference-item">
-                <span>开场欢迎语</span>
-                <textarea
-                  value={zhisuanWelcomeDraft}
-                  rows={3}
-                  onChange={(event) => setZhisuanWelcomeDraft(event.target.value)}
-                />
-              </label>
-              <div className="settings-action-row compact">
-                <button className="ghost-button" type="button" onClick={resetZhisuanWelcomeMessage}>
-                  恢复项目默认欢迎语
-                </button>
-                <button className="ghost-button" type="button" onClick={restoreZhisuanWindowProjectDefaults}>
-                  恢复项目默认
-                </button>
-                <button className="primary-button" type="button" onClick={() => {
-                  saveZhisuanChatHeightSetting();
-                  saveZhisuanDockWidthSetting();
-                  saveZhisuanWelcomeMessage();
-                }}>
-                  <Settings size={17} />
-                  应用当前会话设置
-                </button>
-              </div>
-              <p className="settings-hint">聊天区高度、横向宽度、纵向高度偏好、欢迎语、消息头像、智算外观风格和显示项统一来自项目默认配置；本页调整仅在当前会话生效，不写入浏览器本地。横向宽度默认 400px；纵向高度跟随窗口和智算消息头像默认关闭；显示项默认全部关闭；两版新外观默认不启用，只改变右侧智算 Dock 的外在表现，不改变功能逻辑。</p>
-            </div>}
-            {activeLlmSettingsTab === "commands" && <div className="settings-subsection zhisuan-quick-settings daweiba-settings-pane">
-              <span className="settings-subsection-title">问问智算快捷指令</span>
-              <div className="zhisuan-quick-settings-grid">
-                {ZHISUAN_BUILTIN_QUICK_ITEMS.map((item) => (
-                  <label className="mapping-check-field" key={item.id}>
-                    <input
-                      checked={zhisuanQuickSettings.enabledIds.includes(item.id)}
-                      type="checkbox"
-                      onChange={(event) => toggleZhisuanQuickItem(item.id, event.target.checked)}
-                    />
-                    <span>{item.label}</span>
-                  </label>
-                ))}
-              </div>
-              <label className="field-preference-item">
-                <span>自定义快捷指令</span>
-                <textarea
-                  value={customQuickCommandDraft}
-                  rows={4}
-                  placeholder="一行一个，例如：帮我解释本次未找到同类记录"
-                  onChange={(event) => setCustomQuickCommandDraft(event.target.value)}
-                />
-              </label>
-              <div className="settings-action-row compact">
-                <button className="ghost-button" type="button" onClick={resetZhisuanQuickSettings}>
-                  恢复项目默认快捷指令
-                </button>
-                <button className="primary-button" type="button" onClick={saveCustomZhisuanQuickCommands}>
-                  <Settings size={17} />
-                  保存自定义快捷指令
-                </button>
-              </div>
-              <p className="settings-hint">内置指令开关和自定义指令只在当前会话生效；自定义指令按行应用，点击后只填入“问问智算”输入框，由用户按 Enter 或点击发送确认。</p>
-            </div>}
-            </div>
-            <footer className="daweiba-settings-footer">
-              <span>设置仅在当前会话生效，业务规则与价格裁决不受影响。</span>
-              <button className="primary-button" type="button" onClick={() => setIsLlmSettingsOpen(false)}>完成</button>
-            </footer>
-          </div>
-        </div>
-      )}
     </main>
   );
 }

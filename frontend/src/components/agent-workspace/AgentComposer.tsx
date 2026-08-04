@@ -16,7 +16,9 @@ type Props = {
   actions: ReactNode;
   artifacts: ReactNode;
   knowledgeQuestions: string[];
+  knowledgeDefaultQuestions: string[];
   onChange: (value: string) => void;
+  onSaveKnowledgeQuestions: (questions: string[]) => Promise<boolean>;
   onSelectSkill: (skillId: string) => void;
   onPickFile: () => void;
   onDropFile: (file: File) => void;
@@ -37,7 +39,9 @@ export default function AgentComposer({
   actions,
   artifacts,
   knowledgeQuestions,
+  knowledgeDefaultQuestions,
   onChange,
+  onSaveKnowledgeQuestions,
   onSelectSkill,
   onPickFile,
   onDropFile,
@@ -144,7 +148,9 @@ export default function AgentComposer({
       <KnowledgeQuestionSuggestions
         value={value}
         questions={knowledgeQuestions}
+        defaultQuestions={knowledgeDefaultQuestions}
         placement="agent"
+        onSaveQuestions={onSaveKnowledgeQuestions}
         onSelect={(question) => {
           onChange(knowledgeQuestionPrompt(question));
           window.requestAnimationFrame(() => inputRef.current?.focus());

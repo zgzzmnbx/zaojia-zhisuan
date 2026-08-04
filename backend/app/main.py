@@ -43,6 +43,7 @@ from .knowledge_qa import (
 )
 from .knowledge_libraries import (
     KnowledgeLibrarySelection,
+    PROFESSIONAL_KNOWLEDGE_LIBRARY_ID,
     knowledge_library_catalog,
     parse_requested_library_ids,
     resolve_knowledge_library_selection,
@@ -2076,6 +2077,9 @@ def _knowledge_library_selection(
         requested_ids = parse_requested_library_ids(payload.get("library_ids"))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    has_row_context = isinstance(payload.get("row_context"), dict)
+    if str(payload.get("context_type") or "").strip().lower() == "row" or has_row_context:
+        requested_ids = (PROFESSIONAL_KNOWLEDGE_LIBRARY_ID,)
     project_root = Path(base_kwargs.get("project_root") or PROJECT_ROOT)
     sources_value = base_kwargs.get("sources")
     base_sources = (
@@ -4829,8 +4833,10 @@ def _save_experience_warning_settings(settings: dict[str, float | bool | str]) -
 def _sanitize_ui_preferences(raw_preferences: dict[object, object]) -> dict[str, object]:
     raw_styles = raw_preferences.get("styles", {})
     raw_text = raw_preferences.get("text", {})
+    raw_common_questions = raw_preferences.get("commonQuestions")
     styles: dict[str, dict[str, float]] = {}
     text: dict[str, str] = {}
+    common_questions: list[str] | None = None
 
     if isinstance(raw_styles, dict):
         for raw_key, raw_values in raw_styles.items():
@@ -4851,11 +4857,24 @@ def _sanitize_ui_preferences(raw_preferences: dict[object, object]) -> dict[str,
                 value = value[:200]
             text[key] = value
 
-    return {
+    if isinstance(raw_common_questions, list):
+        common_questions = []
+        for raw_question in raw_common_questions:
+            question = str(raw_question or "").replace("\r", "").strip()
+            if not question or question in common_questions:
+                continue
+            common_questions.append(question[:500])
+            if len(common_questions) >= 60:
+                break
+
+    sanitized: dict[str, object] = {
         "enabled": bool(raw_preferences.get("enabled", False)),
         "styles": styles,
         "text": text,
     }
+    if common_questions is not None:
+        sanitized["commonQuestions"] = common_questions
+    return sanitized
 
 
 def _sanitize_preview_column_preferences(
