@@ -138,6 +138,15 @@
   line-height: 1.55 !important;
 }
 
+@keyframes fee-analysis-donut-fill {
+  from { stroke-dasharray: 0 100; }
+}
+
+@keyframes fee-analysis-bar-fill {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
 @media (max-width: 640px) {
   .fee-analysis__metrics { grid-template-columns: 1fr; }
   .fee-analysis__metrics > div + div { border-top: 1px solid var(--dws-color-border, #e2e8f0); border-left: 0; }
@@ -179,6 +188,23 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .fee-analysis__donut-segment,
-  .fee-analysis__bar-fill { transition: stroke-dashoffset 180ms ease-in-out, width 180ms ease-in-out; }
+  .fee-analysis__donut-segment {
+    animation: fee-analysis-donut-fill var(--fee-animation-duration, 1500ms) cubic-bezier(0.22, 1, 0.36, 1) var(--fee-animation-delay, 0ms) both;
+  }
+
+  .fee-analysis__bar-fill {
+    transform-origin: left center;
+    animation: fee-analysis-bar-fill var(--fee-animation-duration, 1500ms) cubic-bezier(0.22, 1, 0.36, 1) var(--fee-animation-delay, 0ms) both;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fee-analysis .fee-analysis__donut .fee-analysis__donut-segment {
+    animation: fee-analysis-donut-fill var(--fee-animation-duration, 1500ms) linear var(--fee-animation-delay, 0ms) both !important;
+  }
+
+  .fee-analysis .fee-analysis__bar-track .fee-analysis__bar-fill {
+    transform-origin: left center;
+    animation: fee-analysis-bar-fill var(--fee-animation-duration, 1500ms) linear var(--fee-animation-delay, 0ms) both !important;
+  }
 }

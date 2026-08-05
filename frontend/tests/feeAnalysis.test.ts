@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { buildFeeAnalysis } from "../src/components/agent-workspace/feeAnalysis.ts";
 import { detectZhisuanCommand } from "../src/components/agent-workspace/zhisuanCommands.ts";
@@ -51,4 +52,24 @@ test("routes both fee insight phrases to the deterministic chart command", () =>
   assert.equal(detectZhisuanCommand("费用洞察"), "fee-analysis");
   assert.equal(detectZhisuanCommand("请做一次费用洞察"), "fee-analysis");
   assert.equal(detectZhisuanCommand("图表分析是怎么生成的？"), null);
+});
+
+test("animates fee charts on entry while respecting reduced motion", () => {
+  const componentSource = readFileSync(
+    new URL("../src/components/agent-workspace/ZhisuanFeeAnalysisCharts.tsx", import.meta.url),
+    "utf8",
+  );
+  const stylesheet = readFileSync(
+    new URL("../src/components/agent-workspace/feeAnalysis.css", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(componentSource, /--fee-animation-delay/);
+  assert.match(componentSource, /--fee-animation-duration/);
+  assert.match(componentSource, /animationTimelineMs = 1500/);
+  assert.match(stylesheet, /@keyframes fee-analysis-donut-fill/);
+  assert.match(stylesheet, /@keyframes fee-analysis-bar-fill/);
+  assert.match(stylesheet, /@media \(prefers-reduced-motion: no-preference\)/);
+  assert.match(stylesheet, /@media \(prefers-reduced-motion: reduce\)/);
+  assert.match(stylesheet, /--fee-animation-duration, 1500ms/);
 });

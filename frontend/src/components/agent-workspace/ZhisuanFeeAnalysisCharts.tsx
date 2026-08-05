@@ -8,6 +8,13 @@ type Props = {
 
 type DonutStyle = CSSProperties & {
   "--fee-dash-offset": number;
+  "--fee-animation-delay": string;
+  "--fee-animation-duration": string;
+};
+
+type BarStyle = CSSProperties & {
+  "--fee-animation-delay": string;
+  "--fee-animation-duration": string;
 };
 
 const numberFormatter = new Intl.NumberFormat("zh-CN", {
@@ -34,6 +41,7 @@ function shortLabel(label: string) {
 
 function DonutChart({ items, total, unit }: { items: FeeAnalysisItem[]; total: number; unit: string }) {
   let offset = 0;
+  const animationTimelineMs = 1500;
   return (
     <div className="fee-analysis__donut-layout">
       <svg
@@ -47,6 +55,8 @@ function DonutChart({ items, total, unit }: { items: FeeAnalysisItem[]; total: n
         <circle className="fee-analysis__donut-track" cx="80" cy="80" r="54" pathLength="100" />
         {items.map((item, index) => {
           const dashOffset = -offset;
+          const animationDelay = offset * animationTimelineMs / 100;
+          const animationDuration = Math.max(24, item.share * animationTimelineMs);
           offset += item.share * 100;
           return (
             <circle
@@ -56,7 +66,11 @@ function DonutChart({ items, total, unit }: { items: FeeAnalysisItem[]; total: n
               r="54"
               pathLength="100"
               strokeDasharray={`${item.share * 100} ${100 - item.share * 100}`}
-              style={{ "--fee-dash-offset": dashOffset } as DonutStyle}
+              style={{
+                "--fee-dash-offset": dashOffset,
+                "--fee-animation-delay": `${Math.round(animationDelay)}ms`,
+                "--fee-animation-duration": `${Math.round(animationDuration)}ms`,
+              } as DonutStyle}
               key={`${item.label}-${index}`}
             />
           );
@@ -85,21 +99,28 @@ function BarChart({ items, unit }: { items: FeeAnalysisItem[]; unit: string }) {
   const sortedItems = [...items].sort((left, right) => right.value - left.value);
   return (
     <div className="fee-analysis__bars" role="img" aria-label="专业费用金额与占比横向条形图">
-      {sortedItems.map((item, index) => (
-        <div className="fee-analysis__bar-row" key={`${item.label}-bar`}>
-          <div className="fee-analysis__bar-meta">
-            <span title={item.label}>{shortLabel(item.label)}</span>
-            <strong>{formatAmount(item.value)} <small>{unit}</small></strong>
+      {sortedItems.map((item, index) => {
+        const animationDelay = Math.min(index * 70, 280);
+        return (
+          <div className="fee-analysis__bar-row" key={`${item.label}-bar`}>
+            <div className="fee-analysis__bar-meta">
+              <span title={item.label}>{shortLabel(item.label)}</span>
+              <strong>{formatAmount(item.value)} <small>{unit}</small></strong>
+            </div>
+            <div className="fee-analysis__bar-track" aria-hidden="true">
+              <span
+                className={`fee-analysis__bar-fill is-${index % 6} ${item.share === 0 ? "is-zero" : ""}`}
+                style={{
+                  width: `${item.share * 100}%`,
+                  "--fee-animation-delay": `${animationDelay}ms`,
+                  "--fee-animation-duration": `${1500 - animationDelay}ms`,
+                } as BarStyle}
+              />
+            </div>
+            <span className="fee-analysis__bar-share">{formatShare(item.share)}</span>
           </div>
-          <div className="fee-analysis__bar-track" aria-hidden="true">
-            <span
-              className={`fee-analysis__bar-fill is-${index % 6} ${item.share === 0 ? "is-zero" : ""}`}
-              style={{ width: `${item.share * 100}%` }}
-            />
-          </div>
-          <span className="fee-analysis__bar-share">{formatShare(item.share)}</span>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

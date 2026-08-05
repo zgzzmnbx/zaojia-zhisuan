@@ -61,7 +61,14 @@ export default function KnowledgeDemoChart({ chart }: Props) {
                 formatter={(value) => [`${amountFormatter.format(Number(value))} ${chart.unit}`, "清单单价"]}
                 labelFormatter={(label) => `管径 ${label}`}
               />
-              <Bar dataKey="value" name="清单单价" radius={[4, 4, 0, 0]} isAnimationActive={false}>
+              <Bar
+                dataKey="value"
+                name="清单单价"
+                radius={[4, 4, 0, 0]}
+                isAnimationActive
+                animationDuration={1500}
+                animationEasing="ease-out"
+              >
                 {chart.items.map((item) => (
                   <Cell
                     key={item.label}

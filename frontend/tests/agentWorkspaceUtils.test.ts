@@ -70,6 +70,17 @@ test("marks only unchanged standard demo questions for the subtle blue dot", () 
   assert.equal(isDemoKnowledgeQuestion("勘察测量，实物工作费调整系数如何确定？"), false);
 });
 
+test("animates the preset knowledge bar chart for 1.5 seconds", async () => {
+  const chartSource = await readFile(
+    new URL("../src/components/knowledge/KnowledgeDemoChart.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(chartSource, /isAnimationActive/);
+  assert.match(chartSource, /animationDuration=\{1500\}/);
+  assert.match(chartSource, /animationEasing="ease-out"/);
+  assert.doesNotMatch(chartSource, /isAnimationActive=\{false\}/);
+});
+
 test("keeps preset knowledge answers in a visible five-second processing flow", async () => {
   const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
   const css = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
