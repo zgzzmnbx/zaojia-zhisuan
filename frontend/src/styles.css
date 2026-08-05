@@ -6292,6 +6292,141 @@ tbody tr:hover .row-ai-cell {
   color: var(--fill-assist-text-muted);
 }
 
+.fill-assist-ai-progress {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-height: 150px;
+  padding: 2px 1px;
+}
+
+.fill-assist-ai-progress__current {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+}
+
+.fill-assist-ai-progress__spinner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgb(37 99 235 / 18%);
+  border-radius: 8px;
+  background: rgb(37 99 235 / 7%);
+  color: var(--db-primary, #2563eb);
+}
+
+.fill-assist-ai-progress__spinner > svg {
+  animation: spin 0.9s linear infinite;
+}
+
+.fill-assist-ai-progress__current > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.fill-assist-ai-progress__current small {
+  color: var(--db-primary, #2563eb);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.fill-assist-ai-progress__current strong {
+  overflow: hidden;
+  color: var(--fill-assist-text-strong);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fill-assist-ai-progress__current > b {
+  color: var(--db-primary, #2563eb);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.fill-assist-ai-progress__track {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgb(37 99 235 / 10%);
+}
+
+.fill-assist-ai-progress__track > i {
+  display: block;
+  width: 10%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--db-primary, #2563eb);
+  box-shadow: none;
+  transition: width 120ms linear;
+}
+
+.fill-assist-ai-progress__steps {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fill-assist-ai-progress__steps > li {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  color: var(--fill-assist-text-muted);
+}
+
+.fill-assist-ai-progress__steps > li > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--fill-assist-border);
+  border-radius: 50%;
+  background: #ffffff;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.fill-assist-ai-progress__steps > li > em {
+  font-size: 10px;
+  font-style: normal;
+  line-height: 1.35;
+}
+
+.fill-assist-ai-progress__steps > li.is-active {
+  color: var(--fill-assist-text-strong);
+  font-weight: 600;
+}
+
+.fill-assist-ai-progress__steps > li.is-active > span {
+  border-color: var(--db-primary, #2563eb);
+  background: var(--db-primary, #2563eb);
+  color: #ffffff;
+}
+
+.fill-assist-ai-progress__steps > li.is-complete {
+  color: var(--db-primary, #2563eb);
+}
+
+.fill-assist-ai-progress__steps > li.is-complete > span {
+  border-color: rgb(37 99 235 / 22%);
+  background: rgb(37 99 235 / 8%);
+  color: var(--db-primary, #2563eb);
+}
+
 .fill-assist-ai-skeleton {
   display: grid;
   align-content: start;
@@ -14805,6 +14940,8 @@ tbody tr:hover .row-ai-cell {
   height: 100%;
   max-height: 100%;
   border-left: 0;
+  container-name: zhisuan-dock;
+  container-type: inline-size;
 }
 
 .shell.layout-daweiba .ai-dock-head {
@@ -14910,6 +15047,76 @@ tbody tr:hover .row-ai-cell {
 .shell.layout-daweiba .chat-message.assistant.source-thinking .chat-message-body {
   background: #f5f8fc;
   color: var(--db-primary);
+}
+
+.shell.layout-daweiba .ai-dock .chat-message--task-progress {
+  width: 100%;
+  max-width: 100%;
+  align-self: stretch;
+}
+
+.shell.layout-daweiba .ai-dock .chat-message.has-fee-analysis {
+  width: 100%;
+  max-width: 100%;
+  align-self: stretch;
+}
+
+.shell.layout-daweiba .ai-dock .chat-message.has-fee-analysis .chat-message-body {
+  width: 100%;
+  padding: 10px;
+}
+
+.shell.layout-daweiba .ai-dock .chat-message--task-progress .chat-message-body {
+  width: 100%;
+  padding: 11px 12px;
+}
+
+.shell.layout-daweiba .ai-dock .agent-progress-message.is-compact {
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+}
+
+.shell.layout-daweiba .ai-dock .agent-progress-message.is-compact .agent-progress-message__icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+}
+
+.shell.layout-daweiba .ai-dock .agent-progress-message.is-compact .agent-progress-message__heading {
+  gap: 10px;
+}
+
+.shell.layout-daweiba .ai-dock .agent-progress-message.is-compact .agent-progress-message__heading strong {
+  font-size: 12px;
+}
+
+.shell.layout-daweiba .ai-dock .agent-progress-message.is-compact .agent-progress-message__heading span,
+.shell.layout-daweiba .ai-dock .agent-progress-message.is-compact p {
+  font-size: 11px;
+}
+
+.shell.layout-daweiba .ai-dock .agent-progress-message.is-compact p {
+  margin: 1px 0 7px;
+}
+
+@container zhisuan-dock (max-width: 340px) {
+  .shell.layout-daweiba .ai-dock .chat-log {
+    padding-inline: 12px;
+  }
+
+  .shell.layout-daweiba .ai-dock .agent-progress-message.is-compact {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .shell.layout-daweiba .ai-dock .agent-progress-message.is-compact .agent-progress-message__icon {
+    display: none;
+  }
+
+  .shell.layout-daweiba .ai-dock .agent-progress-message.is-compact .agent-progress-message__heading strong {
+    font-size: 11px;
+  }
 }
 
 .shell.layout-daweiba .ai-dock .chat-message.assistant .zhisuan-answer-heading {
@@ -19232,6 +19439,23 @@ tbody tr:hover .row-ai-cell {
 
 .shell.layout-daweiba.theme-dark .fill-assist-ai-answer > div {
   color: var(--fill-assist-text);
+}
+
+.shell.layout-daweiba.theme-dark .fill-assist-ai-progress__spinner,
+.shell.layout-daweiba.theme-dark .fill-assist-ai-progress__steps > li > span {
+  border-color: rgb(96 165 250 / 25%);
+  background: rgb(37 99 235 / 14%);
+}
+
+.shell.layout-daweiba.theme-dark .fill-assist-ai-progress__current strong,
+.shell.layout-daweiba.theme-dark .fill-assist-ai-progress__steps > li.is-active {
+  color: var(--fill-assist-text-strong);
+}
+
+.shell.layout-daweiba.theme-dark .fill-assist-ai-progress__steps > li.is-active > span {
+  border-color: #60a5fa;
+  background: #2563eb;
+  color: #ffffff;
 }
 
 .shell.layout-daweiba.theme-dark .fill-assist-ai-answer__heading {

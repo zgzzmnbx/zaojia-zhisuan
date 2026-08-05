@@ -43,6 +43,7 @@ import KnowledgeQuestionSuggestions from "./components/knowledge/KnowledgeQuesti
 import KnowledgeDemoChart, { type KnowledgeDemoChartData } from "./components/knowledge/KnowledgeDemoChart";
 import { DEMO_KNOWLEDGE_QUESTIONS } from "./components/knowledge/knowledgeDemoQuestions";
 import ConversationalAgentWorkspace from "./components/agent-workspace/ConversationalAgentWorkspace";
+import { AgentProgressStatus } from "./components/agent-workspace/AgentMessageStream";
 import { agentComposerSpaceCompletion, knowledgeQuestionPrompt } from "./components/agent-workspace/agentWorkspaceUtils";
 import ZhisuanFeeAnalysisCharts from "./components/agent-workspace/ZhisuanFeeAnalysisCharts";
 import { buildFeeAnalysis, type FeeAnalysis } from "./components/agent-workspace/feeAnalysis";
@@ -73,7 +74,7 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.19.3";
+const APP_VERSION = "v5.19.4";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const PRICE_KNOWLEDGE_ROW_COUNT = 560;
 const FORCE_KNOWLEDGE_PREFIXES = ["查库：", "查库:", "#知识库"] as const;
@@ -1564,6 +1565,82 @@ function fillAssistAiReviewQuestion(userQuestion = DEFAULT_ROW_AI_QUESTION) {
   ].join("\n");
 }
 
+function fillAssistAiProgressSnapshot(elapsedMs: number) {
+  if (elapsedMs < 1400) {
+    return {
+      progress: 10 + (22 * elapsedMs) / 1400,
+      activeStep: 0,
+      label: "正在整理当前行要素和前三个候选...",
+    };
+  }
+  if (elapsedMs < 3800) {
+    return {
+      progress: 32 + (30 * (elapsedMs - 1400)) / 2400,
+      activeStep: 1,
+      label: "正在检索正式依据并核对候选差异...",
+    };
+  }
+  const answerProgress = Math.min(94, 62 + (32 * (elapsedMs - 3800)) / 8200);
+  return {
+    progress: answerProgress,
+    activeStep: 2,
+    label: "正在让智算对比候选并组织填价建议...",
+  };
+}
+
+const FILL_ASSIST_AI_PROGRESS_STEPS = [
+  "整理行要素与排序候选",
+  "检索依据并核对差异",
+  "组织 AI 填价建议",
+] as const;
+
+function FillAssistAiProgress({ startedAt }: { startedAt: number }) {
+  const [snapshot, setSnapshot] = useState(() => fillAssistAiProgressSnapshot(0));
+
+  useEffect(() => {
+    const update = () => setSnapshot(fillAssistAiProgressSnapshot(performance.now() - startedAt));
+    update();
+    const timer = window.setInterval(update, 120);
+    return () => window.clearInterval(timer);
+  }, [startedAt]);
+
+  return (
+    <div className="fill-assist-ai-progress" role="status" aria-live="polite">
+      <div className="fill-assist-ai-progress__current">
+        <span className="fill-assist-ai-progress__spinner" aria-hidden="true"><Loader2 size={14} /></span>
+        <div>
+          <small>当前步骤</small>
+          <strong>{snapshot.label}</strong>
+        </div>
+        <b>{Math.round(snapshot.progress)}%</b>
+      </div>
+      <div
+        className="fill-assist-ai-progress__track"
+        role="progressbar"
+        aria-label="AI填价处理进度"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(snapshot.progress)}
+        aria-valuetext={snapshot.label}
+      >
+        <i aria-hidden="true" style={{ width: `${snapshot.progress}%` }} />
+      </div>
+      <ol className="fill-assist-ai-progress__steps">
+        {FILL_ASSIST_AI_PROGRESS_STEPS.map((step, index) => {
+          const isComplete = index < snapshot.activeStep;
+          const isActive = index === snapshot.activeStep;
+          return (
+            <li className={isComplete ? "is-complete" : isActive ? "is-active" : ""} key={step}>
+              <span aria-hidden="true">{isComplete ? <CheckCircle2 size={13} /> : index + 1}</span>
+              <em>{step}</em>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
 function standardTraceKindClass(trace: StandardTraceItem) {
   if (trace.kind.includes("经验")) return "is-experience";
   if (trace.kind.includes("匹配")) return "is-match";
@@ -2177,6 +2254,7 @@ function DaweibaApp() {
   const [rowAiQuestion, setRowAiQuestion] = useState("解释这行要素含义，并判断当前基价和两个系数是否合理。");
   const [rowAiAnswer, setRowAiAnswer] = useState("");
   const [isRowAiLoading, setIsRowAiLoading] = useState(false);
+  const [rowAiProcessingStartedAt, setRowAiProcessingStartedAt] = useState<number | null>(null);
   const [rowAiDetailPrompt, setRowAiDetailPrompt] = useState<RowAiContext | null>(null);
   const [activeDaweibaModule, setActiveDaweibaModule] = useState<DaweibaModuleId>("agent");
   const [hasOpenedProjectDashboard, setHasOpenedProjectDashboard] = useState(false);
@@ -7327,6 +7405,7 @@ function DaweibaApp() {
       setError("请输入要询问这行的问题");
       return;
     }
+    setRowAiProcessingStartedAt(performance.now());
     setIsRowAiLoading(true);
     setError("");
     setRowAiQuestion(options.displayQuestion ?? cleanQuestion);
@@ -12004,7 +12083,7 @@ function DaweibaApp() {
                 {isChatOpen && (
                   <>
                     <div className="chat-log" ref={chatLogRef} style={{ height: zhisuanChatHeight }}>
-                      {chatMessages.length === 0 ? (
+                      {chatMessages.length === 0 && !agentTaskBusy ? (
                         <div className="chat-empty">
                           <span className="chat-empty-icon"><Sparkles size={18} /></span>
                           <strong>问问智算</strong>
@@ -12013,7 +12092,7 @@ function DaweibaApp() {
                       ) : (
                         chatMessages.map((message, index) => (
                           <div
-                            className={`chat-message ${message.role} ${message.role === "assistant" && !showZhisuanAssistantAvatar ? "is-avatar-hidden" : ""} ${message.source ? `source-${message.source}` : ""} ${message.isTyping ? "is-typing" : ""}`}
+                            className={`chat-message ${message.role} ${message.role === "assistant" && !showZhisuanAssistantAvatar ? "is-avatar-hidden" : ""} ${message.source ? `source-${message.source}` : ""} ${message.isTyping ? "is-typing" : ""} ${message.feeAnalysis ? "has-fee-analysis" : ""}`}
                             key={message.id ?? `${message.role}-${index}`}
                             onClick={() => {
                               if (message.role === "assistant" && message.isTyping) {
@@ -12026,40 +12105,20 @@ function DaweibaApp() {
                               <span className="chat-message-speaker">{message.role === "user" ? "U" : "Z"}</span>
                             )}
                             <div className="chat-message-body">
-                              {renderZhisuanAnswerHeading(message)}
-                              {message.attachment
-                                ? renderZhisuanFileAttachment(message.attachment)
-                                : renderZhisuanMessageText(zhisuanMessageDisplayText(message))}
-                              {message.role === "assistant" && !message.isTyping && message.knowledgeChart && (
-                                <KnowledgeDemoChart chart={message.knowledgeChart} />
-                              )}
-                              {message.role === "assistant"
-                                && !message.isTyping
-                                && message.content === zhisuanWelcomeMessage
-                                && renderZhisuanModuleLinks()}
-                              {message.role === "assistant" && !message.isTyping && renderZhisuanInlineAction(message)}
-                              {message.role === "assistant" && !message.isTyping && renderKnowledgeEvidenceSummary(message)}
-                              {renderZhisuanDebugPanel(message)}
-                              {message.role === "assistant" && message.isTyping && <i className="typing-caret" />}
-                              {renderKnowledgeMemorySection(message)}
-                              {message.role === "assistant" && !message.isTyping && message.rowDetailContext && (
-                                <div className="zhisuan-message-actions">
-                                  <button
-                                    className="zhisuan-action-button"
-                                    type="button"
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      openRowAiDetail(message.rowDetailContext);
-                                    }}
-                                  >
-                                    <BookOpen size={14} />
-                                    详细情况
-                                  </button>
-                                </div>
-                              )}
+                              {renderZhisuanMessageBody(message)}
                             </div>
                           </div>
                         ))
+                      )}
+                      {agentTaskBusy && (
+                        <div className="chat-message assistant is-avatar-hidden chat-message--task-progress" aria-label="智算执行进度">
+                          <div className="chat-message-body">
+                            <AgentProgressStatus
+                              activeProgress={{ label: agentTaskProgressLabel, percent: agentTaskProgress }}
+                              compact
+                            />
+                          </div>
+                        </div>
                       )}
                     </div>
                     <div className={`quick-command-drawer ${zhisuanQuickSettings.autoHide ? "is-auto-hide" : "is-pinned"}`} aria-label="智算快捷指令">
@@ -12579,14 +12638,7 @@ function DaweibaApp() {
                         </header>
                         <div>
                           {isRowAiLoading ? (
-                            <div className="fill-assist-ai-skeleton" role="status" aria-label="正在生成AI填价意见">
-                              <span className="fill-assist-ai-skeleton__line is-wide" />
-                              <span className="fill-assist-ai-skeleton__line" />
-                              <span className="fill-assist-ai-skeleton__line is-medium" />
-                              <span className="fill-assist-ai-skeleton__line is-short" />
-                              <span className="fill-assist-ai-skeleton__line is-wide" />
-                              <span className="fill-assist-ai-skeleton__line is-medium" />
-                            </div>
+                            <FillAssistAiProgress startedAt={rowAiProcessingStartedAt ?? performance.now()} />
                           ) : rowAiAnswer ? (
                             renderFillAssistAiAnswer(rowAiAnswer)
                           ) : (

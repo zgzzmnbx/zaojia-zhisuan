@@ -21,6 +21,42 @@ type Props<T extends AgentWorkspaceMessage> = {
   onRevealMessage: (messageId?: string) => void;
 };
 
+export type AgentActiveProgress = {
+  label: string;
+  percent: number;
+};
+
+export function AgentProgressStatus({ activeProgress, compact = false }: {
+  activeProgress: AgentActiveProgress;
+  compact?: boolean;
+}) {
+  const progressPercent = Math.min(100, Math.max(0, Math.round(activeProgress.percent)));
+  return (
+    <div className={`agent-progress-message ${compact ? "is-compact" : ""}`}>
+      <span className="agent-progress-message__icon" aria-hidden="true">
+        <LoaderCircle size={16} strokeWidth={2} />
+      </span>
+      <div className="agent-progress-message__content">
+        <div className="agent-progress-message__heading">
+          <strong>智算正在执行</strong>
+          <span>{progressPercent}%</span>
+        </div>
+        <p>{activeProgress.label}</p>
+        <div
+          className="agent-progress-message__track"
+          role="progressbar"
+          aria-label={activeProgress.label}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={progressPercent}
+        >
+          <i style={{ width: `${progressPercent}%` }} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AgentMessageStream<T extends AgentWorkspaceMessage>({
   messages,
   logRef,
@@ -30,35 +66,11 @@ export default function AgentMessageStream<T extends AgentWorkspaceMessage>({
   onRevealMessage,
 }: Props<T>) {
   const turns = agentConversationTurns(messages);
-  const progressPercent = activeProgress
-    ? Math.min(100, Math.max(0, Math.round(activeProgress.percent)))
-    : 0;
   const progressMessage = activeProgress ? (
     <article className="agent-message assistant agent-message--progress">
       <span className="agent-message__speaker">Z</span>
       <div className="agent-message__body">
-        <div className="agent-progress-message">
-          <span className="agent-progress-message__icon" aria-hidden="true">
-            <LoaderCircle size={16} strokeWidth={2} />
-          </span>
-          <div className="agent-progress-message__content">
-            <div className="agent-progress-message__heading">
-              <strong>智算正在执行</strong>
-              <span>{progressPercent}%</span>
-            </div>
-            <p>{activeProgress.label}</p>
-            <div
-              className="agent-progress-message__track"
-              role="progressbar"
-              aria-label={activeProgress.label}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={progressPercent}
-            >
-              <i style={{ width: `${progressPercent}%` }} />
-            </div>
-          </div>
-        </div>
+        <AgentProgressStatus activeProgress={activeProgress} />
       </div>
     </article>
   ) : null;

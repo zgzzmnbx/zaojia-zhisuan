@@ -92,13 +92,47 @@ test("keeps preset knowledge answers in a visible five-second processing flow", 
 
 test("routes the row AI entry through ranked AI pricing candidates", async () => {
   const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const css = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
   assert.match(appSource, /title="AI填价"/);
   assert.match(appSource, /openFillAssist\(row, rowIndex, undefined, \{ autoRunAi: true \}\)/);
   assert.match(appSource, /candidate_recommendations:\s*candidates\.slice\(0, 3\)/);
   assert.match(appSource, /候选列表已经由程序按相似度、来源优先级和可信度完成排序/);
   assert.match(appSource, /只能引用当前结构化候选中的数值/);
   assert.match(appSource, /开始AI填价/);
+  assert.match(appSource, /正在整理当前行要素和前三个候选/);
+  assert.match(appSource, /正在检索正式依据并核对候选差异/);
+  assert.match(appSource, /正在让智算对比候选并组织填价建议/);
+  assert.match(appSource, /aria-label="AI填价处理进度"/);
+  assert.match(appSource, /FILL_ASSIST_AI_PROGRESS_STEPS\.map/);
+  assert.match(css, /\.fill-assist-ai-progress__track\s*>\s*i\s*\{[^}]*background:\s*var\(--db-primary, #2563eb\);[^}]*box-shadow:\s*none;/s);
+  assert.doesNotMatch(css, /\.fill-assist-ai-progress__track\s*>\s*i\s*\{[^}]*linear-gradient/s);
   assert.doesNotMatch(appSource, /开始AI复核/);
+});
+
+test("reuses task and knowledge progress in the compact AI dock", async () => {
+  const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const streamSource = await readFile(new URL("../src/components/agent-workspace/AgentMessageStream.tsx", import.meta.url), "utf8");
+  const css = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+  assert.match(streamSource, /export function AgentProgressStatus/);
+  assert.match(appSource, /renderZhisuanMessageBody\(message\)/);
+  assert.match(appSource, /agentTaskBusy\s*&&[\s\S]*AgentProgressStatus[\s\S]*agentTaskProgressLabel/);
+  assert.match(appSource, /chatMessages\.length === 0 && !agentTaskBusy/);
+  assert.match(css, /container-name:\s*zhisuan-dock/);
+  assert.match(css, /@container zhisuan-dock \(max-width: 340px\)/);
+  assert.match(css, /\.agent-progress-message\.is-compact/);
+  assert.match(appSource, /message\.feeAnalysis \? "has-fee-analysis"/);
+});
+
+test("adapts fee insight charts to the compact AI dock", async () => {
+  const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const feeCss = await readFile(new URL("../src/components/agent-workspace/feeAnalysis.css", import.meta.url), "utf8");
+  const appCss = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+  assert.match(appSource, /renderZhisuanMessageBody\(message\)/);
+  assert.match(appSource, /message\.feeAnalysis \? "has-fee-analysis"/);
+  assert.match(appCss, /\.ai-dock \.chat-message\.has-fee-analysis/);
+  assert.match(feeCss, /container-name:\s*fee-analysis/);
+  assert.match(feeCss, /@container fee-analysis \(max-width: 440px\)[\s\S]*fee-analysis__grid \{ grid-template-columns: minmax\(0, 1fr\); \}/);
+  assert.match(feeCss, /@container fee-analysis \(max-width: 310px\)[\s\S]*fee-analysis__donut-layout/);
 });
 
 test("derives the deterministic task phase used by the workspace", () => {

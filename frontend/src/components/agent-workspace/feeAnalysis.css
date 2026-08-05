@@ -7,6 +7,8 @@
   --fee-blue-5: var(--db-chart-blue-pale, #bfdbfe);
   margin: 18px 0 6px;
   color: var(--dws-color-foreground, #0f172a);
+  container-name: fee-analysis;
+  container-type: inline-size;
 }
 
 .fee-analysis__header,
@@ -140,6 +142,40 @@
   .fee-analysis__metrics { grid-template-columns: 1fr; }
   .fee-analysis__metrics > div + div { border-top: 1px solid var(--dws-color-border, #e2e8f0); border-left: 0; }
   .fee-analysis__donut-layout { grid-template-columns: 128px minmax(0, 1fr); }
+}
+
+@container fee-analysis (max-width: 440px) {
+  .fee-analysis { margin-top: 12px; }
+  .fee-analysis__header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 7px;
+  }
+  .fee-analysis__source { align-self: flex-start; }
+  .fee-analysis__metrics { grid-template-columns: minmax(0, 1fr); }
+  .fee-analysis__metrics > div { padding: 8px 10px; }
+  .fee-analysis__metrics > div + div {
+    border-top: 1px solid var(--dws-color-border, #e2e8f0);
+    border-left: 0;
+  }
+  .fee-analysis__grid { grid-template-columns: minmax(0, 1fr); }
+  .fee-analysis__panel { padding: 10px; }
+  .fee-analysis__donut-layout { grid-template-columns: 120px minmax(0, 1fr); }
+  .fee-analysis__donut { max-width: 120px; }
+  .fee-analysis__note { margin-top: 7px !important; }
+}
+
+@container fee-analysis (max-width: 310px) {
+  .fee-analysis__donut-layout {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+  }
+  .fee-analysis__legend { width: 100%; }
+  .fee-analysis__bar-meta {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+  }
 }
 
 @media (prefers-reduced-motion: no-preference) {
