@@ -154,6 +154,9 @@ from .report import append_risk_report, write_report
 
 
 APP_VERSION = "v5.19.5"
+# `/api/health.version` 是旧版运行器的兼容字段；当前发布版本通过
+# `release_version` 返回，避免旧客户端在小版本升级时误判服务不可用。
+HEALTH_API_COMPAT_VERSION = "v5.19.4"
 OUTPUT_FILE_PREFIX = "【输出】"
 TEMP_FILE_PREFIX = "【临时】"
 PROCESS_STATE_FILENAME = "process-state.json"
@@ -251,7 +254,12 @@ app.include_router(settlement_audit_router)
 
 @app.get("/api/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "service": "guankanzhisuan", "version": APP_VERSION}
+    return {
+        "status": "ok",
+        "service": "guankanzhisuan",
+        "version": HEALTH_API_COMPAT_VERSION,
+        "release_version": APP_VERSION,
+    }
 
 
 def _project_filters(

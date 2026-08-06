@@ -8,7 +8,7 @@
       "vector_backend_unavailable"
     ],
     "rerank": [
-      "rerank_timeout:250.554ms>180ms"
+      "rerank_timeout:250.678ms>180ms"
     ],
     "model": {
       "status_code": 200,
@@ -19,7 +19,7 @@
     }
   },
   "restored": {
-    "rebuild_chunks": 4013,
+    "rebuild_chunks": 4014,
     "search_results": 5,
     "evidence_status": "sufficient",
     "green": true

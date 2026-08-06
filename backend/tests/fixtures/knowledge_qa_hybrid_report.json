@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "mode": "hybrid",
-  "generated_at": "2026-08-06T18:32:51+0800",
+  "generated_at": "2026-08-06T20:17:44+0800",
   "environment": {
     "python": "3.14.3",
     "platform": "win32",
@@ -26,7 +26,7 @@
     "precision_code_protection_recall_at_5": 1.0,
     "ndcg_at_10": 0.951188,
     "unsupported_false_answer_rate": 0.0,
-    "hot_retrieval_p95_ms": 695.061,
+    "hot_retrieval_p95_ms": 1428.589,
     "degradation_count": 0
   },
   "comparison": {
@@ -189,7 +189,7 @@
             "scales": [],
             "units": []
           },
-          "eligible_chunks": 2324,
+          "eligible_chunks": 2323,
           "rejected_chunks": 1691,
           "rule": "authority + exact number/code/scale/unit gates; no generated evidence"
         },
@@ -198,8 +198,8 @@
         "source_truth": "formal Markdown/Excel/CSV, rules and confirmed memory remain the source of truth"
       },
       "latency_ms": {
-        "median": 553.978,
-        "p95": 634.539,
+        "median": 973.9,
+        "p95": 1293.246,
         "samples": 5
       }
     },
@@ -325,7 +325,7 @@
             "scales": [],
             "units": []
           },
-          "eligible_chunks": 2031,
+          "eligible_chunks": 2030,
           "rejected_chunks": 1984,
           "rule": "authority + exact number/code/scale/unit gates; no generated evidence"
         },
@@ -334,8 +334,8 @@
         "source_truth": "formal Markdown/Excel/CSV, rules and confirmed memory remain the source of truth"
       },
       "latency_ms": {
-        "median": 575.205,
-        "p95": 695.061,
+        "median": 1293.387,
+        "p95": 1307.4,
         "samples": 5
       }
     },
@@ -464,7 +464,7 @@
             "units": []
           },
           "eligible_chunks": 165,
-          "rejected_chunks": 3850,
+          "rejected_chunks": 3849,
           "rule": "authority + exact number/code/scale/unit gates; no generated evidence"
         },
         "evidence_status": "sufficient",
@@ -472,8 +472,8 @@
         "source_truth": "formal Markdown/Excel/CSV, rules and confirmed memory remain the source of truth"
       },
       "latency_ms": {
-        "median": 139.268,
-        "p95": 160.3,
+        "median": 344.009,
+        "p95": 349.822,
         "samples": 5
       }
     },
@@ -605,7 +605,7 @@
             "units": []
           },
           "eligible_chunks": 9,
-          "rejected_chunks": 4006,
+          "rejected_chunks": 4005,
           "rule": "authority + exact number/code/scale/unit gates; no generated evidence"
         },
         "evidence_status": "conflict",
@@ -613,8 +613,8 @@
         "source_truth": "formal Markdown/Excel/CSV, rules and confirmed memory remain the source of truth"
       },
       "latency_ms": {
-        "median": 107.644,
-        "p95": 111.889,
+        "median": 287.339,
+        "p95": 295.379,
         "samples": 5
       }
     },
@@ -742,7 +742,7 @@
             "scales": [],
             "units": []
           },
-          "eligible_chunks": 2606,
+          "eligible_chunks": 2605,
           "rejected_chunks": 1409,
           "rule": "authority + exact number/code/scale/unit gates; no generated evidence"
         },
@@ -751,8 +751,8 @@
         "source_truth": "formal Markdown/Excel/CSV, rules and confirmed memory remain the source of truth"
       },
       "latency_ms": {
-        "median": 623.097,
-        "p95": 648.853,
+        "median": 1396.877,
+        "p95": 1428.589,
         "samples": 5
       }
     },
@@ -855,8 +855,8 @@
         "source_truth": "formal Markdown/Excel/CSV, rules and confirmed memory remain the source of truth"
       },
       "latency_ms": {
-        "median": 187.02,
-        "p95": 202.44,
+        "median": 577.166,
+        "p95": 585.731,
         "samples": 5
       }
     },
@@ -997,8 +997,8 @@
         "source_truth": "formal Markdown/Excel/CSV, rules and confirmed memory remain the source of truth"
       },
       "latency_ms": {
-        "median": 309.442,
-        "p95": 322.389,
+        "median": 852.317,
+        "p95": 878.191,
         "samples": 5
       }
     },
@@ -1066,7 +1066,7 @@
             "units": []
           },
           "eligible_chunks": 0,
-          "rejected_chunks": 4015,
+          "rejected_chunks": 4014,
           "rule": "authority + exact number/code/scale/unit gates; no generated evidence"
         },
         "evidence_status": "insufficient",
@@ -1074,8 +1074,8 @@
         "source_truth": "formal Markdown/Excel/CSV, rules and confirmed memory remain the source of truth"
       },
       "latency_ms": {
-        "median": 173.951,
-        "p95": 202.225,
+        "median": 503.107,
+        "p95": 506.841,
         "samples": 5
       }
     }

@@ -160,6 +160,34 @@ def test_ensure_knowledge_answer_normalizes_substantive_model_output():
     assert "- ###" not in answer
 
 
+def test_rate_lookup_numeric_guard_uses_the_retrieved_evidence_row():
+    result = KnowledgeSearchResult(
+        id="rate-1",
+        source_file="2024数字与信息化项目投资计价依据-正文问答版.md",
+        source_type="reference",
+        title_path="数字与信息化项目投资计价依据 / 1. 建设单位管理费",
+        snippet=(
+            "表4建设单位管理费费率表<table>"
+            "<tr><td>工程费用（万元）</td><td>费率(%)</td></tr>"
+            "<tr><td>5000</td><td>1.04</td></tr>"
+            "</table>"
+        ),
+        score=20.0,
+        module="基价匹配",
+    )
+
+    answer = ensure_knowledge_answer(
+        "| 工程费用 | 费率 |\n|---|---|\n|5000|1.04%|",
+        "按2024年数字与信息化项目投资计价依据，工程费用5000万元时建设单位管理费费率是多少？",
+        [result],
+    )
+
+    assert "5000" in answer
+    assert "1.04" in answer
+    assert "4%" not in answer
+    assert "建设单位管理费" in answer
+
+
 def test_evidence_fallback_uses_the_same_answer_hierarchy():
     answer = ensure_knowledge_answer(
         "",

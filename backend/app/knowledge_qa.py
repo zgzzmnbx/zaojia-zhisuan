@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import html
 import json
 import math
 import re
@@ -54,6 +55,7 @@ DEFAULT_HYBRID_CONFIG: dict[str, Any] = {
     },
 }
 _HYBRID_INDEX_MEMORY_CACHE: dict[tuple[str, str, str], list["KnowledgeChunk"]] = {}
+_CLASSIC_INDEX_MEMORY_CACHE: dict[tuple[str, str, str], list["KnowledgeChunk"]] = {}
 
 COMMON_STOP_TERMS = {
     "什么",
@@ -279,7 +281,7 @@ def search_knowledge(
     if not clean_question:
         return []
     chunks = load_or_build_index(project_root=project_root, index_path=index_path, sources=sources)
-    query_terms = _expand_query_terms(clean_question, row_context)
+    query_terms = _normalize_term_weights(_expand_query_terms(clean_question, row_context))
     if not query_terms:
         return []
     scored: list[tuple[float, KnowledgeChunk]] = []
@@ -616,7 +618,7 @@ def hybrid_search_knowledge(
         sources=sources,
         source_library_ids=source_library_ids,
     )
-    query_terms = _expand_query_terms(clean_question, row_context)
+    query_terms = _normalize_term_weights(_expand_query_terms(clean_question, row_context))
     if not query_terms:
         return HybridSearchResponse(results=[], trace=_empty_hybrid_trace("empty_query_terms"))
     constraints = _extract_hard_constraints(clean_question)
@@ -1036,7 +1038,7 @@ def _structured_score(
         if unit in content:
             score += 18.0
     for term, weight in query_terms.items():
-        clean_term = _normalize_text(term)
+        clean_term = term
         if len(clean_term) >= 2 and clean_term in content:
             score += min(weight, 4.0)
     if chunk.authority_level in {"formal_standard", "structured_rule"}:
@@ -1098,9 +1100,23 @@ def _hash_embedding(text: str) -> list[list[float]]:
 def _cosine_similarity(left: list[list[float]], right: list[list[float]]) -> float:
     if not left or not right:
         return 0.0
-    left_map = {int(bucket): float(value) for bucket, value in left}
-    right_map = {int(bucket): float(value) for bucket, value in right}
-    return sum(value * right_map.get(bucket, 0.0) for bucket, value in left_map.items())
+    # _hash_embedding 及索引序列化均按 bucket 升序保存；双指针交集避免每个候选块
+    # 重建两个 dict，降低离线向量通道的热路径分配和 P95 时延。
+    left_index = 0
+    right_index = 0
+    total = 0.0
+    while left_index < len(left) and right_index < len(right):
+        left_bucket = int(left[left_index][0])
+        right_bucket = int(right[right_index][0])
+        if left_bucket == right_bucket:
+            total += float(left[left_index][1]) * float(right[right_index][1])
+            left_index += 1
+            right_index += 1
+        elif left_bucket < right_bucket:
+            left_index += 1
+        else:
+            right_index += 1
+    return total
 
 
 def _apply_local_rerank(
@@ -1339,6 +1355,9 @@ def ensure_knowledge_answer(
     results: list[KnowledgeSearchResult],
 ) -> str:
     clean_answer = normalize_knowledge_answer(answer)
+    rate_lookup = _extract_rate_lookup_row(question, results)
+    if rate_lookup and _rate_answer_needs_numeric_guard(clean_answer, rate_lookup):
+        return _build_rate_lookup_answer(rate_lookup)
     if _has_substantive_answer(clean_answer):
         return clean_answer
 
@@ -1389,6 +1408,103 @@ def ensure_knowledge_answer(
         "当前检索结果只有零散依据，暂不能形成明确结论。请补充工作表、业务类别、复杂程度、单位或比例尺后再查询。\n\n"
         "## 使用边界\n\n"
         "本回答只解释依据，不改变程序填价结果。"
+    )
+
+
+def _extract_rate_lookup_row(
+    question: str,
+    results: list[KnowledgeSearchResult],
+) -> tuple[str, str, str] | None:
+    """从命中的正式证据中提取“输入金额 -> 费率”表格行。
+
+    费率属于精确数字保护范围。模型可以解释证据，但不能把费率数字改写成
+    另一种数值或随机追加百分号；这里仅使用已检索片段中的表格行，不新增任何标准结论。
+    """
+    clean_question = _normalize_text(question)
+    if "费率" not in clean_question or not _is_dictionary_lookup_question(question):
+        return None
+    query_numbers = [
+        raw
+        for raw in _extract_hard_constraints(question).get("numeric", [])
+        if not raw.endswith(("%", "％"))
+    ]
+    if not query_numbers:
+        return None
+    target_keys = {_numeric_key(raw) for raw in query_numbers}
+
+    ranked_results = sorted(
+        enumerate(results),
+        key=lambda item: (
+            1 if any(
+                phrase in _normalize_text(item[1].title_path)
+                for phrase in ("建设单位管理费", "造价咨询费", "费率")
+                if phrase in clean_question
+            ) else 0,
+            -item[0],
+        ),
+        reverse=True,
+    )
+    for _, result in ranked_results:
+        evidence = html.unescape(str(result.snippet or ""))
+        for row in re.findall(r"<tr\b[^>]*>(.*?)</tr>", evidence, flags=re.IGNORECASE | re.DOTALL):
+            cells = _clean_evidence_table_cells(row)
+            if len(cells) < 2 or _numeric_key(cells[0]) not in target_keys:
+                continue
+            return cells[0], _strip_percent_suffix(cells[1]), result.title_path or result.source_file
+
+        for line in evidence.splitlines():
+            cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+            if len(cells) >= 2 and _numeric_key(cells[0]) in target_keys:
+                return cells[0], _strip_percent_suffix(cells[1]), result.title_path or result.source_file
+
+        for query_number in query_numbers:
+            plain_row = re.search(
+                rf"(?<!\d){re.escape(query_number)}\s*(?:万元)?[^\n。；;]{0,80}?费率"
+                rf"\s*(?:[（(][^）)]*[）)])?\s*(?:为|是|[：:=])?\s*"
+                r"(\d+(?:\.\d+)?)\s*[%％]?",
+                evidence,
+            )
+            if plain_row:
+                return query_number, plain_row.group(1), result.title_path or result.source_file
+    return None
+
+
+def _clean_evidence_table_cells(row: str) -> list[str]:
+    cells = re.findall(r"<td\b[^>]*>(.*?)</td>", row, flags=re.IGNORECASE | re.DOTALL)
+    cleaned: list[str] = []
+    for cell in cells:
+        value = re.sub(r"<br\s*/?>", " ", cell, flags=re.IGNORECASE)
+        value = re.sub(r"<[^>]+>", "", value)
+        value = re.sub(r"\s+", " ", html.unescape(value)).strip()
+        if value:
+            cleaned.append(value)
+    return cleaned
+
+
+def _strip_percent_suffix(value: str) -> str:
+    return re.sub(r"\s*[%％]\s*$", "", str(value or "").strip())
+
+
+def _rate_answer_needs_numeric_guard(
+    answer: str,
+    rate_lookup: tuple[str, str, str],
+) -> bool:
+    _, rate, _ = rate_lookup
+    rate = _strip_percent_suffix(rate)
+    if not rate:
+        return False
+    escaped_rate = re.escape(rate)
+    if not re.search(rf"(?<![\d.]){escaped_rate}(?![\d.])", answer):
+        return True
+    return bool(re.search(rf"(?<![\d.]){escaped_rate}\s*[%％]", answer))
+
+
+def _build_rate_lookup_answer(rate_lookup: tuple[str, str, str]) -> str:
+    base, rate, source = rate_lookup
+    return (
+        "| 查询条件 | 费率（%） | 来源定位 |\n"
+        "| --- | ---: | --- |\n"
+        f"| {base} | {rate} | {source} |"
     )
 
 
@@ -1620,11 +1736,17 @@ def load_or_build_index(
 ) -> list[KnowledgeChunk]:
     source_paths = list(sources) if sources is not None else _discover_sources(project_root)
     source_signature = _source_signature(source_paths, project_root)
+    memory_key = _classic_memory_cache_key(index_path, source_signature)
+    cached_chunks = _CLASSIC_INDEX_MEMORY_CACHE.get(memory_key)
+    if cached_chunks is not None:
+        return cached_chunks
     if index_path and index_path.exists():
         try:
             payload = json.loads(index_path.read_text(encoding="utf-8"))
             if payload.get("source_signature") == source_signature:
-                return [KnowledgeChunk(**item) for item in payload.get("chunks", [])]
+                chunks = [KnowledgeChunk(**item) for item in payload.get("chunks", [])]
+                _CLASSIC_INDEX_MEMORY_CACHE[_classic_memory_cache_key(index_path, source_signature)] = chunks
+                return chunks
         except (OSError, TypeError, ValueError):
             pass
 
@@ -1646,6 +1768,7 @@ def load_or_build_index(
             )
         except OSError:
             pass
+    _CLASSIC_INDEX_MEMORY_CACHE[_classic_memory_cache_key(index_path, source_signature)] = chunks
     return chunks
 
 
@@ -1909,14 +2032,22 @@ def _expand_query_terms(question: str, row_context: dict[str, Any] | None) -> di
     return terms
 
 
+def _normalize_term_weights(terms: dict[str, float]) -> dict[str, float]:
+    normalized: dict[str, float] = {}
+    for term, weight in terms.items():
+        clean_term = _normalize_text(term)
+        if clean_term:
+            normalized[clean_term] = max(normalized.get(clean_term, 0.0), float(weight))
+    return normalized
+
+
 def _score_chunk(chunk: KnowledgeChunk, terms: dict[str, float]) -> float:
     content = _normalize_text(chunk.content)
     title = _normalize_text(chunk.title_path)
     source = _normalize_text(chunk.source_file)
     keywords = {_normalize_text(keyword) for keyword in chunk.keywords}
     score = 0.0
-    for term, weight in terms.items():
-        clean_term = _normalize_text(term)
+    for clean_term, weight in terms.items():
         if not clean_term:
             continue
         if clean_term in title:
@@ -1944,7 +2075,7 @@ def _score_chunk(chunk: KnowledgeChunk, terms: dict[str, float]) -> float:
 def _price_database_affinity_score(chunk: KnowledgeChunk, terms: dict[str, float]) -> float:
     if "03-知识库-二维数据库制作/【数据库】【导入】.xlsx" not in chunk.source_file:
         return 0.0
-    clean_terms = {_normalize_text(term) for term in terms}
+    clean_terms = set(terms)
     price_question = any(term in clean_terms for term in {"单价", "基价", "价格"}) or any(
         term in clean_terms for term in {"多少", "多少钱"}
     )
@@ -1986,7 +2117,7 @@ def _price_database_affinity_score(chunk: KnowledgeChunk, terms: dict[str, float
 
 
 def _module_affinity_score(module: str, terms: dict[str, float]) -> float:
-    clean_terms = {_normalize_text(term) for term in terms}
+    clean_terms = set(terms)
     module_targets = (
         ("实物工作费调整系数", ("实物工作费调整系数", "实物工作费", "实物工作系数", "实物系数", "附加调整系数")),
         ("技术工作费调整系数", ("技术工作费调整系数", "技术工作费", "技术系数", "0.22", "22%")),
@@ -1995,7 +2126,7 @@ def _module_affinity_score(module: str, terms: dict[str, float]) -> float:
         ("要素匹配", ("要素1", "要素5", "字段完全匹配", "非空要素顺序匹配")),
     )
     for target_module, markers in module_targets:
-        if not any(_normalize_text(marker) in clean_terms for marker in markers):
+        if not any(marker in clean_terms for marker in markers):
             continue
         if module == target_module:
             return 8.0
@@ -2106,6 +2237,22 @@ def _source_signature(sources: list[Path], project_root: Path) -> list[dict[str,
             }
         )
     return signature
+
+
+def _classic_memory_cache_key(
+    index_path: Path | None,
+    source_signature: list[dict[str, object]],
+) -> tuple[str, str, str]:
+    target_key = str(index_path.resolve()) if index_path else "<memory>"
+    file_state = ""
+    if index_path:
+        try:
+            stat = index_path.stat()
+            file_state = f"{stat.st_mtime_ns}:{stat.st_size}"
+        except OSError:
+            file_state = "missing"
+    signature_key = json.dumps(source_signature, ensure_ascii=False, sort_keys=True)
+    return target_key, file_state, signature_key
 
 
 def _relative_path(path: Path, project_root: Path) -> str:

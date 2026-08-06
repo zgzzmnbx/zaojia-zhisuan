@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "mode": "classic",
-  "generated_at": "2026-08-06T18:32:23+0800",
+  "generated_at": "2026-08-06T20:17:02+0800",
   "environment": {
     "python": "3.14.3",
     "platform": "win32",
@@ -24,7 +24,7 @@
     "precision_code_protection_recall_at_5": 1.0,
     "ndcg_at_10": 0.950597,
     "unsupported_false_answer_rate": 0.0,
-    "hot_retrieval_p95_ms": 1183.85
+    "hot_retrieval_p95_ms": 969.823
   },
   "items": [
     {
@@ -104,8 +104,8 @@
         }
       ],
       "latency_ms": {
-        "median": 624.536,
-        "p95": 668.496,
+        "median": 169.629,
+        "p95": 182.26,
         "samples": 5
       }
     },
@@ -154,8 +154,8 @@
         }
       ],
       "latency_ms": {
-        "median": 858.295,
-        "p95": 986.164,
+        "median": 499.696,
+        "p95": 513.739,
         "samples": 5
       }
     },
@@ -204,8 +204,8 @@
         }
       ],
       "latency_ms": {
-        "median": 485.291,
-        "p95": 538.502,
+        "median": 465.782,
+        "p95": 471.655,
         "samples": 5
       }
     },
@@ -254,8 +254,8 @@
         }
       ],
       "latency_ms": {
-        "median": 980.667,
-        "p95": 1183.85,
+        "median": 534.693,
+        "p95": 543.289,
         "samples": 5
       }
     },
@@ -304,8 +304,8 @@
         }
       ],
       "latency_ms": {
-        "median": 696.803,
-        "p95": 718.204,
+        "median": 521.697,
+        "p95": 527.653,
         "samples": 5
       }
     },
@@ -354,8 +354,8 @@
         }
       ],
       "latency_ms": {
-        "median": 667.509,
-        "p95": 797.533,
+        "median": 841.073,
+        "p95": 863.135,
         "samples": 5
       }
     },
@@ -404,8 +404,8 @@
         }
       ],
       "latency_ms": {
-        "median": 930.217,
-        "p95": 987.977,
+        "median": 946.74,
+        "p95": 969.823,
         "samples": 5
       }
     },
@@ -423,8 +423,8 @@
       "unsupported_correct": true,
       "top_results": [],
       "latency_ms": {
-        "median": 311.454,
-        "p95": 319.842,
+        "median": 404.825,
+        "p95": 414.809,
         "samples": 5
       }
     }
