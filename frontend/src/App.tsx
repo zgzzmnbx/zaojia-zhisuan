@@ -39,6 +39,10 @@ import ProfessionalSkillSelector, {
 import KnowledgeLibrarySelector, {
   type KnowledgeLibraryOption,
 } from "./components/knowledge/KnowledgeLibrarySelector";
+import KnowledgeRetrievalModeSelector, {
+  type KnowledgeRetrievalCapabilities,
+  type KnowledgeRetrievalMode,
+} from "./components/knowledge/KnowledgeRetrievalModeSelector";
 import KnowledgeQuestionSuggestions from "./components/knowledge/KnowledgeQuestionSuggestions";
 import KnowledgeDemoChart, { type KnowledgeDemoChartData } from "./components/knowledge/KnowledgeDemoChart";
 import { DEMO_KNOWLEDGE_QUESTIONS } from "./components/knowledge/knowledgeDemoQuestions";
@@ -74,7 +78,7 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.19.4";
+const APP_VERSION = "v5.19.5";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const PRICE_KNOWLEDGE_ROW_COUNT = 560;
 const FORCE_KNOWLEDGE_PREFIXES = ["查库：", "查库:", "#知识库"] as const;
@@ -84,6 +88,7 @@ const ROW_AI_KNOWLEDGE_LIBRARY_ID = "project-core";
 const KNOWLEDGE_PROJECT_NAME_STORAGE_KEY = "zaojiazhisuan-knowledge-project-name";
 const KNOWLEDGE_PROJECT_KEY_STORAGE_KEY = "zaojiazhisuan-knowledge-project-key";
 const KNOWLEDGE_LIBRARY_SELECTION_STORAGE_KEY = "zaojiazhisuan-knowledge-library-selection";
+const KNOWLEDGE_RETRIEVAL_MODE_STORAGE_KEY = "zaojiazhisuan-knowledge-retrieval-mode";
 const ROW_AI_CONTEXT_FIELD_GROUPS = [
   { label: "匹配状态", aliases: ["匹配状态"] },
   { label: "匹配说明", aliases: ["匹配说明", "填价说明", "匹配报告"] },
@@ -623,6 +628,11 @@ type ChatMessage = {
   rowDetailContext?: RowAiContext;
   knowledgeCandidate?: KnowledgeCandidateSeed;
   knowledgeSources?: KnowledgeSource[];
+  retrievalMode?: KnowledgeRetrievalMode | "curated_demo";
+  requestedRetrievalMode?: KnowledgeRetrievalMode;
+  retrievalEvidenceStatus?: string;
+  retrievalDegradationReasons?: string[];
+  retrievalTrace?: Record<string, unknown>;
   projectMemories?: ProjectMemory[];
   llmDebug?: LlmDebugInfo;
   llmDebugAnswer?: string;
@@ -881,6 +891,9 @@ type KnowledgeSource = {
   module?: string;
   library_id?: string | null;
   library_name?: string | null;
+  authority_level?: string;
+  channels?: string[];
+  metadata?: Record<string, unknown>;
 };
 
 type KnowledgeMemoryStatus = "candidate" | "pending" | "confirmed" | "rejected" | "revoked" | "suspected_stale";
@@ -987,11 +1000,20 @@ type KnowledgeAskResponse = {
   generated_by_model?: boolean;
   preset_id?: string;
   chart?: KnowledgeDemoChartData | null;
+  requested_retrieval_mode?: KnowledgeRetrievalMode;
+  retrieval_mode_used?: KnowledgeRetrievalMode | "curated_demo";
+  actual_retrieval_mode?: KnowledgeRetrievalMode | "curated_demo";
+  retrieval_channels?: Record<string, unknown>;
+  evidence_status?: string;
+  degradation_reason?: string | null;
+  degradation_reasons?: string[];
+  retrieval_trace?: Record<string, unknown>;
 };
 
 type KnowledgeLibraryCatalogResponse = {
   libraries: KnowledgeLibraryOption[];
   default_library_ids: string[];
+  retrieval_capabilities?: KnowledgeRetrievalCapabilities;
 };
 
 type PreviewColumn = {
@@ -2117,6 +2139,16 @@ function readKnowledgeLibrarySelection() {
   }
 }
 
+function readKnowledgeRetrievalMode(): KnowledgeRetrievalMode {
+  try {
+    return window.localStorage.getItem(KNOWLEDGE_RETRIEVAL_MODE_STORAGE_KEY) === "hybrid"
+      ? "hybrid"
+      : "classic";
+  } catch {
+    return "classic";
+  }
+}
+
 function knowledgeStatusLabel(status: KnowledgeMemoryStatus) {
   return {
     candidate: "候选",
@@ -2347,6 +2379,8 @@ function DaweibaApp() {
   const [knowledgeProjectKey, setKnowledgeProjectKey] = useState(() => readKnowledgeProjectStorage(KNOWLEDGE_PROJECT_KEY_STORAGE_KEY) || GENERAL_KNOWLEDGE_KEY);
   const [knowledgeLibraries, setKnowledgeLibraries] = useState<KnowledgeLibraryOption[]>([]);
   const [selectedKnowledgeLibraryIds, setSelectedKnowledgeLibraryIds] = useState<string[]>(readKnowledgeLibrarySelection);
+  const [knowledgeRetrievalMode, setKnowledgeRetrievalMode] = useState<KnowledgeRetrievalMode>(readKnowledgeRetrievalMode);
+  const [knowledgeRetrievalCapabilities, setKnowledgeRetrievalCapabilities] = useState<KnowledgeRetrievalCapabilities | null>(null);
   const [isKnowledgeLibrariesLoading, setIsKnowledgeLibrariesLoading] = useState(true);
   const [knowledgeLibrariesError, setKnowledgeLibrariesError] = useState("");
   const [knowledgeOperator, setKnowledgeOperator] = useState("本机试点用户");
@@ -2868,6 +2902,7 @@ function DaweibaApp() {
       })
       .then((payload) => {
         const libraries = Array.isArray(payload.libraries) ? payload.libraries : [];
+        const capabilities = payload.retrieval_capabilities ?? null;
         const availableIds = new Set(
           libraries.filter((library) => library.available).map((library) => library.id),
         );
@@ -2880,6 +2915,14 @@ function DaweibaApp() {
             : libraries.filter((library) => library.available).slice(0, 1).map((library) => library.id);
         setKnowledgeLibraries(libraries);
         setSelectedKnowledgeLibraryIds(nextIds);
+        setKnowledgeRetrievalCapabilities(capabilities);
+        const savedMode = readKnowledgeRetrievalMode();
+        setKnowledgeRetrievalMode(
+          savedMode === "hybrid"
+            && Boolean(capabilities?.available && capabilities.index_ready && capabilities.hybrid_enabled !== false)
+            ? "hybrid"
+            : "classic",
+        );
       })
       .catch((requestError) => {
         if (requestError instanceof DOMException && requestError.name === "AbortError") return;
@@ -2906,6 +2949,25 @@ function DaweibaApp() {
       // The backend defaults remain available when local interface preferences cannot be saved.
     }
   }, [selectedKnowledgeLibraryIds]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(KNOWLEDGE_RETRIEVAL_MODE_STORAGE_KEY, knowledgeRetrievalMode);
+    } catch {
+      // The backend default remains classic when local interface preferences cannot be saved.
+    }
+  }, [knowledgeRetrievalMode]);
+
+  useEffect(() => {
+    const hybridAvailable = Boolean(
+      knowledgeRetrievalCapabilities?.available
+      && knowledgeRetrievalCapabilities.hybrid_enabled !== false
+      && knowledgeRetrievalCapabilities.index_ready,
+    );
+    if (knowledgeRetrievalMode === "hybrid" && !hybridAvailable) {
+      setKnowledgeRetrievalMode("classic");
+    }
+  }, [knowledgeRetrievalCapabilities, knowledgeRetrievalMode]);
 
   const activePreview = useMemo(() => {
     return (
@@ -3346,6 +3408,11 @@ function DaweibaApp() {
       rowDetailContext?: RowAiContext;
       knowledgeCandidate?: KnowledgeCandidateSeed;
       knowledgeSources?: KnowledgeSource[];
+      retrievalMode?: ChatMessage["retrievalMode"];
+      requestedRetrievalMode?: KnowledgeRetrievalMode;
+      retrievalEvidenceStatus?: string;
+      retrievalDegradationReasons?: string[];
+      retrievalTrace?: Record<string, unknown>;
       projectMemories?: ProjectMemory[];
       llmDebug?: LlmDebugInfo;
       llmDebugAnswer?: string;
@@ -3370,6 +3437,11 @@ function DaweibaApp() {
         rowDetailContext: options.rowDetailContext,
         knowledgeCandidate: options.knowledgeCandidate,
         knowledgeSources: options.knowledgeSources,
+        retrievalMode: options.retrievalMode,
+        requestedRetrievalMode: options.requestedRetrievalMode,
+        retrievalEvidenceStatus: options.retrievalEvidenceStatus,
+        retrievalDegradationReasons: options.retrievalDegradationReasons,
+        retrievalTrace: options.retrievalTrace,
         projectMemories: options.projectMemories,
         inlineAction: options.inlineAction,
         feeAnalysis: options.feeAnalysis,
@@ -3388,6 +3460,11 @@ function DaweibaApp() {
       rowDetailContext?: RowAiContext;
       knowledgeCandidate?: KnowledgeCandidateSeed;
       knowledgeSources?: KnowledgeSource[];
+      retrievalMode?: ChatMessage["retrievalMode"];
+      requestedRetrievalMode?: KnowledgeRetrievalMode;
+      retrievalEvidenceStatus?: string;
+      retrievalDegradationReasons?: string[];
+      retrievalTrace?: Record<string, unknown>;
       projectMemories?: ProjectMemory[];
       llmDebug?: LlmDebugInfo;
       llmDebugAnswer?: string;
@@ -3415,6 +3492,27 @@ function DaweibaApp() {
           : message,
       ),
     );
+    if (
+      options.retrievalMode
+      || options.requestedRetrievalMode
+      || options.retrievalEvidenceStatus
+      || options.retrievalDegradationReasons
+      || options.retrievalTrace
+    ) {
+      setChatMessages((current) =>
+        current.map((message) => message.id === id
+          ? {
+              ...message,
+              retrievalMode: options.retrievalMode ?? message.retrievalMode,
+              requestedRetrievalMode: options.requestedRetrievalMode ?? message.requestedRetrievalMode,
+              retrievalEvidenceStatus: options.retrievalEvidenceStatus ?? message.retrievalEvidenceStatus,
+              retrievalDegradationReasons: options.retrievalDegradationReasons ?? message.retrievalDegradationReasons,
+              retrievalTrace: options.retrievalTrace ?? message.retrievalTrace,
+            }
+          : message,
+        ),
+      );
+    }
   }
 
   function revealZhisuanMessage(id?: string) {
@@ -7260,6 +7358,7 @@ function DaweibaApp() {
           base_url: llmSettings.baseUrl,
           limit: 8,
           force_knowledge: Boolean(options.forcedKnowledge),
+          retrieval_mode: isRowReview ? "classic" : knowledgeRetrievalMode,
           project_key: knowledgeProjectKey || null,
           library_ids: isRowReview
             ? [ROW_AI_KNOWLEDGE_LIBRARY_ID]
@@ -7304,10 +7403,17 @@ function DaweibaApp() {
       const rowReference = options.rowDetailContext
         ? `${options.rowDetailContext.sheetName} / 第${options.rowDetailContext.rowNumber}行`
         : "";
+      const retrievalModeUsed = payload.retrieval_mode_used
+        ?? (payload.preset_answer ? "curated_demo" : isRowReview ? "classic" : knowledgeRetrievalMode);
       replaceZhisuanMessage(thinking, answer, payload.preset_answer ? "command" : payload.evidence_found ? "model" : "command", {
         typing: payload.preset_answer ? false : undefined,
         rowDetailContext: options.rowDetailContext,
         knowledgeSources: payload.sources,
+        retrievalMode: retrievalModeUsed,
+        requestedRetrievalMode: payload.requested_retrieval_mode ?? (isRowReview ? "classic" : knowledgeRetrievalMode),
+        retrievalEvidenceStatus: payload.evidence_status,
+        retrievalDegradationReasons: payload.degradation_reasons ?? [],
+        retrievalTrace: payload.retrieval_trace,
         projectMemories,
         llmDebug: payload.debug ?? undefined,
         llmDebugAnswer: payload.answer,
@@ -8542,6 +8648,31 @@ function DaweibaApp() {
     );
   }
 
+  function renderKnowledgeRetrievalMeta(message: ChatMessage) {
+    if (message.role !== "assistant" || message.isTyping || !message.retrievalMode) return null;
+    const actualLabel = message.retrievalMode === "hybrid"
+      ? "混合 RAG"
+      : message.retrievalMode === "classic"
+        ? "经典检索"
+        : "预置演示答案";
+    const requestedLabel = message.requestedRetrievalMode === "hybrid" ? "混合 RAG" : "经典检索";
+    const evidenceLabel = {
+      sufficient: "证据充分",
+      conflict: "证据冲突，需复核",
+      insufficient: "证据不足，需人工复核",
+      curated_demo: "预置答案",
+    }[message.retrievalEvidenceStatus ?? ""] ?? message.retrievalEvidenceStatus;
+    const degradation = message.retrievalDegradationReasons?.[0];
+    return (
+      <div className="knowledge-retrieval-meta" aria-label="本条回答检索轨迹">
+        <span>请求：{requestedLabel}</span>
+        <span>实际：{actualLabel}</span>
+        {evidenceLabel && <span>{evidenceLabel}</span>}
+        {degradation && <span className="is-degraded">已降级：{degradation}</span>}
+      </div>
+    );
+  }
+
   function renderKnowledgeMemoryHits(message: ChatMessage) {
     const memories = message.projectMemories ?? [];
     if (message.role !== "assistant" || message.isTyping || memories.length === 0) return null;
@@ -8799,6 +8930,7 @@ function DaweibaApp() {
           && message.content === zhisuanWelcomeMessage
           && renderZhisuanModuleLinks()}
         {message.role === "assistant" && !message.isTyping && renderZhisuanInlineAction(message)}
+        {renderKnowledgeRetrievalMeta(message)}
         {message.role === "assistant" && !message.isTyping && renderKnowledgeEvidenceSummary(message)}
         {renderZhisuanDebugPanel(message)}
         {message.role === "assistant" && message.isTyping && <i className="typing-caret" />}
@@ -11573,6 +11705,22 @@ function DaweibaApp() {
               loading={isKnowledgeLibrariesLoading}
               error={knowledgeLibrariesError}
               onChange={setSelectedKnowledgeLibraryIds}
+            />
+            <KnowledgeRetrievalModeSelector
+              value={knowledgeRetrievalMode}
+              capabilities={knowledgeRetrievalCapabilities}
+              disabled={isKnowledgeLibrariesLoading}
+              onChange={(mode) => {
+                const hybridAvailable = Boolean(
+                  knowledgeRetrievalCapabilities?.available
+                  && knowledgeRetrievalCapabilities.hybrid_enabled !== false
+                  && knowledgeRetrievalCapabilities.index_ready,
+                );
+                if (mode === "hybrid" && !hybridAvailable) {
+                  return;
+                }
+                setKnowledgeRetrievalMode(mode);
+              }}
             />
             <div className="daweiba-knowledge-grid">
               <div className="daweiba-knowledge-card is-primary">

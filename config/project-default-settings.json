@@ -1,10 +1,10 @@
 {
   "version": 3,
-  "updated_at": "2026-07-20",
+  "updated_at": "2026-08-06",
   "_说明": [
     "这是造价智算的项目默认设置文件，可以手动修改。",
     "注意：JSON 标准不支持 // 或 /* */ 注释；需要说明时请使用这种以下划线开头的说明字段。",
-    "程序只读取 previewColumns、zhisuanWindow、knowledgeMemory、professionalSkills、inputMapping、workloadCapture、feishuAppBot 内的有效配置项，未知说明字段会被忽略。",
+    "程序只读取 previewColumns、zhisuanWindow、knowledgeMemory、knowledgeRetrieval、professionalSkills、inputMapping、workloadCapture、feishuAppBot 内的有效配置项，未知说明字段会被忽略。",
     "修改后请保持 JSON 格式合法；如果格式错误，程序会回退到代码内置默认值。"
   ],
   "previewColumns": {
@@ -187,6 +187,32 @@
       "general_explanation"
     ],
     "duplicateSimilarityThreshold": 0.92
+  },
+  "knowledgeRetrieval": {
+    "_说明": [
+      "知识问答检索默认使用 classic；hybrid 只在用户主动切换时生效。",
+      "hybrid 使用本地离线确定性哈希向量和规则重排，不接外部向量服务，不参与结构化计价或三个数字裁决。",
+      "索引是 Codex-Temp/runtime 下的可重建缓存，正式 Markdown/Excel/CSV、规则和已确认记忆仍是真源。"
+    ],
+    "defaultMode": "classic",
+    "hybridEnabled": true,
+    "embedding": {
+      "provider": "local-hash",
+      "model": "local-hash-embedding-v1",
+      "dimensions": 384
+    },
+    "rerank": {
+      "enabled": true,
+      "provider": "local-rule",
+      "model": "local-rule-rerank-v1",
+      "timeoutMs": 180
+    },
+    "limits": {
+      "bm25TopK": 40,
+      "structuredTopK": 40,
+      "vectorTopK": 40,
+      "candidateTopK": 60
+    }
   },
   "professionalSkills": {
     "_说明": "专业能力默认设置；这里只保存非秘密选择，运行秘密不得写入本文件。",

@@ -35,10 +35,15 @@ from .knowledge_base import KnowledgeBase
 from .knowledge_demo_answers import get_demo_answer
 from .knowledge_qa import (
     ASSISTANT_TABLE_FORMAT_RULE,
+    HybridRetrievalError,
     NO_EVIDENCE_ANSWER,
     build_knowledge_answer_prompt,
     ensure_knowledge_answer,
+    hybrid_search_knowledge,
     is_knowledge_question,
+    knowledge_retrieval_capabilities,
+    load_knowledge_retrieval_config,
+    load_or_build_hybrid_index,
     prepend_ranked_candidate_recommendation,
     search_knowledge,
     strip_force_knowledge_prefix,
@@ -148,7 +153,7 @@ from .professional_skills import (
 from .report import append_risk_report, write_report
 
 
-APP_VERSION = "v5.19.4"
+APP_VERSION = "v5.19.5"
 OUTPUT_FILE_PREFIX = "【输出】"
 TEMP_FILE_PREFIX = "【临时】"
 PROCESS_STATE_FILENAME = "process-state.json"
@@ -2117,6 +2122,101 @@ def _search_selected_knowledge(
     )
 
 
+def _parse_retrieval_mode(payload: dict[str, Any]) -> str:
+    value = str(payload.get("retrieval_mode") or "classic").strip().lower()
+    if value not in {"classic", "hybrid"}:
+        raise HTTPException(status_code=400, detail="retrieval_mode 只支持 classic 或 hybrid")
+    return value
+
+
+def _classic_retrieval_trace(
+    *,
+    requested_mode: str,
+    results: list[Any],
+    fallback_reason: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "requested_mode": requested_mode,
+        "retrieval_mode_used": "classic",
+        "fallback_mode": "classic" if requested_mode == "hybrid" else None,
+        "fallback_reason": fallback_reason,
+        "degraded": bool(fallback_reason),
+        "degradation_reasons": [fallback_reason] if fallback_reason else [],
+        "channels": {
+            "classic": {
+                "available": True,
+                "hits": len(results),
+                "algorithm": "legacy weighted lexical retrieval",
+            }
+        },
+        "fusion": None,
+        "rerank": None,
+        "hard_gate": None,
+        "evidence_status": "sufficient" if results else "insufficient",
+        "evidence_sufficient": bool(results),
+    }
+
+
+def _search_selected_knowledge_with_mode(
+    question: str,
+    row_context: dict[str, Any] | None,
+    limit: int,
+    selection: KnowledgeLibrarySelection,
+    requested_mode: str,
+) -> tuple[list[Any], dict[str, Any]]:
+    if requested_mode == "classic":
+        results = _search_selected_knowledge(question, row_context, limit, selection)
+        return results, _classic_retrieval_trace(requested_mode=requested_mode, results=results)
+    config = load_knowledge_retrieval_config()
+    if not config.get("hybridEnabled", True):
+        results = _search_selected_knowledge(question, row_context, limit, selection)
+        return results, _classic_retrieval_trace(
+            requested_mode=requested_mode,
+            results=results,
+            fallback_reason="hybrid_feature_disabled",
+        )
+    if not selection.sources:
+        return [], _classic_retrieval_trace(
+            requested_mode=requested_mode,
+            results=[],
+            fallback_reason="hybrid_no_static_sources",
+        )
+    try:
+        response = hybrid_search_knowledge(
+            question,
+            row_context=row_context,
+            limit=limit,
+            project_root=selection.project_root,
+            index_path=selection.index_path,
+            sources=list(selection.sources),
+            source_library_ids=selection.source_library_ids,
+        )
+    except HybridRetrievalError as exc:
+        results = _search_selected_knowledge(question, row_context, limit, selection)
+        return results, _classic_retrieval_trace(
+            requested_mode=requested_mode,
+            results=results,
+            fallback_reason=str(exc),
+        )
+    trace = dict(response.trace)
+    trace["requested_mode"] = requested_mode
+    return response.results, trace
+
+
+def _retrieval_response_fields(trace: dict[str, Any]) -> dict[str, object]:
+    reasons = trace.get("degradation_reasons") or []
+    return {
+        "requested_retrieval_mode": trace.get("requested_mode", "classic"),
+        "retrieval_mode_used": trace.get("retrieval_mode_used", "classic"),
+        "actual_retrieval_mode": trace.get("retrieval_mode_used", "classic"),
+        "retrieval_channels": trace.get("channels") or {},
+        "evidence_status": trace.get("evidence_status", "insufficient"),
+        "degradation_reason": reasons[0] if reasons else trace.get("fallback_reason"),
+        "degradation_reasons": reasons,
+        "retrieval_trace": trace,
+    }
+
+
 def _knowledge_source_payload(
     result: Any,
     selection: KnowledgeLibrarySelection,
@@ -2164,11 +2264,42 @@ async def knowledge_libraries(
         if isinstance(sources_value, (list, tuple))
         else None
     )
+    default_selection = resolve_knowledge_library_selection(
+        None,
+        project_root=project_root,
+        base_sources=base_sources,
+    )
+    retrieval_capabilities = knowledge_retrieval_capabilities(
+        project_root=default_selection.project_root,
+        index_path=default_selection.index_path,
+        sources=list(default_selection.sources),
+    )
+    if retrieval_capabilities["index_status"] in {"not_built", "stale"} and retrieval_capabilities["available"]:
+        try:
+            load_or_build_hybrid_index(
+                project_root=default_selection.project_root,
+                index_path=default_selection.index_path,
+                sources=list(default_selection.sources),
+                source_library_ids=default_selection.source_library_ids,
+            )
+            retrieval_capabilities = knowledge_retrieval_capabilities(
+                project_root=default_selection.project_root,
+                index_path=default_selection.index_path,
+                sources=list(default_selection.sources),
+            )
+        except HybridRetrievalError as exc:
+            retrieval_capabilities = {
+                **retrieval_capabilities,
+                "index_status": "invalid",
+                "index_ready": False,
+                "degradation_reason": str(exc),
+            }
     return {
         **knowledge_library_catalog(
             project_root=project_root,
             base_sources=base_sources,
         ),
+        "retrieval_capabilities": retrieval_capabilities,
         "professional_skill": skill_snapshot,
     }
 
@@ -2179,12 +2310,19 @@ async def knowledge_search(payload: dict[str, Any] = Body(...)) -> dict[str, obj
     question, prefix_forced = strip_force_knowledge_prefix(question)
     if not question:
         raise HTTPException(status_code=400, detail="请输入要检索的问题")
+    requested_retrieval_mode = _parse_retrieval_mode(payload)
     force_knowledge = bool(payload.get("force_knowledge")) or prefix_forced
     limit = _parse_knowledge_limit(payload.get("limit"))
     row_context = _parse_row_context(payload.get("row_context"))
     runtime_context, job_dir, skill_snapshot = _knowledge_runtime_from_payload(payload)
     selection = _knowledge_library_selection(payload, runtime_context, job_dir)
-    results = _search_selected_knowledge(question, row_context, limit, selection)
+    results, retrieval_trace = _search_selected_knowledge_with_mode(
+        question,
+        row_context,
+        limit,
+        selection,
+        requested_retrieval_mode,
+    )
     project_key = normalize_project_key(payload.get("project_key"))
     if selection.memory_enabled:
         project_memories, memory_available = _safe_search_project_memories(
@@ -2194,6 +2332,8 @@ async def knowledge_search(payload: dict[str, Any] = Body(...)) -> dict[str, obj
         )
     else:
         project_memories, memory_available = [], True
+    if project_memories and retrieval_trace.get("evidence_status") == "insufficient":
+        retrieval_trace = {**retrieval_trace, "evidence_status": "memory_only", "evidence_sufficient": True}
     return {
         "query": question,
         "project_key": project_key or None,
@@ -2208,6 +2348,7 @@ async def knowledge_search(payload: dict[str, Any] = Body(...)) -> dict[str, obj
         "selected_library_ids": list(selection.selected_ids),
         "selected_libraries": _selected_library_payload(selection),
         "professional_skill": skill_snapshot,
+        **_retrieval_response_fields(retrieval_trace),
     }
 
 
@@ -2217,6 +2358,7 @@ async def knowledge_ask(payload: dict[str, Any] = Body(...)) -> dict[str, object
     question, prefix_forced = strip_force_knowledge_prefix(question)
     if not question:
         raise HTTPException(status_code=400, detail="请输入要询问的问题")
+    requested_retrieval_mode = _parse_retrieval_mode(payload)
     force_knowledge = bool(payload.get("force_knowledge")) or prefix_forced
 
     demo_answer = get_demo_answer(question) if not payload.get("row_context") else None
@@ -2239,13 +2381,33 @@ async def knowledge_ask(payload: dict[str, Any] = Body(...)) -> dict[str, object
             "generated_by_model": False,
             "preset_id": demo_answer["id"],
             "chart": demo_answer["chart"],
+            "requested_retrieval_mode": requested_retrieval_mode,
+            "retrieval_mode_used": "curated_demo",
+            "actual_retrieval_mode": "curated_demo",
+            "retrieval_channels": {},
+            "evidence_status": "curated_demo",
+            "degradation_reason": None,
+            "degradation_reasons": [],
+            "retrieval_trace": {
+                "requested_mode": requested_retrieval_mode,
+                "retrieval_mode_used": "curated_demo",
+                "evidence_status": "curated_demo",
+                "bypassed_retrieval": True,
+                "bypass_reason": "curated_demo_answer",
+            },
         }
 
     limit = _parse_knowledge_limit(payload.get("limit"))
     row_context = _parse_row_context(payload.get("row_context"))
     runtime_context, job_dir, skill_snapshot = _knowledge_runtime_from_payload(payload)
     selection = _knowledge_library_selection(payload, runtime_context, job_dir)
-    results = _search_selected_knowledge(question, row_context, limit, selection)
+    results, retrieval_trace = _search_selected_knowledge_with_mode(
+        question,
+        row_context,
+        limit,
+        selection,
+        requested_retrieval_mode,
+    )
     project_key = normalize_project_key(payload.get("project_key"))
     if selection.memory_enabled:
         project_memories, memory_available = _safe_search_project_memories(
@@ -2255,6 +2417,8 @@ async def knowledge_ask(payload: dict[str, Any] = Body(...)) -> dict[str, object
         )
     else:
         project_memories, memory_available = [], True
+    if project_memories and retrieval_trace.get("evidence_status") == "insufficient":
+        retrieval_trace = {**retrieval_trace, "evidence_status": "memory_only", "evidence_sufficient": True}
     has_ranked_candidates = bool(
         row_context
         and isinstance(row_context.get("candidate_recommendations"), list)
@@ -2281,6 +2445,7 @@ async def knowledge_ask(payload: dict[str, Any] = Body(...)) -> dict[str, object
             "selected_library_ids": list(selection.selected_ids),
             "selected_libraries": _selected_library_payload(selection),
             "professional_skill": skill_snapshot,
+            **_retrieval_response_fields(retrieval_trace),
         }
 
     provider = str(payload.get("provider") or DEFAULT_PROVIDER)
@@ -2299,6 +2464,7 @@ async def knowledge_ask(payload: dict[str, Any] = Body(...)) -> dict[str, object
         project_memories=project_memories,
     )
     prompt_path = _write_llm_prompt_markdown("知识库问答", config, messages)
+    model_degradation_reason: str | None = None
     try:
         answer = _call_chat_completion_tracked(
             config,
@@ -2307,7 +2473,16 @@ async def knowledge_ask(payload: dict[str, Any] = Body(...)) -> dict[str, object
             prompt_path=prompt_path,
         )
     except (ValueError, RuntimeError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if requested_retrieval_mode != "hybrid":
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        model_degradation_reason = f"model_unavailable:{type(exc).__name__}"
+        answer = ensure_knowledge_answer("", question, results)
+        retrieval_trace = {
+            **retrieval_trace,
+            "degraded": True,
+            "degradation_reasons": [*(retrieval_trace.get("degradation_reasons") or []), model_degradation_reason],
+            "evidence_status": retrieval_trace.get("evidence_status") or "sufficient",
+        }
     answer = ensure_knowledge_answer(answer, question, results)
     answer = prepend_ranked_candidate_recommendation(answer, row_context)
 
@@ -2323,7 +2498,9 @@ async def knowledge_ask(payload: dict[str, Any] = Body(...)) -> dict[str, object
         "professional_skill": skill_snapshot,
         "evidence_found": True,
         "forced_knowledge": force_knowledge,
-        "debug": _build_llm_debug(config, messages, prompt_path),
+        "debug": None if model_degradation_reason else _build_llm_debug(config, messages, prompt_path),
+        "answer_mode": "evidence_fallback" if model_degradation_reason else "model_answer",
+        **_retrieval_response_fields(retrieval_trace),
     }
 
 
