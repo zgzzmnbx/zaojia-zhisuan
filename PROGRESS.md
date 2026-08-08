@@ -8,4 +8,4 @@
 - 故障：索引损坏、向量不可用、重排超时、模型不可用均已注入；`knowledge_qa_hybrid_fault_injection_report.json` 保存红→降级→恢复全绿。
 - 精确保护：费率证据行硬门控已补回归，固定知识问答 `check_knowledge_qa_answers.py` 为10/10；不修改正式资料或既有 expected。
 - 发布：最终绿色版完整依赖构建通过（203.1s，免压缩验收），资产检查全 true；云端 UTF-8 包 Skill 检查通过，SHA256=`FB6C90C14F25C544F7C162AF0781E14AA0802FD8244051EBB60E2226C48AFF50`。
-- 最终：前端56 passed、构建通过、Python编译通过；知识专项76 passed；后端全量504 collected，499 passed、5 skipped；固定问答10/10，故障红→降级→恢复全绿；普通PRD巡检退出0，strict仅保留模块08既有缺项；限定文件已本地提交，未推送。
+- 最终：前端56 passed、构建通过、Python编译通过；知识专项76 passed；后端全量504 collected，499 passed、5 skipped；固定问答10/10，故障红→降级→恢复全绿；普通PRD巡检退出0，strict仅保留模块08既有缺项；限定文件已本地提交并推送到 origin/main。
