@@ -6,6 +6,7 @@ import {
   BookOpen,
   ChevronDown,
   CheckCircle2,
+  Clock3,
   Columns3,
   Database,
   Download,
@@ -48,6 +49,12 @@ import KnowledgeDemoChart, { type KnowledgeDemoChartData } from "./components/kn
 import { DEMO_KNOWLEDGE_QUESTIONS } from "./components/knowledge/knowledgeDemoQuestions";
 import ConversationalAgentWorkspace from "./components/agent-workspace/ConversationalAgentWorkspace";
 import { AgentProgressStatus } from "./components/agent-workspace/AgentMessageStream";
+import InlineReviewSetupCard, { type InlineReviewPlatformSetup } from "./components/agent-workspace/InlineReviewSetupCard";
+import InlineReviewProgressCard from "./components/agent-workspace/InlineReviewProgressCard";
+import {
+  latestReviewTasksByPlatform,
+  type ReviewProgressSnapshot,
+} from "./components/agent-workspace/reviewProgress";
 import { agentComposerSpaceCompletion, knowledgeQuestionPrompt } from "./components/agent-workspace/agentWorkspaceUtils";
 import ZhisuanFeeAnalysisCharts from "./components/agent-workspace/ZhisuanFeeAnalysisCharts";
 import { buildFeeAnalysis, type FeeAnalysis } from "./components/agent-workspace/feeAnalysis";
@@ -178,7 +185,7 @@ const OUTPUT_ROW_FILTER_STORAGE_KEY = "guankanzhisuan-output-row-filter-settings
 const WELCOME_SCREEN_HIDDEN_STORAGE_KEY = "guankanzhisuan-welcome-screen-hidden";
 const WELCOME_SCREEN_VERSION_STORAGE_KEY = "guankanzhisuan-welcome-screen-version";
 const WELCOME_SCREEN_VERSION = "brand-v5.15.1-skill-entry";
-const ZHISUAN_QUICK_SETTINGS_VERSION = 4;
+const ZHISUAN_QUICK_SETTINGS_VERSION = 5;
 const LEFT_COLUMN_COLLAPSED_STORAGE_KEY = "guankanzhisuan-left-column-collapsed";
 const COLOR_MODE_STORAGE_KEY = "zaojiazhisuan-color-mode";
 type ColorMode = "light" | "dark";
@@ -508,6 +515,21 @@ type ExternalDispatchTask = {
   can_retry: boolean;
 };
 
+type InlineWebReviewPlatformDraft = {
+  profileId: string;
+  label: string;
+  configurationOk: boolean;
+  enabled: boolean;
+  expanded: boolean;
+  options: ExternalDispatchOptions | null;
+  deliveryChannels: ExternalDeliveryChannel[];
+  group: string;
+  selectedReviewers: string[];
+  task: ExternalDispatchTask | null;
+  loading: boolean;
+  feedback: string;
+};
+
 function canStartNextWebReviewRound(task: ExternalDispatchTask | null) {
   return Boolean(task && (task.status === "completed" || task.status === "returned"));
 }
@@ -646,6 +668,8 @@ type ChatMessage = {
   inlineAction?: ChatInlineAction;
   feeAnalysis?: FeeAnalysis;
   knowledgeChart?: KnowledgeDemoChartData;
+  reviewSetup?: boolean;
+  reviewProgress?: ReviewProgressSnapshot;
 };
 
 function knowledgeProcessingProgress(elapsedMs: number) {
@@ -779,6 +803,7 @@ const ZHISUAN_BUILTIN_QUICK_ITEMS: ZhisuanQuickItem[] = [
   { id: "download-excel", label: "输出excel表格", prompt: "输出excel表格", kind: "command", command: "download-excel" },
   { id: "download-word", label: "输出word报告", prompt: "输出word报告", kind: "command", command: "download-word" },
   { id: "send-review", label: "发送同事复核", prompt: "发送同事复核", kind: "command", command: "send-review" },
+  { id: "review-progress", label: "审核进度查询", prompt: "审核进度查询", kind: "command", command: "review-progress" },
 ];
 
 const FILL_WORKFLOW_STEPS = [
@@ -1945,6 +1970,9 @@ function normalizeZhisuanQuickSettings(raw?: Partial<ZhisuanQuickSettings>): Zhi
   if (normalizedVersion < 4 && !migratedEnabledIds.includes("fee-analysis")) {
     migratedEnabledIds.splice(Math.min(1, migratedEnabledIds.length), 0, "fee-analysis");
   }
+  if (normalizedVersion < 5 && !migratedEnabledIds.includes("review-progress")) {
+    migratedEnabledIds.push("review-progress");
+  }
   const customPrompts = Array.isArray(raw?.customPrompts)
     ? Array.from(
       new Set(
@@ -2381,6 +2409,9 @@ function DaweibaApp() {
   const [isChatInputFocused, setIsChatInputFocused] = useState(false);
   const [avatarSuccessUntil, setAvatarSuccessUntil] = useState(0);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [inlineWebReviewMessageId, setInlineWebReviewMessageId] = useState("");
+  const [refreshingReviewProgressMessageId, setRefreshingReviewProgressMessageId] = useState("");
+  const [inlineWebReviewPlatforms, setInlineWebReviewPlatforms] = useState<InlineWebReviewPlatformDraft[]>([]);
   const [knowledgeProjectName, setKnowledgeProjectName] = useState(() => readKnowledgeProjectStorage(KNOWLEDGE_PROJECT_NAME_STORAGE_KEY) || GENERAL_KNOWLEDGE_NAME);
   const [knowledgeProjectKey, setKnowledgeProjectKey] = useState(() => readKnowledgeProjectStorage(KNOWLEDGE_PROJECT_KEY_STORAGE_KEY) || GENERAL_KNOWLEDGE_KEY);
   const [knowledgeLibraries, setKnowledgeLibraries] = useState<KnowledgeLibraryOption[]>([]);
@@ -2746,15 +2777,20 @@ function DaweibaApp() {
   }, [activeDaweibaModule, isFeishuBotConsoleInlineOpen, isFeishuBotConsoleOpen, isFeishuBotConsoleLive]);
 
   useEffect(() => {
-    if (!isWebReviewOpen || !result?.job_id) return undefined;
+    if ((!isWebReviewOpen && !inlineWebReviewMessageId) || !result?.job_id) return undefined;
     const refreshCurrentReview = async () => {
       try {
         const response = await fetch(`${API_BASE}/api/collaboration/external-dispatch/tasks?limit=30`);
         if (!response.ok) return;
         const payload = await response.json() as { items?: ExternalDispatchTask[] };
         const tasks = Array.isArray(payload.items) ? payload.items : [];
-        const currentTask = tasks.find((item) => item.is_web_result_review && item.source_job_id === result.job_id) ?? null;
+        const currentTasks = tasks.filter((item) => item.is_web_result_review && item.source_job_id === result.job_id);
+        const currentTask = currentTasks.find((item) => item.platform === webReviewProfile) ?? currentTasks[0] ?? null;
         setWebReviewTask(currentTask);
+        setInlineWebReviewPlatforms((current) => current.map((platform) => ({
+          ...platform,
+          task: currentTasks.find((item) => item.platform === platform.profileId) ?? null,
+        })));
         if (tasks.length) setExternalDispatchTasks(tasks.slice(0, 20));
       } catch {
         // 轮询失败不覆盖当前已显示的任务状态，用户仍可手动刷新或重试。
@@ -2763,7 +2799,7 @@ function DaweibaApp() {
     void refreshCurrentReview();
     const timer = window.setInterval(() => void refreshCurrentReview(), 3000);
     return () => window.clearInterval(timer);
-  }, [isWebReviewOpen, result?.job_id]);
+  }, [inlineWebReviewMessageId, isWebReviewOpen, result?.job_id, webReviewProfile]);
 
   useEffect(() => {
     if (activeDaweibaModule !== "collaboration") return;
@@ -3438,10 +3474,12 @@ function DaweibaApp() {
       inlineAction?: ChatInlineAction;
       feeAnalysis?: FeeAnalysis;
       knowledgeChart?: KnowledgeDemoChartData;
+      reviewSetup?: boolean;
+      reviewProgress?: ReviewProgressSnapshot;
     } = {},
   ) {
     const id = makeZhisuanMessageId();
-    const revealMode: ZhisuanMessageRevealMode = options.feeAnalysis || options.knowledgeChart
+    const revealMode: ZhisuanMessageRevealMode = options.feeAnalysis || options.knowledgeChart || options.reviewSetup || options.reviewProgress
       ? "block"
       : "character";
     const shouldType = revealMode === "block" || (options.typing ?? true);
@@ -3469,6 +3507,8 @@ function DaweibaApp() {
         inlineAction: options.inlineAction,
         feeAnalysis: options.feeAnalysis,
         knowledgeChart: options.knowledgeChart,
+        reviewSetup: options.reviewSetup,
+        reviewProgress: options.reviewProgress,
       },
     ]);
     return id;
@@ -4214,6 +4254,73 @@ function DaweibaApp() {
     }
   }
 
+  function currentReviewProgressFileName() {
+    return result?.summary.output_excel.split(/[\\/]/).pop() || file?.name || "当前填价成果.xlsx";
+  }
+
+  async function refreshReviewProgressCard(messageId: string) {
+    if (!result?.job_id) return;
+    setRefreshingReviewProgressMessageId(messageId);
+    try {
+      const response = await fetch(`${API_BASE}/api/collaboration/external-dispatch/tasks?limit=30`);
+      const payload = await response.json().catch(() => null) as { items?: ExternalDispatchTask[]; detail?: unknown } | null;
+      if (!response.ok) {
+        throw new Error(apiErrorMessage(payload, `读取审核进度失败：${response.status}`));
+      }
+      const tasks = Array.isArray(payload?.items) ? payload.items : [];
+      const currentTasks = latestReviewTasksByPlatform(tasks, result.job_id);
+      setExternalDispatchTasks(tasks.slice(0, 20));
+      setChatMessages((current) => current.map((message) => message.id === messageId
+        ? {
+            ...message,
+            reviewProgress: {
+              jobId: result.job_id,
+              fileName: currentReviewProgressFileName(),
+              fetchedAt: new Date().toISOString(),
+              tasks: currentTasks,
+            },
+          }
+        : message));
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "读取审核进度失败";
+      setChatMessages((current) => current.map((message) => message.id === messageId
+        ? {
+            ...message,
+            reviewProgress: {
+              jobId: result.job_id,
+              fileName: currentReviewProgressFileName(),
+              fetchedAt: new Date().toISOString(),
+              tasks: message.reviewProgress?.tasks ?? [],
+              error: errorMessage,
+            },
+          }
+        : message));
+    } finally {
+      setRefreshingReviewProgressMessageId((current) => current === messageId ? "" : current);
+    }
+  }
+
+  async function openReviewProgressCard() {
+    if (!result?.job_id) {
+      appendZhisuanMessage("当前还没有可查询的成果任务。请先上传 Excel，并完成转换和批量匹配。", "command");
+      return;
+    }
+    const messageId = appendZhisuanMessage(
+      "已为你读取当前成果的审核进度。卡片只展示真实协同任务状态，可随时刷新。",
+      "command",
+      {
+        typing: false,
+        reviewProgress: {
+          jobId: result.job_id,
+          fileName: currentReviewProgressFileName(),
+          fetchedAt: new Date().toISOString(),
+          tasks: [],
+        },
+      },
+    );
+    await refreshReviewProgressCard(messageId);
+  }
+
   async function handleZhisuanCommand(command: ZhisuanCommand) {
     if (command === "fee-analysis") {
       if (!result) {
@@ -4292,8 +4399,11 @@ function DaweibaApp() {
         appendZhisuanMessage("请先完成批量匹配并生成 Excel 和 Word 成果，再发送给同事复核。", "command");
         return;
       }
-      appendZhisuanMessage("请选择投递平台、工作群和明确复核人。最终确认前不会发送任何消息。", "command");
-      await openWebReviewDialog();
+      await openInlineWebReviewSetup();
+      return;
+    }
+    if (command === "review-progress") {
+      await openReviewProgressCard();
     }
   }
 
@@ -4938,12 +5048,197 @@ function DaweibaApp() {
     }
   }
 
-  async function openWebReviewDialog() {
+  function inlineWebReviewPeople(platform: InlineWebReviewPlatformDraft) {
+    const options = platform.options;
+    if (!options) return [];
+    if (platform.deliveryChannels.includes("group")) {
+      return options.directory.groups.find((item) => item.group_ref === platform.group)?.people ?? [];
+    }
+    return options.directory.people ?? [];
+  }
+
+  function updateInlineWebReviewPlatform(
+    profileId: string,
+    updater: (platform: InlineWebReviewPlatformDraft) => InlineWebReviewPlatformDraft,
+  ) {
+    setInlineWebReviewPlatforms((current) => current.map((platform) => (
+      platform.profileId === profileId ? updater(platform) : platform
+    )));
+  }
+
+  function toggleInlineWebReviewPlatform(profileId: string, enabled: boolean) {
+    updateInlineWebReviewPlatform(profileId, (platform) => ({
+      ...platform,
+      enabled,
+      expanded: enabled || platform.expanded,
+      feedback: enabled ? platform.feedback : "",
+    }));
+    setWebReviewAudienceConfirmed(false);
+  }
+
+  function toggleInlineWebReviewChannel(
+    profileId: string,
+    channel: ExternalDeliveryChannel,
+    checked: boolean,
+  ) {
+    updateInlineWebReviewPlatform(profileId, (platform) => ({
+      ...platform,
+      deliveryChannels: checked
+        ? Array.from(new Set([...platform.deliveryChannels, channel]))
+        : platform.deliveryChannels.filter((item) => item !== channel),
+      selectedReviewers: [],
+      feedback: "发送范围已变化，请重新逐一勾选本平台复核人。",
+    }));
+    setWebReviewAudienceConfirmed(false);
+  }
+
+  function changeInlineWebReviewGroup(profileId: string, groupRef: string) {
+    updateInlineWebReviewPlatform(profileId, (platform) => ({
+      ...platform,
+      group: groupRef,
+      selectedReviewers: [],
+      feedback: "工作群已变化，请重新逐一勾选本平台复核人。",
+    }));
+    setWebReviewAudienceConfirmed(false);
+  }
+
+  function toggleInlineWebReviewReviewer(profileId: string, personRef: string, checked: boolean) {
+    updateInlineWebReviewPlatform(profileId, (platform) => {
+      if (!checked) {
+        return { ...platform, selectedReviewers: platform.selectedReviewers.filter((ref) => ref !== personRef) };
+      }
+      if (platform.selectedReviewers.includes(personRef)) return platform;
+      if (platform.selectedReviewers.length >= 10) {
+        return { ...platform, feedback: "单个平台单次最多明确选择 10 名复核人。" };
+      }
+      return { ...platform, selectedReviewers: [...platform.selectedReviewers, personRef], feedback: "" };
+    });
+    setWebReviewAudienceConfirmed(false);
+  }
+
+  async function fetchInlineWebReviewOptions(profileId: string, refreshDirectory = false) {
+    const queryParameters = new URLSearchParams({ profile_id: profileId });
+    if (refreshDirectory) queryParameters.set("refresh_directory", "true");
+    const response = await fetch(`${API_BASE}/api/collaboration/external-dispatch/options?${queryParameters.toString()}`);
+    const payload = await response.json().catch(() => null) as ExternalDispatchOptions | { detail?: unknown } | null;
+    if (!response.ok || !payload || !("directory" in payload)) {
+      throw new Error(apiErrorMessage(payload, `读取 ${appBotProfileShortLabel(profileId)} 人员失败：${response.status}`));
+    }
+    return payload;
+  }
+
+  async function loadInlineWebReviewOptions(profileId?: string, refreshDirectory = false) {
+    if (profileId) {
+      updateInlineWebReviewPlatform(profileId, (platform) => ({ ...platform, loading: true, feedback: "正在刷新群与成员……" }));
+      try {
+        const options = await fetchInlineWebReviewOptions(profileId, refreshDirectory);
+        const nextGroup = options.directory.groups.find((item) => item.authorized)
+          ?? options.directory.groups[0];
+        updateInlineWebReviewPlatform(profileId, (platform) => ({
+          ...platform,
+          options,
+          configurationOk: true,
+          group: options.directory.groups.some((item) => item.group_ref === platform.group)
+            ? platform.group
+            : nextGroup?.group_ref ?? "",
+          selectedReviewers: [],
+          loading: false,
+          feedback: options.directory.refresh_error
+            ? `目录刷新失败，已使用上次缓存：${options.directory.refresh_error}`
+            : `已刷新 ${options.directory.groups.length} 个工作群、${options.directory.people.length} 名人员，请重新勾选。`,
+        }));
+        setWebReviewAudienceConfirmed(false);
+      } catch (err) {
+        updateInlineWebReviewPlatform(profileId, (platform) => ({
+          ...platform,
+          loading: false,
+          feedback: err instanceof Error ? err.message : "读取人员目录失败",
+        }));
+      }
+      return;
+    }
+
+    setIsLoadingWebReview(true);
+    setWebReviewFeedback("正在分别读取飞书与 WeAct 的工作群和人员目录……");
+    try {
+      const initialProfile = webReviewProfile || externalDispatchProfile || feishuAppBotStatus?.active_profile || "default";
+      const baseOptions = await fetchInlineWebReviewOptions(initialProfile, refreshDirectory);
+      const taskResponse = await fetch(`${API_BASE}/api/collaboration/external-dispatch/tasks?limit=30`);
+      const taskPayload = taskResponse.ok
+        ? await taskResponse.json() as { items?: ExternalDispatchTask[] }
+        : { items: [] };
+      const tasks = Array.isArray(taskPayload.items) ? taskPayload.items : [];
+      const currentTasks = tasks.filter((item) => item.is_web_result_review && item.source_job_id === result?.job_id);
+      const platformResults = await Promise.all(baseOptions.platforms.map(async (platform) => {
+        if (!platform.configuration_ok) return { platform, options: null, error: "平台配置异常" };
+        try {
+          const options = platform.profile_id === baseOptions.active_profile
+            ? baseOptions
+            : await fetchInlineWebReviewOptions(platform.profile_id, refreshDirectory);
+          return { platform, options, error: "" };
+        } catch (err) {
+          return { platform, options: null, error: err instanceof Error ? err.message : "人员目录读取失败" };
+        }
+      }));
+      const usableProfiles = platformResults.filter((item) => item.options);
+      const defaultProfile = usableProfiles.some((item) => item.platform.profile_id === baseOptions.active_profile)
+        ? baseOptions.active_profile
+        : usableProfiles[0]?.platform.profile_id ?? "";
+      const drafts = platformResults.map(({ platform, options, error }) => {
+        const task = currentTasks.find((item) => item.platform === platform.profile_id) ?? null;
+        const nextGroup = options?.directory.groups.find((item) => item.authorized)
+          ?? options?.directory.groups[0];
+        const directAvailable = options?.direct_delivery.status === "available";
+        const enabled = Boolean(options && (task || platform.profile_id === defaultProfile));
+        return {
+          profileId: platform.profile_id,
+          label: appBotProfileShortLabel(platform.profile_id),
+          configurationOk: Boolean(platform.configuration_ok && options),
+          enabled,
+          expanded: enabled,
+          options,
+          deliveryChannels: [directAvailable ? "direct" : "group"] as ExternalDeliveryChannel[],
+          group: nextGroup?.group_ref ?? "",
+          selectedReviewers: [],
+          task,
+          loading: false,
+          feedback: error || (task ? `已找到当前成果的复核任务：${task.status_label}。` : ""),
+        } satisfies InlineWebReviewPlatformDraft;
+      });
+      setInlineWebReviewPlatforms(drafts);
+      setExternalDispatchPlatforms(baseOptions.platforms);
+      if (tasks.length) setExternalDispatchTasks(tasks.slice(0, 20));
+      setWebReviewAudienceConfirmed(false);
+      const failedLabels = drafts.filter((item) => !item.configurationOk).map((item) => item.label);
+      setWebReviewFeedback(failedLabels.length
+        ? `已读取可用平台；${failedLabels.join("、")} 暂不可用，请检查机器人配置。`
+        : "可勾选一个或两个平台；每个平台分别设置发送方式和复核人员。");
+    } catch (err) {
+      setInlineWebReviewPlatforms([]);
+      setWebReviewFeedback(err instanceof Error ? err.message : "读取复核平台与人员失败");
+    } finally {
+      setIsLoadingWebReview(false);
+    }
+  }
+
+  async function prepareInlineWebReviewSetup() {
     if (!result || !canDownloadOutputs) {
       setError("请先完成批量匹配并生成可下载的 Excel 成果。");
       return;
     }
-    setIsWebReviewOpen(true);
+    setWebReviewDeadline(defaultExternalDispatchDeadline());
+    setWebReviewInstructions("请复核当前网页填价成果、匹配依据和风险项；可在复核卡中填写评论后通过或退回。");
+    setWebReviewTask(null);
+    setIsWebReviewRoundConfirmationOpen(false);
+    setWebReviewAudienceConfirmed(false);
+    await loadInlineWebReviewOptions();
+  }
+
+  async function prepareWebReviewSetup() {
+    if (!result || !canDownloadOutputs) {
+      setError("请先完成批量匹配并生成可下载的 Excel 成果。");
+      return;
+    }
     setWebReviewDeadline(defaultExternalDispatchDeadline());
     setWebReviewInstructions("请复核当前网页填价成果、匹配依据和风险项；可在复核卡中填写评论后通过或退回。");
     setWebReviewFeedback("正在读取智能协同中的平台、工作群和人员目录……");
@@ -4955,9 +5250,43 @@ function DaweibaApp() {
     );
   }
 
+  async function openWebReviewDialog() {
+    setIsWebReviewOpen(true);
+    await prepareWebReviewSetup();
+  }
+
+  async function openInlineWebReviewSetup() {
+    let messageId = inlineWebReviewMessageId;
+    if (!messageId || !chatMessages.some((message) => message.id === messageId && message.reviewSetup)) {
+      messageId = appendZhisuanMessage(
+        "发送前请在下方确认协同方式、复核人员和截止时间。最终确认前不会发送任何消息。",
+        "command",
+        { typing: false, reviewSetup: true },
+      );
+      setInlineWebReviewMessageId(messageId);
+    }
+    await prepareInlineWebReviewSetup();
+  }
+
   function closeWebReviewDialog() {
     setIsWebReviewRoundConfirmationOpen(false);
     setIsWebReviewOpen(false);
+  }
+
+  function closeInlineWebReviewSetup() {
+    const messageId = inlineWebReviewMessageId;
+    setIsWebReviewRoundConfirmationOpen(false);
+    setInlineWebReviewMessageId("");
+    setInlineWebReviewPlatforms([]);
+    if (!messageId) return;
+    setChatMessages((current) => current.map((message) => message.id === messageId
+      ? {
+          ...message,
+          content: "已取消本次复核设置，没有发送任何消息。",
+          displayContent: "已取消本次复核设置，没有发送任何消息。",
+          reviewSetup: false,
+        }
+      : message));
   }
 
   async function sendWebResultReview(startNewRound = false) {
@@ -5049,6 +5378,170 @@ function DaweibaApp() {
       setWebReviewFeedback(err instanceof Error ? err.message : "发起多人复核失败");
     } finally {
       setIsSendingWebReview(false);
+    }
+  }
+
+  async function sendInlineWebResultReview() {
+    if (!result) {
+      setWebReviewFeedback("当前成果尚未就绪。");
+      return;
+    }
+    const enabledPlatforms = inlineWebReviewPlatforms.filter((platform) => platform.enabled);
+    if (!enabledPlatforms.length) {
+      setWebReviewFeedback("请至少勾选飞书或 WeAct 中的一个发送平台。");
+      return;
+    }
+    for (const platform of enabledPlatforms) {
+      const options = platform.options;
+      if (!platform.configurationOk || !options) {
+        setWebReviewFeedback(`${platform.label} 配置或人员目录不可用，请刷新后再试。`);
+        return;
+      }
+      if (!platform.deliveryChannels.length) {
+        setWebReviewFeedback(`请为 ${platform.label} 至少勾选一种发送方式。`);
+        return;
+      }
+      if (platform.deliveryChannels.includes("direct") && options.direct_delivery.status !== "available") {
+        setWebReviewFeedback(`${platform.label} 尚未验证主动单聊能力，请取消个人私聊。`);
+        return;
+      }
+      const group = options.directory.groups.find((item) => item.group_ref === platform.group);
+      if (platform.deliveryChannels.includes("group") && (!group || !group.members_available || !group.authorized)) {
+        setWebReviewFeedback(`${platform.label} 所选工作群尚未完成安全校验，请重新选择。`);
+        return;
+      }
+      if (platform.deliveryChannels.includes("group") && group && group.member_count > 10) {
+        setWebReviewFeedback(`${platform.label} 所选工作群超过 10 人，已拒绝投递。`);
+        return;
+      }
+      const uniqueReviewers = [...new Set(platform.selectedReviewers)];
+      if (!uniqueReviewers.length || uniqueReviewers.length > 10) {
+        setWebReviewFeedback(`请在 ${platform.label} 明确选择 1 至 10 名复核人。`);
+        return;
+      }
+      const availablePeople = inlineWebReviewPeople(platform);
+      if (uniqueReviewers.some((ref) => !availablePeople.some((person) => person.person_ref === ref))) {
+        setWebReviewFeedback(`${platform.label} 复核名单已与当前目录不一致，请重新勾选。`);
+        return;
+      }
+      if (platform.task && !canStartNextWebReviewRound(platform.task)) {
+        setWebReviewFeedback(`${platform.label} 当前第 ${platform.task.review_round ?? 1} 轮复核仍在进行，不能并行续开。`);
+        return;
+      }
+    }
+    if (!webReviewAudienceConfirmed) {
+      setWebReviewFeedback("请先确认两个平台各自的人员和投递范围。");
+      return;
+    }
+    if (!webReviewInstructions.trim()) {
+      setWebReviewFeedback("请填写复核说明。");
+      return;
+    }
+    const deadline = new Date(webReviewDeadline);
+    if (Number.isNaN(deadline.getTime())) {
+      setWebReviewFeedback("复核截止时间格式无效。");
+      return;
+    }
+
+    setIsSendingWebReview(true);
+    setIsWebReviewRoundConfirmationOpen(false);
+    setWebReviewFeedback(`正在向 ${enabledPlatforms.map((platform) => platform.label).join("、")} 分别冻结成果并发送……`);
+    const results = await Promise.allSettled(enabledPlatforms.map(async (platform) => {
+      const deliveryMode = platform.deliveryChannels.length === 2
+        ? "mixed"
+        : platform.deliveryChannels[0];
+      const response = await fetch(`${API_BASE}/api/collaboration/external-dispatch/web-review`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          job_id: result.job_id,
+          platform_profile_id: platform.profileId,
+          reviewer_refs: [...new Set(platform.selectedReviewers)],
+          delivery_mode: deliveryMode,
+          target_group_ref: platform.deliveryChannels.includes("group") ? platform.group : "",
+          deadline: deadline.toISOString(),
+          instructions: webReviewInstructions.trim(),
+          project_name: projectName.trim() || file?.name.replace(/\.xlsx$/i, "") || "",
+          start_new_round: Boolean(platform.task),
+          existing_task_id: platform.task?.task_id ?? "",
+          previous_review_round: platform.task?.review_round ?? 0,
+        }),
+      });
+      const payload = await response.json().catch(() => null) as {
+        created?: boolean;
+        started_new_round?: boolean;
+        task?: ExternalDispatchTask;
+        detail?: unknown;
+      } | null;
+      if (!response.ok || !payload?.task) {
+        throw new Error(apiErrorMessage(payload, `${platform.label} 发起复核失败：${response.status}`));
+      }
+      return { platform, payload };
+    }));
+
+    const successfulTasks: ExternalDispatchTask[] = [];
+    const successLabels: string[] = [];
+    const failureMessages: string[] = [];
+    results.forEach((outcome, index) => {
+      const platform = enabledPlatforms[index];
+      if (outcome.status === "fulfilled") {
+        successfulTasks.push(outcome.value.payload.task!);
+        successLabels.push(platform.label);
+        updateInlineWebReviewPlatform(platform.profileId, (current) => ({
+          ...current,
+          task: outcome.value.payload.task!,
+          feedback: outcome.value.payload.started_new_round
+            ? `第 ${outcome.value.payload.task!.review_round ?? 0} 轮复核已发起。`
+            : outcome.value.payload.created
+              ? "成果已冻结并进入多人复核。"
+              : "已命中本平台现有任务，本次没有重复发送。",
+        }));
+      } else {
+        const message = outcome.reason instanceof Error ? outcome.reason.message : `${platform.label} 发送失败`;
+        failureMessages.push(`${platform.label}：${message}`);
+        updateInlineWebReviewPlatform(platform.profileId, (current) => ({ ...current, feedback: message }));
+      }
+    });
+    if (successfulTasks.length) {
+      setExternalDispatchTasks((current) => [
+        ...successfulTasks,
+        ...current.filter((item) => !successfulTasks.some((task) => task.task_id === item.task_id)),
+      ].slice(0, 20));
+    }
+    if (!failureMessages.length) {
+      setWebReviewFeedback(`已向 ${successLabels.join("、")} 发起复核；各平台名单与状态分别记录。`);
+    } else if (successLabels.length) {
+      setWebReviewFeedback(`部分平台已发送：${successLabels.join("、")}。未完成：${failureMessages.join("；")}。可修正后仅重试失败平台。`);
+    } else {
+      setWebReviewFeedback(failureMessages.join("；"));
+    }
+    setIsSendingWebReview(false);
+  }
+
+  async function retryInlineWebReviewTask(profileId: string) {
+    const platform = inlineWebReviewPlatforms.find((item) => item.profileId === profileId);
+    if (!platform?.task) return;
+    updateInlineWebReviewPlatform(profileId, (current) => ({ ...current, loading: true, feedback: "正在仅重试失败步骤……" }));
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/collaboration/external-dispatch/tasks/${encodeURIComponent(platform.task.task_id)}/retry`,
+        { method: "POST" },
+      );
+      const payload = await response.json().catch(() => null) as { task?: ExternalDispatchTask; detail?: unknown } | null;
+      if (!response.ok || !payload?.task) throw new Error(apiErrorMessage(payload, `重试失败：${response.status}`));
+      updateInlineWebReviewPlatform(profileId, (current) => ({
+        ...current,
+        task: payload.task!,
+        loading: false,
+        feedback: `重试完成：${payload.task!.status_label}。已成功步骤不会重复发送。`,
+      }));
+      setExternalDispatchTasks((current) => current.map((item) => item.task_id === payload.task!.task_id ? payload.task! : item));
+    } catch (err) {
+      updateInlineWebReviewPlatform(profileId, (current) => ({
+        ...current,
+        loading: false,
+        feedback: err instanceof Error ? err.message : "重试投递失败",
+      }));
     }
   }
 
@@ -8935,6 +9428,69 @@ function DaweibaApp() {
     );
   }
 
+  function renderInlineWebReviewSetup(message: ChatMessage) {
+    if (!message.reviewSetup || !result) return null;
+    return (
+      <InlineReviewSetupCard
+        fileName={result.summary.output_excel.split(/[\\/]/).pop() || "当前填价成果.xlsx"}
+        jobId={result.job_id}
+        reviewRows={result.summary.review_rows ?? 0}
+        platforms={inlineWebReviewPlatforms.map((platform) => ({
+          profileId: platform.profileId,
+          label: platform.label,
+          configurationOk: platform.configurationOk,
+          enabled: platform.enabled,
+          expanded: platform.expanded,
+          directDeliveryAvailable: platform.options?.direct_delivery.status === "available",
+          deliveryChannels: platform.deliveryChannels,
+          groups: platform.options?.directory.groups ?? [],
+          group: platform.group,
+          people: inlineWebReviewPeople(platform),
+          selectedReviewers: platform.selectedReviewers,
+          task: platform.task,
+          loading: platform.loading,
+          feedback: platform.feedback,
+        } satisfies InlineReviewPlatformSetup))}
+        deadline={webReviewDeadline}
+        instructions={webReviewInstructions}
+        audienceConfirmed={webReviewAudienceConfirmed}
+        feedback={webReviewFeedback}
+        loading={isLoadingWebReview}
+        sending={isSendingWebReview}
+        newRoundConfirmationOpen={isWebReviewRoundConfirmationOpen}
+        onPlatformEnabledChange={toggleInlineWebReviewPlatform}
+        onPlatformExpandedChange={(profileId, expanded) => updateInlineWebReviewPlatform(profileId, (platform) => ({ ...platform, expanded }))}
+        onDeliveryChannelChange={toggleInlineWebReviewChannel}
+        onGroupChange={changeInlineWebReviewGroup}
+        onReviewerChange={toggleInlineWebReviewReviewer}
+        onDeadlineChange={setWebReviewDeadline}
+        onInstructionsChange={setWebReviewInstructions}
+        onAudienceConfirmedChange={setWebReviewAudienceConfirmed}
+        onRefresh={(profileId) => void loadInlineWebReviewOptions(profileId, true)}
+        onCancel={closeInlineWebReviewSetup}
+        onSubmit={() => void sendInlineWebResultReview()}
+        onRetry={(profileId) => void retryInlineWebReviewTask(profileId)}
+        onOpenNewRoundConfirmation={() => setIsWebReviewRoundConfirmationOpen(true)}
+        onCloseNewRoundConfirmation={() => setIsWebReviewRoundConfirmationOpen(false)}
+        onConfirmNewRound={() => void sendInlineWebResultReview()}
+      />
+    );
+  }
+
+  function renderInlineReviewProgress(message: ChatMessage) {
+    if (!message.reviewProgress) return null;
+    return (
+      <InlineReviewProgressCard
+        snapshot={message.reviewProgress}
+        refreshing={refreshingReviewProgressMessageId === message.id}
+        onRefresh={() => {
+          if (message.id) void refreshReviewProgressCard(message.id);
+        }}
+        onStartReview={() => void openInlineWebReviewSetup()}
+      />
+    );
+  }
+
   function renderZhisuanMessageBody(message: ChatMessage) {
     return (
       <div className="chat-message-body">
@@ -8965,6 +9521,8 @@ function DaweibaApp() {
             }}
           />
         )}
+        {message.role === "assistant" && !message.isTyping && renderInlineWebReviewSetup(message)}
+        {message.role === "assistant" && !message.isTyping && renderInlineReviewProgress(message)}
         {message.role === "assistant"
           && !message.isTyping
           && message.content === zhisuanWelcomeMessage
@@ -9149,6 +9707,8 @@ function DaweibaApp() {
     setChatInput("");
     setRowAiContext(null);
     setRowAiAnswer("");
+    setInlineWebReviewMessageId("");
+    setIsWebReviewRoundConfirmationOpen(false);
     setChatMessages([{
       id: makeZhisuanMessageId(),
       role: "assistant",
@@ -9365,6 +9925,7 @@ function DaweibaApp() {
       <button type="button" disabled={!result} onClick={() => { appendUserCommand("查看结果预览"); setActiveDaweibaModule("preview"); }}><FileSpreadsheet size={14} />结果预览</button>
       <button type="button" disabled={!hasCurrentReport} onClick={() => { appendUserCommand("查看 Word 预览"); setActiveDaweibaModule("report"); }}><FileText size={14} />Word 预览</button>
       <button type="button" disabled={!canDownloadOutputs || agentTaskBusy} onClick={() => void runZhisuanQuickCommand("send-review", "发送同事复核")}><Send size={14} />发送同事复核</button>
+      <button type="button" disabled={!result || agentTaskBusy} onClick={() => void runZhisuanQuickCommand("review-progress", "审核进度查询")}><Clock3 size={14} />审核进度查询</button>
     </>
   );
   const agentWorkspaceArtifacts = result ? (
@@ -12270,7 +12831,7 @@ function DaweibaApp() {
                       ) : (
                         chatMessages.map((message, index) => (
                           <div
-                            className={`chat-message ${message.role} ${message.role === "assistant" && !showZhisuanAssistantAvatar ? "is-avatar-hidden" : ""} ${message.source ? `source-${message.source}` : ""} ${message.isTyping ? "is-typing" : ""} ${message.feeAnalysis ? "has-fee-analysis" : ""}`}
+                            className={`chat-message ${message.role} ${message.role === "assistant" && !showZhisuanAssistantAvatar ? "is-avatar-hidden" : ""} ${message.source ? `source-${message.source}` : ""} ${message.isTyping ? "is-typing" : ""} ${message.feeAnalysis ? "has-fee-analysis" : ""} ${message.reviewSetup ? "has-review-setup" : ""} ${message.reviewProgress ? "has-review-progress" : ""}`}
                             key={message.id ?? `${message.role}-${index}`}
                             onClick={() => {
                               if (message.role === "assistant" && message.isTyping) {

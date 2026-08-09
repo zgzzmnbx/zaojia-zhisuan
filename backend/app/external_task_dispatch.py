@@ -1206,8 +1206,8 @@ class ExternalTaskDispatchService:
         unique_reviewer_refs = tuple(dict.fromkeys(str(item or "").strip() for item in reviewer_refs if str(item or "").strip()))
         if not clean_job_id or not clean_task_name or not clean_project_name or not clean_deadline or not clean_instructions:
             raise DispatchValidationError("网页成果复核缺少任务、项目、截止时间或复核说明")
-        if clean_mode not in {"group", "direct"}:
-            raise DispatchValidationError("网页成果复核投递方式必须是 group 或 direct")
+        if clean_mode not in DELIVERY_MODES:
+            raise DispatchValidationError("网页成果复核投递方式必须是 group、direct 或 mixed")
         if not unique_reviewer_refs:
             raise DispatchValidationError("至少选择一名复核人")
         if len(unique_reviewer_refs) > MAX_OUTBOUND_RECIPIENTS:
@@ -1230,12 +1230,13 @@ class ExternalTaskDispatchService:
             if not reviewer or not str(reviewer.get("display_name") or "").strip():
                 raise DispatchValidationError("存在未明确姓名或未完成平台映射的复核人", status_code=409)
             reviewers.append(reviewer)
-        if clean_mode == "direct" and not self.direct_delivery_verified:
+        delivery_channels = [channel for channel in ("group", "direct") if channel == clean_mode or clean_mode == "mixed"]
+        if "direct" in delivery_channels and not self.direct_delivery_verified:
             raise DispatchValidationError("当前机器人的主动单聊触达能力尚未完成验证", status_code=409)
 
         target_chat_id = ""
         target_chat_name = ""
-        if clean_mode == "group":
+        if "group" in delivery_channels:
             target_chat_id, target_chat_name = self.resolve_group_target(target_group_ref)
             enforce_outbound_audience_safety(
                 self.feishu,
@@ -1282,7 +1283,7 @@ class ExternalTaskDispatchService:
             temp_path = temp_dir / f"{uuid4().hex}.xlsx"
             temp_path.write_bytes(file_bytes)
             delivery_policy = normalize_delivery_policy(
-                {stage: [clean_mode] for stage in DELIVERY_STAGES},
+                {stage: delivery_channels for stage in DELIVERY_STAGES},
                 legacy_mode=clean_mode,
             )
             try:
@@ -1323,10 +1324,18 @@ class ExternalTaskDispatchService:
             return public_dispatch_task(task), True
 
         business_key = (
-            f"{WEB_REVIEW_SOURCE_SYSTEM}\n{clean_job_id}\n"
+            f"{WEB_REVIEW_SOURCE_SYSTEM}\n{clean_job_id}:{self.profile_id}\n"
             f"{WEB_REVIEW_EVENT_TYPE}:{result_hash}"
         )
         existing = self.store.find_business_task(business_key)
+        if not existing:
+            legacy_business_key = (
+                f"{WEB_REVIEW_SOURCE_SYSTEM}\n{clean_job_id}\n"
+                f"{WEB_REVIEW_EVENT_TYPE}:{result_hash}"
+            )
+            legacy_task = self.store.find_business_task(legacy_business_key)
+            if legacy_task and str(legacy_task.get("platform_profile_id") or "") == self.profile_id:
+                existing = legacy_task
         if existing:
             if str(existing.get("submission_delivery_status") or "") == "failed" or str(
                 existing.get("review_card_status") or ""
@@ -1341,13 +1350,13 @@ class ExternalTaskDispatchService:
         snapshot_path = snapshot_dir / safe_result_name
         snapshot_path.write_bytes(file_bytes)
         delivery_policy = normalize_delivery_policy(
-            {stage: [clean_mode] for stage in DELIVERY_STAGES},
+            {stage: delivery_channels for stage in DELIVERY_STAGES},
             legacy_mode=clean_mode,
         )
         now = feishu_app_bot.utc_now()
         values = {
             "task_id": task_id,
-            "event_id": f"web-review:{clean_job_id}:{result_hash[:12]}",
+            "event_id": f"web-review:{clean_job_id}:{self.profile_id}:{result_hash[:12]}",
             "message_id": f"web-review:{task_id}",
             "chat_id": "",
             "file_key": f"web-review:{task_id}:{result_hash[:12]}",

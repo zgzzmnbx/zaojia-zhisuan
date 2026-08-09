@@ -7,6 +7,8 @@ export type AgentWorkspaceMessage = {
   role: "system" | "user" | "assistant";
   source?: "model" | "system" | "command" | "thinking";
   isTyping?: boolean;
+  reviewSetup?: boolean;
+  reviewProgress?: unknown;
 };
 
 type Props<T extends AgentWorkspaceMessage> = {
@@ -98,7 +100,7 @@ export default function AgentMessageStream<T extends AgentWorkspaceMessage>({
             >
               {turn.map((message, messageIndex) => (
                 <article
-                  className={`agent-message ${message.role} ${message.source ? `source-${message.source}` : ""} ${message.isTyping ? "is-typing" : ""}`}
+                  className={`agent-message ${message.role} ${message.source ? `source-${message.source}` : ""} ${message.isTyping ? "is-typing" : ""} ${message.reviewSetup ? "has-review-setup" : ""} ${message.reviewProgress ? "has-review-progress" : ""}`}
                   key={message.id ?? `${message.role}-${turnIndex}-${messageIndex}`}
                   onClick={() => {
                     if (message.role === "assistant" && message.isTyping) onRevealMessage(message.id);

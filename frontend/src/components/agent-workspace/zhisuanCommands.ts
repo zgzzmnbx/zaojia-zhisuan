@@ -5,7 +5,8 @@ export type ZhisuanCommand =
   | "risk-report"
   | "download-excel"
   | "download-word"
-  | "send-review";
+  | "send-review"
+  | "review-progress";
 
 export function detectZhisuanCommand(message: string): ZhisuanCommand | null {
   const compact = message.replace(/\s+/g, "").toLowerCase();
@@ -25,5 +26,13 @@ export function detectZhisuanCommand(message: string): ZhisuanCommand | null {
   if (compact.includes("输出excel") || compact.includes("下载excel") || compact.includes("下载xlsx") || compact.includes("输出表格")) return "download-excel";
   if (compact.includes("输出word") || compact.includes("下载word") || compact.includes("下载docx") || compact.includes("输出报告")) return "download-word";
   if (compact === "发送同事复核" || compact === "发送给同事复核" || compact === "发给同事复核") return "send-review";
+  if (
+    compact === "审核进度查询" ||
+    compact === "查询审核进度" ||
+    compact === "复核进度查询" ||
+    compact === "查询复核进度" ||
+    compact === "审核到哪了" ||
+    compact === "复核到哪了"
+  ) return "review-progress";
   return null;
 }

@@ -100,6 +100,8 @@
 .agent-workspace__empty-prompts span { display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 42px; padding: 8px 10px; border: 1px solid var(--agent-line); border-radius: 8px; background: #fff; color: var(--agent-body); font-size: 12px; }
 .agent-workspace__empty-prompts svg { flex: 0 0 auto; color: #4f83d1; }
 .agent-message { display: block; width: min(820px, 100%); color: var(--agent-body); }
+.agent-message.has-review-setup,
+.agent-message.has-review-progress { width: 100%; }
 .agent-message.user { justify-self: end; width: auto; max-width: min(620px, 82%); }
 .agent-message__speaker { display: none; }
 .agent-message__body { min-width: 0; color: inherit; font-size: 15px; line-height: 1.72; }

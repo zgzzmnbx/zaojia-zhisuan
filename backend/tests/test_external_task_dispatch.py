@@ -551,6 +551,17 @@ def test_web_result_review_freezes_snapshot_and_only_sends_to_selected_reviewers
     assert stored["assignee_user_id"] == ""
     assert stored["_reviewers"][0]["status"] == "pending"
 
+    legacy_business_key = (
+        f"{external_task_dispatch.WEB_REVIEW_SOURCE_SYSTEM}\n"
+        "0123456789abcdef0123456789abcdef\n"
+        f"{external_task_dispatch.WEB_REVIEW_EVENT_TYPE}:{stored['submission_hash']}"
+    )
+    with store._connect() as connection:
+        connection.execute(
+            "UPDATE tasks SET business_key=? WHERE task_id=?",
+            (legacy_business_key, task["task_id"]),
+        )
+
     repeated, repeated_created = dispatch.create_web_result_review(
         job_id="0123456789abcdef0123456789abcdef",
         file_name="网页填价成果.xlsx",
@@ -567,6 +578,85 @@ def test_web_result_review_freezes_snapshot_and_only_sends_to_selected_reviewers
     assert repeated_created is False
     assert repeated["task_id"] == task["task_id"]
     assert len(feishu.files) == len(feishu.cards) == 1
+
+
+def test_web_result_review_supports_group_and_direct_channels_together(service):
+    dispatch, store, feishu, options = service
+    dispatch.direct_delivery_verified = True
+    group = options["directory"]["groups"][0]
+    reviewer = group["people"][0]
+
+    task, created = dispatch.create_web_result_review(
+        job_id="0123456789abcdef0123456789abcdea",
+        file_name="网页填价成果.xlsx",
+        file_bytes=xlsx_bytes(),
+        task_name="网页成果复核",
+        project_name="测试项目",
+        skill_id="survey-measurement-limit-price",
+        skill_version="1.0.0",
+        reviewer_refs=(reviewer["person_ref"],),
+        deadline="2026-08-01T18:00:00+08:00",
+        instructions="请复核。",
+        delivery_mode="mixed",
+        target_group_ref=group["group_ref"],
+    )
+
+    assert created is True
+    assert task["delivery_mode"] == "mixed"
+    assert task["delivery_policy"]["review_card"] == ["group", "direct"]
+    reviewer_id = store.get_person(reviewer["person_ref"], dispatch.profile_id)["platform_user_id"]
+    assert {(target, target_type) for target, target_type, _ in feishu.files} == {
+        ("chat-test", "chat_id"),
+        (reviewer_id, "open_id"),
+    }
+    assert {(target, target_type) for target, target_type, _ in feishu.cards} == {
+        ("chat-test", "chat_id"),
+        (reviewer_id, "open_id"),
+    }
+
+
+def test_web_result_review_is_idempotent_per_platform_profile(service):
+    first_dispatch, store, first_feishu, first_options = service
+    first_dispatch.direct_delivery_verified = True
+    second_feishu = FakeFeishu()
+    second_dispatch = external_task_dispatch.ExternalTaskDispatchService(
+        store=store,
+        registry=first_dispatch.registry,
+        feishu=second_feishu,
+        profile_id="weact_cost",
+        runtime_root=first_dispatch.runtime_root,
+        app_url="http://127.0.0.1:5174/",
+        direct_delivery_verified=True,
+    )
+    second_options = second_dispatch.options()
+    common = {
+        "job_id": "0123456789abcdef0123456789abcdeb",
+        "file_name": "网页填价成果.xlsx",
+        "file_bytes": xlsx_bytes(),
+        "task_name": "网页成果复核",
+        "project_name": "测试项目",
+        "skill_id": "survey-measurement-limit-price",
+        "skill_version": "1.0.0",
+        "deadline": "2026-08-01T18:00:00+08:00",
+        "instructions": "请复核。",
+        "delivery_mode": "direct",
+    }
+
+    first, first_created = first_dispatch.create_web_result_review(
+        **common,
+        reviewer_refs=(first_options["people"][0]["person_ref"],),
+    )
+    second, second_created = second_dispatch.create_web_result_review(
+        **common,
+        reviewer_refs=(second_options["people"][0]["person_ref"],),
+    )
+
+    assert first_created is True and second_created is True
+    assert first["task_id"] != second["task_id"]
+    assert first["platform"] == "weact"
+    assert second["platform"] == "weact_cost"
+    assert len(first_feishu.files) == len(first_feishu.cards) == 1
+    assert len(second_feishu.files) == len(second_feishu.cards) == 1
 
 
 def test_completed_web_result_review_can_start_one_idempotent_next_round(service):

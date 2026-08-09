@@ -13,6 +13,7 @@
     "sync:file-viewer-assets": "node scripts/sync-file-viewer-assets.mjs",
     "test:agent-workspace": "node --test tests/agentWorkspaceUtils.test.ts",
     "test:fee-analysis": "node --test tests/feeAnalysis.test.ts",
+    "test:review-progress": "node --test tests/reviewProgress.test.ts",
     "test:project-dashboard": "node --test tests/projectDashboardUtils.test.ts",
     "test:report-preview": "node --test tests/wordReportPreviewUtils.test.ts"
   },

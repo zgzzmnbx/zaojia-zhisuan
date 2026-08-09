@@ -15068,7 +15068,21 @@ tbody tr:hover .row-ai-cell {
   align-self: stretch;
 }
 
+.shell.layout-daweiba .ai-dock .chat-message.has-review-setup,
+.shell.layout-daweiba .ai-dock .chat-message.has-review-progress {
+  width: 100%;
+  max-width: 100%;
+  align-self: stretch;
+}
+
 .shell.layout-daweiba .ai-dock .chat-message.has-fee-analysis .chat-message-body {
+  width: 100%;
+  padding: 10px;
+}
+
+.shell.layout-daweiba .ai-dock .chat-message.has-review-setup .chat-message-body,
+.shell.layout-daweiba .ai-dock .chat-message.has-review-progress .chat-message-body {
+  box-sizing: border-box;
   width: 100%;
   padding: 10px;
 }
