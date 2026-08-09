@@ -62,6 +62,11 @@ import {
   type ZhisuanInlineMarkdownToken,
 } from "./utils/zhisuanInlineMarkdown";
 import { parseMarkdownTableAt } from "./utils/zhisuanMarkdownTable";
+import {
+  nextZhisuanMessageReveal,
+  type ZhisuanMessageRevealMode,
+  zhisuanMessageRevealDelay,
+} from "./utils/zhisuanMessageReveal";
 
 const ProjectDashboard = lazy(() => import("./components/project-dashboard/ProjectDashboard"));
 const SettlementAuditWorkbench = lazy(() => import("./components/settlement-audit/SettlementAuditWorkbench"));
@@ -78,7 +83,7 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.19.5";
+const APP_VERSION = "v5.19.6";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const PRICE_KNOWLEDGE_ROW_COUNT = 560;
 const FORCE_KNOWLEDGE_PREFIXES = ["查库：", "查库:", "#知识库"] as const;
@@ -623,6 +628,7 @@ type ChatMessage = {
   id?: string;
   displayContent?: string;
   isTyping?: boolean;
+  revealMode?: ZhisuanMessageRevealMode;
   source?: "model" | "system" | "command" | "thinking";
   processingStartedAt?: number;
   rowDetailContext?: RowAiContext;
@@ -2616,12 +2622,13 @@ function DaweibaApp() {
         && (message.displayContent ?? "").length < message.content.length,
     );
     if (!typingMessage) return undefined;
+    const revealMode = typingMessage.revealMode ?? "character";
     const timer = window.setTimeout(() => {
       setChatMessages((current) =>
         current.map((message) => {
           if (message.id !== typingMessage.id) return message;
           const currentText = message.displayContent ?? "";
-          const nextText = message.content.slice(0, currentText.length + 2);
+          const nextText = nextZhisuanMessageReveal(message.content, currentText, revealMode);
           return {
             ...message,
             displayContent: nextText,
@@ -2629,7 +2636,7 @@ function DaweibaApp() {
           };
         }),
       );
-    }, 24);
+    }, zhisuanMessageRevealDelay(revealMode));
     return () => window.clearTimeout(timer);
   }, [chatMessages]);
 
@@ -3269,6 +3276,18 @@ function DaweibaApp() {
     }
   }
 
+  function updateKnowledgeRetrievalMode(mode: KnowledgeRetrievalMode) {
+    const hybridAvailable = Boolean(
+      knowledgeRetrievalCapabilities?.available
+      && knowledgeRetrievalCapabilities.hybrid_enabled !== false
+      && knowledgeRetrievalCapabilities.index_ready,
+    );
+    if (mode === "hybrid" && !hybridAvailable) {
+      return;
+    }
+    setKnowledgeRetrievalMode(mode);
+  }
+
   async function saveUiPreferences(nextDraft: UiPreferences = uiPreferencesDraft): Promise<boolean> {
     setIsSavingUiPreferences(true);
     setError("");
@@ -3422,7 +3441,10 @@ function DaweibaApp() {
     } = {},
   ) {
     const id = makeZhisuanMessageId();
-    const shouldType = options.typing ?? true;
+    const revealMode: ZhisuanMessageRevealMode = options.feeAnalysis || options.knowledgeChart
+      ? "block"
+      : "character";
+    const shouldType = revealMode === "block" || (options.typing ?? true);
     setIsChatOpen(true);
     setChatMessages((current) => [
       ...current,
@@ -3432,6 +3454,7 @@ function DaweibaApp() {
         content,
         displayContent: shouldType ? "" : content,
         isTyping: shouldType,
+        revealMode,
         source,
         processingStartedAt: source === "thinking" ? performance.now() : undefined,
         rowDetailContext: options.rowDetailContext,
@@ -3471,26 +3494,28 @@ function DaweibaApp() {
       knowledgeChart?: KnowledgeDemoChartData;
     } = {},
   ) {
-    const shouldType = options.typing ?? true;
     setChatMessages((current) =>
-      current.map((message) =>
-        message.id === id
-          ? {
-              ...message,
-              content,
-              displayContent: shouldType ? "" : content,
-              isTyping: shouldType,
-              source,
-              rowDetailContext: options.rowDetailContext ?? message.rowDetailContext,
-              knowledgeCandidate: options.knowledgeCandidate ?? message.knowledgeCandidate,
-              knowledgeSources: options.knowledgeSources ?? message.knowledgeSources,
-              projectMemories: options.projectMemories ?? message.projectMemories,
-              llmDebug: options.llmDebug ?? message.llmDebug,
-              llmDebugAnswer: options.llmDebugAnswer ?? message.llmDebugAnswer,
-              knowledgeChart: options.knowledgeChart ?? message.knowledgeChart,
-            }
-          : message,
-      ),
+      current.map((message) => {
+        if (message.id !== id) return message;
+        const hasVisual = Boolean(options.knowledgeChart ?? message.knowledgeChart ?? message.feeAnalysis);
+        const revealMode: ZhisuanMessageRevealMode = hasVisual ? "block" : "character";
+        const shouldType = revealMode === "block" || (options.typing ?? true);
+        return {
+          ...message,
+          content,
+          displayContent: shouldType ? "" : content,
+          isTyping: shouldType,
+          revealMode,
+          source,
+          rowDetailContext: options.rowDetailContext ?? message.rowDetailContext,
+          knowledgeCandidate: options.knowledgeCandidate ?? message.knowledgeCandidate,
+          knowledgeSources: options.knowledgeSources ?? message.knowledgeSources,
+          projectMemories: options.projectMemories ?? message.projectMemories,
+          llmDebug: options.llmDebug ?? message.llmDebug,
+          llmDebugAnswer: options.llmDebugAnswer ?? message.llmDebugAnswer,
+          knowledgeChart: options.knowledgeChart ?? message.knowledgeChart,
+        };
+      }),
     );
     if (
       options.retrievalMode
@@ -8923,7 +8948,22 @@ function DaweibaApp() {
           <KnowledgeDemoChart chart={message.knowledgeChart} />
         )}
         {message.role === "assistant" && !message.isTyping && message.feeAnalysis && (
-          <ZhisuanFeeAnalysisCharts analysis={message.feeAnalysis} />
+          <ZhisuanFeeAnalysisCharts
+            analysis={message.feeAnalysis}
+            onStageReveal={() => {
+              const scrollBehavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+                ? "auto"
+                : "smooth";
+              chatLogRef.current?.scrollTo({
+                top: chatLogRef.current.scrollHeight,
+                behavior: scrollBehavior,
+              });
+              agentChatLogRef.current?.scrollTo({
+                top: agentChatLogRef.current.scrollHeight,
+                behavior: scrollBehavior,
+              });
+            }}
+          />
         )}
         {message.role === "assistant"
           && !message.isTyping
@@ -11710,17 +11750,7 @@ function DaweibaApp() {
               value={knowledgeRetrievalMode}
               capabilities={knowledgeRetrievalCapabilities}
               disabled={isKnowledgeLibrariesLoading}
-              onChange={(mode) => {
-                const hybridAvailable = Boolean(
-                  knowledgeRetrievalCapabilities?.available
-                  && knowledgeRetrievalCapabilities.hybrid_enabled !== false
-                  && knowledgeRetrievalCapabilities.index_ready,
-                );
-                if (mode === "hybrid" && !hybridAvailable) {
-                  return;
-                }
-                setKnowledgeRetrievalMode(mode);
-              }}
+              onChange={updateKnowledgeRetrievalMode}
             />
             <div className="daweiba-knowledge-grid">
               <div className="daweiba-knowledge-card is-primary">
@@ -13566,6 +13596,18 @@ function DaweibaApp() {
                   </div>
                   <p className="settings-hint">
                     用户偏好仅保存在本机运行目录，刷新页面后仍可恢复。
+                  </p>
+                </div>
+                <div className="settings-subsection">
+                  <span className="settings-subsection-title">知识库问答</span>
+                  <KnowledgeRetrievalModeSelector
+                    value={knowledgeRetrievalMode}
+                    capabilities={knowledgeRetrievalCapabilities}
+                    disabled={isKnowledgeLibrariesLoading}
+                    onChange={updateKnowledgeRetrievalMode}
+                  />
+                  <p className="settings-hint">
+                    与“知识库问答”页面同步，只影响知识问答检索；不改变 AI 填价、三个数字、经验池和报告计算。
                   </p>
                 </div>
                 <div className="settings-subsection">

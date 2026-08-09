@@ -1,9 +1,14 @@
-import type { CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { FeeAnalysis, FeeAnalysisItem } from "./feeAnalysis";
+import {
+  FEE_ANALYSIS_REVEAL_DELAYS_MS,
+  FEE_ANALYSIS_REVEAL_STAGE_COUNT,
+} from "./feeAnalysisReveal";
 import "./feeAnalysis.css";
 
 type Props = {
   analysis: FeeAnalysis;
+  onStageReveal?: () => void;
 };
 
 type DonutStyle = CSSProperties & {
@@ -125,45 +130,75 @@ function BarChart({ items, unit }: { items: FeeAnalysisItem[]; unit: string }) {
   );
 }
 
-export default function ZhisuanFeeAnalysisCharts({ analysis }: Props) {
+export default function ZhisuanFeeAnalysisCharts({ analysis, onStageReveal }: Props) {
+  const [revealStage, setRevealStage] = useState(0);
+  const onStageRevealRef = useRef(onStageReveal);
   const donutTotal = analysis.finalComposition.reduce((sum, item) => sum + item.value, 0);
+
+  useEffect(() => {
+    onStageRevealRef.current = onStageReveal;
+  }, [onStageReveal]);
+
+  useEffect(() => {
+    const notifyStageReveal = () => {
+      window.requestAnimationFrame(() => onStageRevealRef.current?.());
+    };
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setRevealStage(FEE_ANALYSIS_REVEAL_STAGE_COUNT);
+      notifyStageReveal();
+      return undefined;
+    }
+    const timers = FEE_ANALYSIS_REVEAL_DELAYS_MS.map((delay, index) => (
+      window.setTimeout(() => {
+        setRevealStage(index + 1);
+        notifyStageReveal();
+      }, delay)
+    ));
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, []);
+
   return (
-    <section className="fee-analysis" aria-label="费用构成分析">
-      <header className="fee-analysis__header">
+    <section
+      className="fee-analysis"
+      aria-busy={revealStage < FEE_ANALYSIS_REVEAL_STAGE_COUNT}
+      aria-label="费用构成分析"
+      data-reveal-stage={revealStage}
+    >
+      {revealStage >= 1 && <header className="fee-analysis__header fee-analysis__reveal">
         <div>
           <span className="fee-analysis__eyebrow">费用构成洞察</span>
-          <strong>从真实“费用汇总”生成</strong>
+          {revealStage >= 2 && <strong className="fee-analysis__reveal">从真实“费用汇总”生成</strong>}
         </div>
-        <span className="fee-analysis__source">{analysis.sourceSheet}</span>
-      </header>
+        {revealStage >= 2 && <span className="fee-analysis__source fee-analysis__reveal">{analysis.sourceSheet}</span>}
+      </header>}
 
-      <div className="fee-analysis__metrics" aria-label="费用关键指标">
+      {revealStage >= 3 && <div className="fee-analysis__metrics fee-analysis__reveal" aria-label="费用关键指标">
         <div><span>含税总额</span><strong>{formatAmount(analysis.totalWithTax ?? donutTotal)} <small>{analysis.unit}</small></strong></div>
-        <div><span>不含税</span><strong>{formatAmount(analysis.totalWithoutTax)} <small>{analysis.unit}</small></strong></div>
-        <div><span>增值税</span><strong>{formatAmount(analysis.vat)} <small>{analysis.unit}</small></strong></div>
-      </div>
+        {revealStage >= 4 && <div className="fee-analysis__reveal"><span>不含税</span><strong>{formatAmount(analysis.totalWithoutTax)} <small>{analysis.unit}</small></strong></div>}
+        {revealStage >= 5 && <div className="fee-analysis__reveal"><span>增值税</span><strong>{formatAmount(analysis.vat)} <small>{analysis.unit}</small></strong></div>}
+      </div>}
 
       <div className="fee-analysis__grid">
-        <article className="fee-analysis__panel">
+        {revealStage >= 6 && <article className="fee-analysis__panel fee-analysis__reveal">
           <div className="fee-analysis__panel-title">
             <div><strong>最终费用构成</strong><span>占含税总额</span></div>
             <span>环形图</span>
           </div>
           <DonutChart items={analysis.finalComposition} total={analysis.totalWithTax ?? donutTotal} unit={analysis.unit} />
-        </article>
+        </article>}
 
-        <article className="fee-analysis__panel">
+        {revealStage >= 7 && <article className="fee-analysis__panel fee-analysis__reveal">
           <div className="fee-analysis__panel-title">
             <div><strong>专业费用占比</strong><span>浮动前金额排序</span></div>
             <span>条形图</span>
           </div>
           <BarChart items={analysis.professionalComposition} unit={analysis.unit} />
-        </article>
+        </article>}
       </div>
 
-      <p className="fee-analysis__note">
+      {revealStage >= 8 && <p className="fee-analysis__note fee-analysis__reveal">
         口径：环形图展示“浮动后勘察费＋其他相关费用”的最终含税构成；条形图展示浮动前各专业费用，不重复叠加小计与合计。
-      </p>
+      </p>}
     </section>
   );
 }

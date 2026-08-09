@@ -2,6 +2,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { buildFeeAnalysis } from "../src/components/agent-workspace/feeAnalysis.ts";
+import {
+  FEE_ANALYSIS_REVEAL_DELAYS_MS,
+  FEE_ANALYSIS_REVEAL_STAGE_COUNT,
+  feeAnalysisRevealStageAt,
+} from "../src/components/agent-workspace/feeAnalysisReveal.ts";
 import { detectZhisuanCommand } from "../src/components/agent-workspace/zhisuanCommands.ts";
 
 const preview = {
@@ -67,9 +72,26 @@ test("animates fee charts on entry while respecting reduced motion", () => {
   assert.match(componentSource, /--fee-animation-delay/);
   assert.match(componentSource, /--fee-animation-duration/);
   assert.match(componentSource, /animationTimelineMs = 1500/);
+  assert.match(componentSource, /FEE_ANALYSIS_REVEAL_DELAYS_MS\.map/);
+  assert.match(componentSource, /matchMedia\("\(prefers-reduced-motion: reduce\)"\)/);
+  assert.match(componentSource, /setRevealStage\(FEE_ANALYSIS_REVEAL_STAGE_COUNT\)/);
   assert.match(stylesheet, /@keyframes fee-analysis-donut-fill/);
   assert.match(stylesheet, /@keyframes fee-analysis-bar-fill/);
   assert.match(stylesheet, /@media \(prefers-reduced-motion: no-preference\)/);
   assert.match(stylesheet, /@media \(prefers-reduced-motion: reduce\)/);
   assert.match(stylesheet, /--fee-animation-duration, 1500ms/);
+});
+
+test("reveals fee insight modules from top to bottom", () => {
+  assert.equal(FEE_ANALYSIS_REVEAL_STAGE_COUNT, 8);
+  assert.deepEqual([...FEE_ANALYSIS_REVEAL_DELAYS_MS].sort((left, right) => left - right), [
+    ...FEE_ANALYSIS_REVEAL_DELAYS_MS,
+  ]);
+  assert.equal(feeAnalysisRevealStageAt(0), 0);
+  assert.equal(feeAnalysisRevealStageAt(180), 1);
+  assert.equal(feeAnalysisRevealStageAt(820), 3);
+  assert.equal(feeAnalysisRevealStageAt(1340), 5);
+  assert.equal(feeAnalysisRevealStageAt(1680), 6);
+  assert.equal(feeAnalysisRevealStageAt(2280), 7);
+  assert.equal(feeAnalysisRevealStageAt(2780), 8);
 });

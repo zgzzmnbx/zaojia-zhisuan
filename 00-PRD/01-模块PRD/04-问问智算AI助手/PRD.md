@@ -22,7 +22,7 @@
 | [待开发] | P1：事件驱动知识候选 | 从人工改值及原因、复核闭环意见、问答纠错、风险关闭和项目结项中自动提取结构化候选 | “自动”只负责发现和预填候选；敏感知识、项目知识和冲突项仍须人工确认 |
 | [待开发] | P1：项目记忆胶囊与可解释复用 | 为每个项目形成 Skill / 版本、关键口径、例外、风险处置、复核意见和成果版本摘要 | 同项目可按权限复用；跨项目必须另行提升为专业 / 通用知识并重新审核，引用时展示来源和适用条件 |
 | [待开发] | P1：记忆失效治理与成效度量 | 正式依据或 Skill 版本变化后批量扫描冲突；统计候选、确认、撤销、复用和纠错情况 | 过期或疑似冲突立即停止参与回答；指标只使用真实审计数据，不估算虚假节省工时 |
-| [进行中] | 回答体验、集中配置与模型安全边界 | v5.19.5 已完成 classic / hybrid 双模式、个人偏好、消息实际模式冻结、通道与降级轨迹；继续优化等待阶段、Markdown / 表格、常见问题、窗口默认值和虚拟形象状态 | API Key 不进前端和代码存档；模型故障不阻断 Excel、预警、报告和下载；hybrid 仍只影响知识问答 |
+| [进行中] | 回答体验、集中配置与模型安全边界 | v5.19.5 已完成 classic / hybrid 双模式、个人偏好、消息实际模式冻结、通道与降级轨迹；v5.19.6 将含图表回答改为按段呈现，费用洞察分八阶段展开并自动跟随底部，减少动态效果时立即完整展示；继续优化等待阶段、常见问题、窗口默认值和虚拟形象状态 | Markdown、列表和图表说明不被逐字动画割裂；API Key 不进前端和代码存档；模型故障不阻断 Excel、预警、报告和下载；hybrid 仍只影响知识问答 |
 | [进行中] | 企业身份、授权范围与 WeAct 提醒 | 当前已有本地操作人、确认角色和审计，尚未接入企业登录、项目授权与安全提醒 | 明确“本地试点身份不等于企业认证”；WeAct 只提醒和跳转，不在消息内批准正式知识 |
 
 ## 关联资产
@@ -39,6 +39,8 @@
 | 后端测试 | `backend/tests/test_governance_fill_assist.py` | 验证待复核行和经验池偏离能汇总为结构化风险项 |
 | 知识记忆测试 | `backend/tests/test_knowledge_memory.py` | 验证类型审核、去重、冲突、更正、提升通用、确认、撤销、过期、项目隔离、审计、问答接入和故障降级 |
 | 前端助手 | `frontend/src/App.tsx` | 右侧“问问智算”Dock、快捷指令和行级 AI填价入口 |
+| 回答渐进呈现 | `frontend/src/utils/zhisuanMessageReveal.ts`、`frontend/src/components/agent-workspace/ZhisuanFeeAnalysisCharts.tsx`、`frontend/src/components/agent-workspace/feeAnalysisReveal.ts` | 区分普通文本逐字呈现与图表回答按段呈现，并组织费用洞察八阶段展开、自动跟随和减少动态效果降级 |
+| 回答呈现测试 | `frontend/tests/zhisuanMessageReveal.test.ts`、`frontend/tests/feeAnalysis.test.ts` | 验证段落边界、普通文本节奏、八阶段时序和减少动态效果实现 |
 | 检索模式选择 | `frontend/src/components/knowledge/KnowledgeRetrievalModeSelector.tsx`、`frontend/src/components/knowledge/knowledgeRetrievalMode.ts` | classic / hybrid 分段按钮、能力禁用、个人偏好规范化和历史轨迹展示 |
 | 演示题与图表 | `frontend/src/components/knowledge/knowledgeDemoQuestions.ts`、`frontend/src/components/knowledge/KnowledgeDemoChart.tsx` | 演示题识别、低对比蓝点与结构化柱状图 |
 | 前端样式 | `frontend/src/styles.css` | AI Dock、消息、等待态和设置界面样式 |

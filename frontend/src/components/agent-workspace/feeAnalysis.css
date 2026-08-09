@@ -11,6 +11,10 @@
   container-type: inline-size;
 }
 
+.fee-analysis__reveal {
+  animation: fee-analysis-module-reveal 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
 .fee-analysis__header,
 .fee-analysis__panel-title,
 .fee-analysis__bar-meta,
@@ -142,6 +146,17 @@
   from { stroke-dasharray: 0 100; }
 }
 
+@keyframes fee-analysis-module-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(7px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @keyframes fee-analysis-bar-fill {
   from { transform: scaleX(0); }
   to { transform: scaleX(1); }
@@ -199,6 +214,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .fee-analysis__reveal {
+    animation: none;
+  }
+
   .fee-analysis .fee-analysis__donut .fee-analysis__donut-segment {
     animation: fee-analysis-donut-fill var(--fee-animation-duration, 1500ms) linear var(--fee-animation-delay, 0ms) both !important;
   }
