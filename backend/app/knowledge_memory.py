@@ -152,6 +152,9 @@ class KnowledgeMemoryStore:
                 source_type TEXT NOT NULL,
                 source_reference TEXT NOT NULL,
                 evidence_summary TEXT NOT NULL DEFAULT '',
+                source_event_id TEXT NOT NULL DEFAULT '',
+                source_project_id TEXT NOT NULL DEFAULT '',
+                source_metadata_json TEXT NOT NULL DEFAULT '{}',
                 submitter TEXT NOT NULL,
                 confirmer TEXT,
                 status TEXT NOT NULL,
@@ -201,6 +204,9 @@ class KnowledgeMemoryStore:
             ("review_policy", "TEXT NOT NULL DEFAULT 'legacy'"),
             ("review_reason", "TEXT NOT NULL DEFAULT ''"),
             ("parent_relation", "TEXT NOT NULL DEFAULT ''"),
+            ("source_event_id", "TEXT NOT NULL DEFAULT ''"),
+            ("source_project_id", "TEXT NOT NULL DEFAULT ''"),
+            ("source_metadata_json", "TEXT NOT NULL DEFAULT '{}'"),
         ):
             if name not in columns:
                 connection.execute(f"ALTER TABLE knowledge_items ADD COLUMN {name} {definition}")
@@ -236,10 +242,14 @@ class KnowledgeMemoryStore:
                 raise KnowledgeMemoryError(f"请填写{label}")
         expires_at = _normalize_optional_datetime(payload.get("expires_at"), "expires_at")
         knowledge_type = classify_knowledge_type(payload)
+        source_event_id = str(payload.get("source_event_id") or "").strip()
+        source_project_id = str(payload.get("source_project_id") or "").strip()
+        source_metadata_json = _source_metadata_json(payload.get("source_metadata"))
         review_policy, review_reason = self._resolve_review_policy(
             scope_type,
             knowledge_type,
             conflicts=[],
+            event_sourced=bool(source_event_id),
         )
         now = _utc_now()
         item_id = f"KM-{uuid4().hex[:12].upper()}"
@@ -264,6 +274,9 @@ class KnowledgeMemoryStore:
             "source_type": values["source_type"],
             "source_reference": values["source_reference"],
             "evidence_summary": str(payload.get("evidence_summary") or "").strip(),
+            "source_event_id": source_event_id,
+            "source_project_id": source_project_id,
+            "source_metadata_json": source_metadata_json,
             "submitter": values["submitter"],
             "confirmer": None,
             "status": "candidate",
@@ -300,6 +313,7 @@ class KnowledgeMemoryStore:
                 scope_type,
                 knowledge_type,
                 conflicts=analysis["conflicts"],
+                event_sourced=bool(source_event_id),
             )
             item["review_policy"] = review_policy
             item["review_reason"] = review_reason
@@ -309,13 +323,15 @@ class KnowledgeMemoryStore:
                     id,parent_id,parent_relation,project_key,project_name,scope_type,knowledge_type,
                     review_policy,review_reason,task_id,job_id,
                     title,question,conclusion,conditions,exceptions,expires_at,
-                    source_type,source_reference,evidence_summary,submitter,confirmer,
+                    source_type,source_reference,evidence_summary,
+                    source_event_id,source_project_id,source_metadata_json,submitter,confirmer,
                     status,version,created_at,updated_at,confirmed_at,revoked_at
                 ) VALUES (
                     :id,:parent_id,:parent_relation,:project_key,:project_name,:scope_type,:knowledge_type,
                     :review_policy,:review_reason,:task_id,:job_id,
                     :title,:question,:conclusion,:conditions,:exceptions,:expires_at,
-                    :source_type,:source_reference,:evidence_summary,:submitter,:confirmer,
+                    :source_type,:source_reference,:evidence_summary,
+                    :source_event_id,:source_project_id,:source_metadata_json,:submitter,:confirmer,
                     :status,:version,:created_at,:updated_at,:confirmed_at,:revoked_at
                 )
                 """,
@@ -583,6 +599,7 @@ class KnowledgeMemoryStore:
                     next_item["scope_type"],
                     next_item["knowledge_type"],
                     conflicts=[],
+                    event_sourced=bool(next_item.get("source_event_id")),
                 )
                 updates["review_policy"] = policy
                 updates["review_reason"] = policy_reason
@@ -773,9 +790,12 @@ class KnowledgeMemoryStore:
         knowledge_type: str,
         *,
         conflicts: list[dict[str, Any]],
+        event_sourced: bool = False,
     ) -> tuple[str, str]:
         if scope_type != "general":
             return "manual_review", "项目或任务知识需人工确认"
+        if event_sourced:
+            return "manual_review", "事件来源知识提升为通用候选后必须再次人工确认"
         if conflicts:
             return "manual_review", "检测到同范围已有知识结论可能冲突"
         if knowledge_type in self.auto_approve_types:
@@ -968,7 +988,50 @@ def _require_project_key(value: object) -> str:
 
 
 def _row_dict(row: sqlite3.Row) -> dict[str, Any]:
-    return {key: row[key] for key in row.keys()}
+    item = {key: row[key] for key in row.keys()}
+    if "source_metadata_json" in item:
+        try:
+            metadata = json.loads(str(item.get("source_metadata_json") or "{}"))
+        except (TypeError, json.JSONDecodeError):
+            metadata = {}
+        item["source_metadata"] = metadata if isinstance(metadata, dict) else {}
+    return item
+
+
+def _source_metadata_json(value: object) -> str:
+    if not isinstance(value, dict):
+        return "{}"
+    allowed = {
+        "event_type",
+        "classification_status",
+        "project_id",
+        "task_id",
+        "skill_id",
+        "skill_version",
+        "sheet_name",
+        "row_number",
+        "field_name",
+        "artifact_version",
+        "artifact_hash",
+        "reviewer_name",
+        "review_round",
+    }
+    sanitized: dict[str, Any] = {}
+    for key in allowed:
+        raw = value.get(key)
+        if raw is None:
+            continue
+        if key in {"row_number", "review_round"}:
+            try:
+                sanitized[key] = max(0, int(raw))
+            except (TypeError, ValueError):
+                continue
+            continue
+        text = str(raw).replace("\x00", "").strip()
+        if re.match(r"^[a-zA-Z]:[\\/]", text) or text.startswith(("/", "\\\\")):
+            continue
+        sanitized[key] = text[:240]
+    return json.dumps(sanitized, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
 def _optional_text(value: object) -> str | None:

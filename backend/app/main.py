@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 import sqlite3
@@ -67,6 +68,7 @@ from .knowledge_memory import (
     normalize_project_key,
     search_confirmed_project_memory,
 )
+from .trusted_experience import TrustedExperienceError, TrustedExperienceStore
 from .experience_warning import (
     DEFAULT_SELECTED_EXPERIENCE_FIELDS,
     DEFAULT_HIGH_RISK_WARNING_PERCENT,
@@ -153,7 +155,7 @@ from .professional_skills import (
 from .report import append_risk_report, write_report
 
 
-APP_VERSION = "v5.19.7"
+APP_VERSION = "v5.20.0"
 # `/api/health.version` 是旧版运行器的兼容字段；当前发布版本通过
 # `release_version` 返回，避免旧客户端在小版本升级时误判服务不可用。
 HEALTH_API_COMPAT_VERSION = "v5.19.4"
@@ -1405,6 +1407,7 @@ async def update_preview_cell(payload: dict[str, object] = Body(...)) -> dict[st
         header_rows=header_rows,
         edit_source=str(payload.get("edit_source") or "manual"),
         edit_note=str(payload.get("edit_note") or "").strip(),
+        edit_actor=str(payload.get("actor") or "本机试点用户").strip(),
         candidate_meta=payload.get("candidate_meta") if isinstance(payload.get("candidate_meta"), dict) else None,
     )
     _append_manual_edit_log(job_dir, edit_record)
@@ -1435,6 +1438,13 @@ async def update_preview_cell(payload: dict[str, object] = Body(...)) -> dict[st
     summary.output_excel = excel_path.name
     summary.output_report = report_path.name if report_path else str(state.get("output_report") or "")
     _save_process_state(job_dir, input_name, input_path, excel_path, report_path, summary)
+    trusted_experience = _capture_manual_edit_experience(
+        job_dir,
+        state=_load_process_state(job_dir),
+        runtime_context=runtime_context,
+        excel_path=excel_path,
+        edit_record=edit_record,
+    )
 
     return _attach_job_skill({
         "job_id": job_id,
@@ -1447,6 +1457,7 @@ async def update_preview_cell(payload: dict[str, object] = Body(...)) -> dict[st
         "manual_edits": _load_manual_edit_log(job_dir),
         "formula_recalculated": recalculated,
         "needs_recalculate": not should_recalculate,
+        "trusted_experience": trusted_experience,
     }, job_dir)
 
 
@@ -2340,6 +2351,7 @@ async def knowledge_search(payload: dict[str, Any] = Body(...)) -> dict[str, obj
         )
     else:
         project_memories, memory_available = [], True
+    memory_hit_audit = _record_trusted_memory_hits(project_memories, payload)
     if project_memories and retrieval_trace.get("evidence_status") == "insufficient":
         retrieval_trace = {**retrieval_trace, "evidence_status": "memory_only", "evidence_sufficient": True}
     return {
@@ -2353,6 +2365,7 @@ async def knowledge_search(payload: dict[str, Any] = Body(...)) -> dict[str, obj
         "project_memories": project_memories,
         "memory_available": memory_available,
         "memory_enabled": selection.memory_enabled,
+        "memory_hit_audit": memory_hit_audit,
         "selected_library_ids": list(selection.selected_ids),
         "selected_libraries": _selected_library_payload(selection),
         "professional_skill": skill_snapshot,
@@ -2425,6 +2438,7 @@ async def knowledge_ask(payload: dict[str, Any] = Body(...)) -> dict[str, object
         )
     else:
         project_memories, memory_available = [], True
+    memory_hit_audit = _record_trusted_memory_hits(project_memories, payload)
     if project_memories and retrieval_trace.get("evidence_status") == "insufficient":
         retrieval_trace = {**retrieval_trace, "evidence_status": "memory_only", "evidence_sufficient": True}
     has_ranked_candidates = bool(
@@ -2447,6 +2461,7 @@ async def knowledge_ask(payload: dict[str, Any] = Body(...)) -> dict[str, object
             "project_key": project_key or None,
             "memory_available": memory_available,
             "memory_enabled": selection.memory_enabled,
+            "memory_hit_audit": memory_hit_audit,
             "evidence_found": False,
             "forced_knowledge": force_knowledge,
             "debug": None,
@@ -2501,6 +2516,7 @@ async def knowledge_ask(payload: dict[str, Any] = Body(...)) -> dict[str, object
         "project_key": project_key or None,
         "memory_available": memory_available,
         "memory_enabled": selection.memory_enabled,
+        "memory_hit_audit": memory_hit_audit,
         "selected_library_ids": list(selection.selected_ids),
         "selected_libraries": _selected_library_payload(selection),
         "professional_skill": skill_snapshot,
@@ -2691,6 +2707,85 @@ async def get_knowledge_memory_audit(
     return {"item_id": item_id, "audit": audit}
 
 
+@app.get("/api/trusted-experience/events")
+async def list_trusted_experience_events(
+    project_id: str = Query(default=""),
+    task_id: str = Query(default=""),
+    limit: int = Query(default=100),
+) -> dict[str, object]:
+    try:
+        items = _trusted_experience_store().list_events(
+            project_id=project_id,
+            task_id=task_id,
+            limit=limit,
+        )
+    except Exception as exc:
+        raise _trusted_experience_http_error(exc) from exc
+    return {"items": items, "count": len(items)}
+
+
+@app.get("/api/trusted-experience/events/{event_id}")
+async def get_trusted_experience_event(event_id: str) -> dict[str, object]:
+    try:
+        return {"event": _trusted_experience_store().get_event(event_id)}
+    except Exception as exc:
+        raise _trusted_experience_http_error(exc) from exc
+
+
+@app.post("/api/trusted-experience/events/{event_id}/retry")
+async def retry_trusted_experience_event(
+    event_id: str,
+    payload: dict[str, Any] = Body(default={}),
+) -> dict[str, object]:
+    try:
+        result = _trusted_experience_store().retry_event(
+            event_id,
+            memory_store=_knowledge_memory_store(),
+            actor=str(payload.get("actor") or "事件审计重试"),
+        )
+    except Exception as exc:
+        raise _trusted_experience_http_error(exc) from exc
+    return result
+
+
+@app.get("/api/trusted-experience/capsules/{project_id}")
+async def get_trusted_experience_capsule(project_id: str) -> dict[str, object]:
+    try:
+        capsule = _trusted_experience_store().get_capsule(project_id)
+    except Exception as exc:
+        raise _trusted_experience_http_error(exc) from exc
+    return {
+        "capsule": capsule,
+        "empty_state": capsule is None,
+        "message": "该项目尚未生成记忆胶囊。" if capsule is None else "",
+    }
+
+
+@app.post("/api/trusted-experience/capsules/{project_id}/refresh")
+async def refresh_trusted_experience_capsule(project_id: str) -> dict[str, object]:
+    try:
+        project = _project_ledger().project_detail(project_id)
+        capsule = _trusted_experience_store().refresh_capsule(
+            project,
+            memory_store=_knowledge_memory_store(),
+        )
+    except (ProjectNotFoundError, ProjectLedgerError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise _trusted_experience_http_error(exc) from exc
+    return {"capsule": capsule, "refreshed": True}
+
+
+@app.get("/api/trusted-experience/metrics")
+async def get_trusted_experience_metrics(
+    project_id: str = Query(default=""),
+) -> dict[str, object]:
+    try:
+        return _trusted_experience_store().metrics(project_id=project_id)
+    except Exception as exc:
+        raise _trusted_experience_http_error(exc) from exc
+
+
 def _knowledge_memory_store() -> KnowledgeMemoryStore:
     settings = _project_knowledge_memory_defaults()
     return KnowledgeMemoryStore(
@@ -2698,6 +2793,20 @@ def _knowledge_memory_store() -> KnowledgeMemoryStore:
         auto_approve_types=set(settings["autoApproveTypes"]),
         duplicate_threshold=float(settings["duplicateSimilarityThreshold"]),
     )
+
+
+def _trusted_experience_store() -> TrustedExperienceStore:
+    return TrustedExperienceStore(DEFAULT_KNOWLEDGE_MEMORY_DB_PATH)
+
+
+def _trusted_experience_http_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, TrustedExperienceError):
+        return HTTPException(status_code=400, detail=str(exc))
+    if isinstance(exc, (OSError, sqlite3.Error)):
+        return HTTPException(status_code=503, detail="可信经验审计暂不可用，专业业务结果不受影响")
+    if isinstance(exc, KnowledgeMemoryError):
+        return _knowledge_memory_http_error(exc)
+    return HTTPException(status_code=500, detail="可信经验操作失败")
 
 
 def _knowledge_memory_transition(
@@ -2735,6 +2844,28 @@ def _safe_search_project_memories(
         return _filter_project_memories_for_question(question, memories), True
     except (OSError, sqlite3.Error):
         return [], False
+
+
+def _record_trusted_memory_hits(
+    memories: list[dict[str, Any]],
+    payload: dict[str, Any],
+) -> dict[str, object]:
+    if not memories:
+        return {"recorded": 0, "available": True, "warning": ""}
+    try:
+        records = _trusted_experience_store().record_memory_hits(
+            memories,
+            target_project_id=str(payload.get("project_id") or "").strip(),
+            target_project_key=str(payload.get("project_key") or "").strip(),
+        )
+        return {"recorded": len(records), "available": True, "warning": ""}
+    except (OSError, sqlite3.Error, TrustedExperienceError) as exc:
+        return {
+            "recorded": 0,
+            "available": False,
+            "warning": "知识问答已返回，但可信经验命中审计暂不可用，可重试本次查询。",
+            "error_type": type(exc).__name__,
+        }
 
 
 def _filter_project_memories_for_question(
@@ -3686,6 +3817,90 @@ def _append_manual_edit_log(job_dir: Path, record: dict[str, object]) -> None:
     )
 
 
+def _capture_manual_edit_experience(
+    job_dir: Path,
+    *,
+    state: dict[str, object],
+    runtime_context: SkillRuntimeContext,
+    excel_path: Path,
+    edit_record: dict[str, object],
+) -> dict[str, object]:
+    if edit_record.get("original_value") == edit_record.get("new_value"):
+        return {
+            "status": "no_change",
+            "captured": False,
+            "retryable": False,
+            "message": "原值与新值相同，未生成知识候选。",
+        }
+    project_relation = state.get("project_relation") if isinstance(state.get("project_relation"), dict) else {}
+    project_id = str(state.get("project_id") or project_relation.get("project_id") or "").strip()
+    project_name = str(state.get("project_name") or project_relation.get("project_name") or "").strip()
+    artifact_version = str(project_relation.get("run_id") or state.get("updated_at") or "").strip()
+    event_basis = {
+        "task_id": job_dir.name,
+        "sheet": edit_record.get("sheet"),
+        "row": edit_record.get("row_number"),
+        "column": edit_record.get("column_number"),
+        "old": edit_record.get("original_value"),
+        "new": edit_record.get("new_value"),
+    }
+    event_key = "cell-edit:" + hashlib.sha256(
+        json.dumps(event_basis, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()
+    field_name = str(edit_record.get("header") or "").strip()
+    knowledge_type = (
+        "price_factor"
+        if any(token in field_name for token in ("基价", "单价", "价格", "系数", "费率", "金额"))
+        else "project_rule"
+    )
+    try:
+        result = TrustedExperienceStore(
+            job_dir.parent / DEFAULT_KNOWLEDGE_MEMORY_DB_PATH.name
+        ).capture_event(
+            {
+                "event_key": event_key,
+                "event_type": "cell_edit",
+                "project_id": project_id,
+                "project_name": project_name,
+                "task_id": job_dir.name,
+                "skill_id": runtime_context.skill_id,
+                "skill_version": runtime_context.skill_version,
+                "sheet_name": edit_record.get("sheet"),
+                "row_number": edit_record.get("row_number"),
+                "field_name": field_name,
+                "old_value": edit_record.get("original_value"),
+                "new_value": edit_record.get("new_value"),
+                "reason": edit_record.get("note"),
+                "artifact_version": artifact_version,
+                "artifact_hash": hashlib.sha256(excel_path.read_bytes()).hexdigest(),
+                "actor": edit_record.get("actor") or "本机试点用户",
+                "knowledge_type": knowledge_type,
+                "evidence_summary": "人工改单元格成功落盘后自动形成的待审核经验候选。",
+            },
+            memory_store=KnowledgeMemoryStore(
+                job_dir.parent / DEFAULT_KNOWLEDGE_MEMORY_DB_PATH.name,
+                auto_approve_types=set(_project_knowledge_memory_defaults()["autoApproveTypes"]),
+                duplicate_threshold=float(_project_knowledge_memory_defaults()["duplicateSimilarityThreshold"]),
+            ),
+        )
+        return {
+            "status": result["status"],
+            "captured": bool(result.get("event")),
+            "retryable": False,
+            "event_id": (result.get("event") or {}).get("id"),
+            "candidate_id": (result.get("candidate") or {}).get("id"),
+            "classification_status": (result.get("event") or {}).get("classification_status"),
+        }
+    except (OSError, sqlite3.Error, TrustedExperienceError, KnowledgeMemoryError) as exc:
+        return {
+            "status": "capture_failed",
+            "captured": False,
+            "retryable": True,
+            "warning": "改单已成功保存，但可信经验候选捕获失败；可从事件审计重试。",
+            "error_type": type(exc).__name__,
+        }
+
+
 def _apply_manual_edit_to_table_preview(
     table_preview: dict[str, object],
     record: dict[str, object],
@@ -3767,6 +3982,7 @@ def _write_preview_cell_edit(
     header_rows: dict[str, int],
     edit_source: str = "manual",
     edit_note: str = "",
+    edit_actor: str = "本机试点用户",
     candidate_meta: dict[str, object] | None = None,
 ) -> dict[str, object]:
     workbook = load_workbook(output_excel)
@@ -3817,6 +4033,7 @@ def _write_preview_cell_edit(
             "updated_at": updated_at,
             "source": edit_source,
             "note": edit_note,
+            "actor": edit_actor or "本机试点用户",
         }
         if candidate_meta:
             record["candidate"] = {

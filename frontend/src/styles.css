@@ -3795,16 +3795,91 @@ h2 {
 .knowledge-memory-modal {
   width: min(1080px, 100%);
   max-height: min(92vh, 860px);
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: none;
+  font-family: var(--dws-font-family-ui);
+  font-size: var(--dws-font-size-14);
+  line-height: 1.55;
+}
+
+.unified-memory-settings-content.knowledge-memory-modal {
+  width: 100%;
+  max-height: none;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.knowledge-memory-modal :is(button, input, select, textarea) {
+  font-family: inherit;
+}
+
+.knowledge-memory-modal :is(button, input, select) {
+  font-size: var(--dws-font-size-13);
+  line-height: 1.4;
+}
+
+.knowledge-memory-modal .modal-title strong {
+  font-size: var(--dws-font-size-16);
+  line-height: 1.4;
+}
+
+.knowledge-memory-modal .modal-title small {
+  font-size: var(--dws-font-size-12);
+  line-height: 1.5;
 }
 
 .knowledge-memory-modal label > span {
-  font-size: 12px;
+  font-size: var(--dws-font-size-12);
   line-height: 1.35;
 }
 
 .knowledge-memory-modal :is(input, select, textarea) {
-  font-size: 13px;
+  font-size: var(--dws-font-size-13);
   line-height: 1.4;
+}
+
+.knowledge-memory-segments {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 14px;
+  padding: 4px;
+  overflow-x: auto;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.knowledge-memory-segments > button {
+  display: inline-flex;
+  flex: 1 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 6px 12px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--dws-font-size-13);
+  font-weight: 600;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.knowledge-memory-segments > button:hover,
+.knowledge-memory-segments > button:focus-visible {
+  color: var(--ink);
+  background: #ffffff;
+}
+
+.knowledge-memory-segments > button.is-active {
+  border-color: var(--line-soft);
+  background: #ffffff;
+  color: var(--primary);
 }
 
 .knowledge-memory-form-grid,
@@ -3880,13 +3955,15 @@ h2 {
 
 .knowledge-memory-list > button strong,
 .knowledge-memory-detail-head strong {
-  font-size: 14px;
+  font-size: var(--dws-font-size-14);
+  line-height: 1.5;
 }
 
 .knowledge-memory-list > button small,
 .knowledge-memory-detail-head small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--dws-font-size-12);
+  line-height: 1.5;
 }
 
 .knowledge-memory-status {
@@ -3898,8 +3975,9 @@ h2 {
   border-radius: 999px;
   background: #ffffff;
   color: #475569;
-  font-size: 11px;
+  font-size: var(--dws-font-size-12);
   font-weight: 700;
+  line-height: 1.4;
 }
 
 .knowledge-memory-status.is-confirmed {
@@ -3964,14 +4042,15 @@ h2 {
 
 .knowledge-memory-detail dt {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--dws-font-size-12);
   font-weight: 700;
+  line-height: 1.5;
 }
 
 .knowledge-memory-detail dd {
   margin: 0;
   color: var(--ink);
-  font-size: 13px;
+  font-size: var(--dws-font-size-13);
   line-height: 1.55;
   white-space: pre-wrap;
 }
@@ -3989,7 +4068,8 @@ h2 {
   gap: 10px;
   align-items: baseline;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--dws-font-size-12);
+  line-height: 1.5;
 }
 
 .knowledge-memory-audit b {
@@ -3999,8 +4079,203 @@ h2 {
 .knowledge-memory-empty {
   padding: 28px 18px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--dws-font-size-13);
+  line-height: 1.55;
   text-align: center;
+}
+
+.knowledge-memory-audit-link {
+  margin-left: auto;
+}
+
+.knowledge-memory-evolution-panel {
+  display: grid;
+  gap: 16px;
+  min-height: 430px;
+  padding: 18px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: #ffffff;
+  align-content: start;
+}
+
+.knowledge-memory-evolution-panel > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.knowledge-memory-evolution-panel > header > span {
+  display: grid;
+  gap: 4px;
+}
+
+.knowledge-memory-evolution-panel > header strong,
+.knowledge-memory-reference-list > strong {
+  color: var(--ink);
+  font-size: var(--dws-font-size-16);
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.knowledge-memory-evolution-panel > header small {
+  color: var(--muted);
+  font-size: var(--dws-font-size-12);
+  line-height: 1.5;
+}
+
+.knowledge-memory-capsule-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  margin: 0;
+  border-block: 1px solid var(--line-soft);
+}
+
+.knowledge-memory-capsule-summary > div {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.knowledge-memory-capsule-summary dt {
+  color: var(--muted);
+  font-size: var(--dws-font-size-12);
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.knowledge-memory-capsule-summary dd {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--dws-font-size-13);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.knowledge-memory-count-strip,
+.knowledge-memory-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.knowledge-memory-count-strip > span,
+.knowledge-memory-metrics-grid > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px;
+  border-right: 1px solid var(--line-soft);
+  background: #f8fafc;
+}
+
+.knowledge-memory-count-strip > span:last-child,
+.knowledge-memory-metrics-grid > div:last-child {
+  border-right: 0;
+}
+
+.knowledge-memory-count-strip small,
+.knowledge-memory-metrics-grid span,
+.knowledge-memory-reference-list span {
+  color: var(--muted);
+  font-size: var(--dws-font-size-12);
+  line-height: 1.5;
+}
+
+.knowledge-memory-count-strip strong,
+.knowledge-memory-metrics-grid strong {
+  color: var(--ink);
+  font-size: var(--dws-font-size-20);
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.knowledge-memory-reference-list {
+  display: grid;
+  gap: 0;
+}
+
+.knowledge-memory-reference-list > strong {
+  margin-bottom: 8px;
+  font-size: var(--dws-font-size-14);
+}
+
+.knowledge-memory-reference-list > div:not(.knowledge-memory-empty) {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.6fr) minmax(0, 1fr);
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.knowledge-memory-reference-list b {
+  color: var(--ink);
+  font-size: var(--dws-font-size-13);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.knowledge-memory-metrics-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.knowledge-memory-metrics-grid > div:nth-child(4n) {
+  border-right: 0;
+}
+
+@media (max-width: 760px) {
+  .knowledge-memory-scope-grid,
+  .knowledge-memory-capsule-summary {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .knowledge-memory-workspace {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+
+  .knowledge-memory-list {
+    max-height: 210px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line-soft);
+  }
+
+  .knowledge-memory-count-strip,
+  .knowledge-memory-metrics-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .knowledge-memory-count-strip > span,
+  .knowledge-memory-metrics-grid > div {
+    border-bottom: 1px solid var(--line-soft);
+  }
+
+  .knowledge-memory-reference-list > div:not(.knowledge-memory-empty) {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}
+
+@media (max-width: 520px) {
+  .knowledge-memory-scope-grid,
+  .knowledge-memory-capsule-summary,
+  .knowledge-memory-count-strip,
+  .knowledge-memory-metrics-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .knowledge-memory-evolution-panel > header {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }
 
 .ghost-button.danger {
@@ -11201,7 +11476,7 @@ tbody tr:hover .row-ai-cell {
 
 .settings-modal.unified-settings-modal .unified-memory-settings-content label > span {
   color: var(--db-text-muted);
-  font-size: 12px;
+  font-size: var(--dws-font-size-12);
   line-height: 1.35;
 }
 
@@ -19224,6 +19499,67 @@ tbody tr:hover .row-ai-cell {
 .shell.layout-daweiba.theme-dark .knowledge-memory-workspace {
   border-color: var(--db-border);
   background: var(--db-surface);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-memory-segments,
+.shell.layout-daweiba.theme-dark .knowledge-memory-evolution-panel,
+.shell.layout-daweiba.theme-dark .knowledge-memory-count-strip,
+.shell.layout-daweiba.theme-dark .knowledge-memory-metrics-grid {
+  border-color: var(--db-border);
+  background: var(--db-surface);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-memory-modal > .settings-hint {
+  border-color: var(--db-border-soft);
+  background: var(--db-surface-tint);
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark .settings-modal.unified-settings-modal .daweiba-settings-footer {
+  border-color: var(--db-border-soft);
+  background: var(--db-surface);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-memory-segments > button {
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-memory-segments > button:hover,
+.shell.layout-daweiba.theme-dark .knowledge-memory-segments > button:focus-visible,
+.shell.layout-daweiba.theme-dark .knowledge-memory-segments > button.is-active {
+  border-color: var(--db-border);
+  background: var(--db-surface-tint);
+  color: var(--db-text-strong);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-memory-evolution-panel > header,
+.shell.layout-daweiba.theme-dark .knowledge-memory-capsule-summary,
+.shell.layout-daweiba.theme-dark .knowledge-memory-capsule-summary > div,
+.shell.layout-daweiba.theme-dark .knowledge-memory-reference-list > div:not(.knowledge-memory-empty) {
+  border-color: var(--db-border-soft);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-memory-evolution-panel > header strong,
+.shell.layout-daweiba.theme-dark .knowledge-memory-reference-list > strong,
+.shell.layout-daweiba.theme-dark .knowledge-memory-capsule-summary dd,
+.shell.layout-daweiba.theme-dark .knowledge-memory-count-strip strong,
+.shell.layout-daweiba.theme-dark .knowledge-memory-metrics-grid strong,
+.shell.layout-daweiba.theme-dark .knowledge-memory-reference-list b {
+  color: var(--db-text-strong);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-memory-evolution-panel > header small,
+.shell.layout-daweiba.theme-dark .knowledge-memory-capsule-summary dt,
+.shell.layout-daweiba.theme-dark .knowledge-memory-count-strip small,
+.shell.layout-daweiba.theme-dark .knowledge-memory-metrics-grid span,
+.shell.layout-daweiba.theme-dark .knowledge-memory-reference-list span {
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark .knowledge-memory-count-strip > span,
+.shell.layout-daweiba.theme-dark .knowledge-memory-metrics-grid > div {
+  border-color: var(--db-border-soft);
+  background: var(--db-surface-tint);
 }
 
 .shell.layout-daweiba.theme-dark .knowledge-memory-list {

@@ -1255,6 +1255,108 @@ def public_comment(task: dict) -> str:
     return reviewer["comment"]
 
 
+def test_completed_review_captures_nonempty_opinion_once_and_skips_empty_approval(service):
+    dispatch, store, _, options = service
+    compiler = options["people"][0]
+    reviewer = options["people"][1]
+    task, _ = dispatch.create_and_deliver(
+        envelope(compiler["person_ref"]), file_name="a.xlsx", file_bytes=xlsx_bytes(),
+    )
+    stored = store.get_task(task["task_id"])
+    store.claim_task(task["task_id"], operator_open_id=stored["assignee_user_id"], platform_profile_id="weact")
+    attach_review_result(dispatch, store, task)
+    store.submit_for_review(task["task_id"], operator_open_id=stored["assignee_user_id"], platform_profile_id="weact")
+    reviewer_row = store.get_person(reviewer["person_ref"], "weact")
+    completed, decided = store.review_task(
+        task["task_id"],
+        operator_open_id=reviewer_row["platform_user_id"],
+        platform_profile_id="weact",
+        decision="approve",
+        comment="金额及风险项已核对，同意通过。",
+    )
+    repeated, repeated_decided = store.review_task(
+        task["task_id"],
+        operator_open_id=reviewer_row["platform_user_id"],
+        platform_profile_id="weact",
+        decision="approve",
+        comment="金额及风险项已核对，同意通过。",
+    )
+
+    experience_store = external_task_dispatch.TrustedExperienceStore(
+        store.db_path.parent / "knowledge-memory.sqlite3"
+    )
+    events = experience_store.list_events(task_id=task["task_id"])
+    assert decided is True and repeated_decided is False
+    assert completed["trusted_experience_status"] == "captured"
+    assert repeated["trusted_experience_status"] == "captured"
+    assert len(events) == 1
+    assert events[0]["reviewer_name"] == reviewer_row["display_name"]
+    assert events[0]["review_opinion"] == "金额及风险项已核对，同意通过。"
+
+    empty_task, _ = dispatch.create_and_deliver(
+        envelope(
+            compiler["person_ref"],
+            event_id="evt-empty-opinion",
+            source_task_id="TASK-EMPTY-OPINION",
+        ),
+        file_name="b.xlsx",
+        file_bytes=xlsx_bytes(),
+    )
+    empty_stored = store.get_task(empty_task["task_id"])
+    store.claim_task(empty_task["task_id"], operator_open_id=empty_stored["assignee_user_id"], platform_profile_id="weact")
+    attach_review_result(dispatch, store, empty_task)
+    store.submit_for_review(empty_task["task_id"], operator_open_id=empty_stored["assignee_user_id"], platform_profile_id="weact")
+    empty_reviewer = store.get_person(reviewer["person_ref"], "weact")
+    empty_completed, _ = store.review_task(
+        empty_task["task_id"],
+        operator_open_id=empty_reviewer["platform_user_id"],
+        platform_profile_id="weact",
+        decision="approve",
+    )
+    assert empty_completed["trusted_experience_status"] == "no_opinion"
+    assert experience_store.list_events(task_id=empty_task["task_id"]) == []
+
+
+def test_review_capture_database_failure_keeps_completion_and_returns_retryable_warning(service):
+    dispatch, store, _, options = service
+    blocked = store.db_path.parent / "knowledge-memory.sqlite3"
+    blocked.mkdir()
+    compiler = options["people"][0]
+    reviewer = options["people"][1]
+    task, _ = dispatch.create_and_deliver(
+        envelope(compiler["person_ref"]), file_name="a.xlsx", file_bytes=xlsx_bytes(),
+    )
+    stored = store.get_task(task["task_id"])
+    store.claim_task(task["task_id"], operator_open_id=stored["assignee_user_id"], platform_profile_id="weact")
+    attach_review_result(dispatch, store, task)
+    store.submit_for_review(task["task_id"], operator_open_id=stored["assignee_user_id"], platform_profile_id="weact")
+    reviewer_row = store.get_person(reviewer["person_ref"], "weact")
+
+    completed, decided = store.review_task(
+        task["task_id"],
+        operator_open_id=reviewer_row["platform_user_id"],
+        platform_profile_id="weact",
+        decision="approve",
+        comment="同意通过并沉淀经验。",
+    )
+
+    assert decided is True
+    assert completed["status"] == "completed"
+    assert completed["trusted_experience_status"] == "failed"
+    assert "复核结论已生效" in completed["trusted_experience_warning"]
+    public = external_task_dispatch.public_dispatch_task(completed)
+    assert public["trusted_experience"]["retryable"] is True
+    assert "可信经验提醒" in json.dumps(
+        external_task_dispatch.build_external_review_card(completed), ensure_ascii=False,
+    )
+    with store._connect() as connection:
+        attempt = connection.execute(
+            "SELECT status,error FROM dispatch_attempts WHERE task_id=? AND step='trusted_experience_capture'",
+            (task["task_id"],),
+        ).fetchone()
+    assert dict(attempt) == {"status": "failed", "error": "OperationalError"}
+
+
 def test_claim_rejects_wrong_person_and_platform(service):
     dispatch, store, _, options = service
     task, _ = dispatch.create_and_deliver(

@@ -16,7 +16,10 @@ from uuid import uuid4
 from openpyxl import load_workbook
 
 from . import feishu_app_bot
+from .knowledge_memory import KnowledgeMemoryStore
+from .paths import DEFAULT_KNOWLEDGE_MEMORY_DB_PATH
 from .professional_skills import ProfessionalSkillError, ProfessionalSkillRegistry
+from .trusted_experience import TrustedExperienceStore
 
 
 AUTHORIZED_TEST_GROUP_NAME = "智算测试"
@@ -259,6 +262,8 @@ class ExternalDispatchStore:
             "completion_card_message_id": "TEXT NOT NULL DEFAULT ''",
             "completion_error": "TEXT NOT NULL DEFAULT ''",
             "completed_at": "TEXT NOT NULL DEFAULT ''",
+            "trusted_experience_status": "TEXT NOT NULL DEFAULT ''",
+            "trusted_experience_warning": "TEXT NOT NULL DEFAULT ''",
         }
         with self._connect() as connection:
             existing = {str(row["name"]) for row in connection.execute("PRAGMA table_info(tasks)")}
@@ -520,6 +525,77 @@ class ExternalDispatchStore:
             )
             updated = connection.execute("SELECT * FROM tasks WHERE task_id=?", (task_id,)).fetchone()
         return self._with_reviewers(dict(updated)), True
+
+    def _capture_completed_review_experience(self, task: dict[str, Any]) -> dict[str, Any]:
+        task_id = str(task.get("task_id") or "")
+        review_round = int(task.get("review_round") or 0)
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id,reviewer_name,decision,comment
+                FROM dispatch_review_actions
+                WHERE task_id=? AND review_round=? AND TRIM(comment)<>''
+                ORDER BY id
+                """,
+                (task_id, review_round),
+            ).fetchall()
+        if not rows:
+            self._set_trusted_experience_capture(
+                task_id,
+                status="no_opinion",
+                warning="",
+            )
+            return self.get_task(task_id) or task
+        experience_path = self.db_path.parent / DEFAULT_KNOWLEDGE_MEMORY_DB_PATH.name
+        experience_store = TrustedExperienceStore(experience_path)
+        memory_store = KnowledgeMemoryStore(experience_path)
+        try:
+            for row in rows:
+                action = dict(row)
+                experience_store.capture_event(
+                    {
+                        "event_key": f"review:{task_id}:r{review_round}:action:{action['id']}",
+                        "event_type": "review_opinion",
+                        "project_id": "",
+                        "project_name": str(task.get("project_name") or ""),
+                        "task_id": task_id,
+                        "skill_id": str(task.get("skill_id") or ""),
+                        "skill_version": str(task.get("skill_version") or ""),
+                        "reason": "多人复核最终完成后捕获",
+                        "artifact_version": f"round-{review_round}",
+                        "artifact_hash": str(task.get("submission_hash") or task.get("template_hash") or ""),
+                        "reviewer_name": str(action.get("reviewer_name") or ""),
+                        "review_round": review_round,
+                        "review_opinion": str(action.get("comment") or ""),
+                        "actor": str(action.get("reviewer_name") or "复核人"),
+                        "knowledge_type": "project_rule",
+                        "evidence_summary": "多人复核任务最终完成后形成的待审核意见候选。",
+                    },
+                    memory_store=memory_store,
+                )
+            self._set_trusted_experience_capture(task_id, status="captured", warning="")
+            self.record_attempt(task_id, "trusted_experience_capture", "success")
+        except Exception as exc:
+            warning = "复核结论已生效，但可信经验候选捕获失败；可从任务审计重试。"
+            self._set_trusted_experience_capture(task_id, status="failed", warning=warning)
+            self.record_attempt(
+                task_id,
+                "trusted_experience_capture",
+                "failed",
+                type(exc).__name__,
+            )
+        return self.get_task(task_id) or task
+
+    def _set_trusted_experience_capture(self, task_id: str, *, status: str, warning: str) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                UPDATE tasks
+                SET trusted_experience_status=?,trusted_experience_warning=?,updated_at=?
+                WHERE task_id=? AND task_kind=?
+                """,
+                (status, warning, feishu_app_bot.utc_now(), task_id, TASK_KIND),
+            )
 
     def list_reviewers(self, task_id: str) -> list[dict[str, Any]]:
         with self._connect() as connection:
@@ -901,7 +977,10 @@ class ExternalDispatchStore:
                         (now, now, task_id),
                     )
             updated = connection.execute("SELECT * FROM tasks WHERE task_id=?", (task_id,)).fetchone()
-        return self._with_reviewers(dict(updated)), True
+        result = self._with_reviewers(dict(updated))
+        if str(result.get("status") or "") == "completed":
+            result = self._capture_completed_review_experience(result)
+        return result, True
 
     def record_attempt(self, task_id: str, step: str, status: str, error: str = "") -> None:
         with self._connect() as connection:
@@ -1841,6 +1920,11 @@ def build_external_review_card(task: dict[str, Any]) -> dict[str, Any]:
         f"**编制成果：** {task.get('submission_file_name') or '未绑定'}\n"
         f"**复核轮次：** 第 {int(task.get('review_round') or 0)} 轮\n\n"
         f"**复核人员：**\n{reviewer_lines}"
+        + (
+            f"\n\n**可信经验提醒：** {task.get('trusted_experience_warning')}"
+            if str(task.get("trusted_experience_warning") or "").strip()
+            else ""
+        )
     )
     elements: list[dict[str, Any]] = [{"tag": "div", "text": {"tag": "lark_md", "content": content}}]
     if status == "pending_review":
@@ -2264,6 +2348,11 @@ def public_dispatch_task(task: dict[str, Any]) -> dict[str, Any]:
         "completion_card_status": str(task.get("completion_card_status") or ""),
         "completion_error": sanitize_dispatch_error(task.get("completion_error") or ""),
         "completed_at": str(task.get("completed_at") or ""),
+        "trusted_experience": {
+            "status": str(task.get("trusted_experience_status") or ""),
+            "warning": str(task.get("trusted_experience_warning") or ""),
+            "retryable": str(task.get("trusted_experience_status") or "") == "failed",
+        },
         "submission_file_name": str(task.get("submission_file_name") or ""),
         "submission_delivery_status": str(task.get("submission_delivery_status") or ""),
         "can_retry": (

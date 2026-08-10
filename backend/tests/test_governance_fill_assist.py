@@ -376,3 +376,115 @@ def test_batch_match_preserves_current_output_values_after_workload_like_prefill
         assert edited["表2"]["H2"].value == 26
     finally:
         edited.close()
+
+
+def test_manual_edit_captures_one_event_and_one_candidate_after_save(tmp_path, monkeypatch):
+    job_dir = tmp_path / "job-trusted-edit"
+    job_dir.mkdir()
+    output_path = job_dir / "output.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "表2"
+    sheet.append(["项目", "基价"])
+    sheet.append(["控制测量", 100])
+    workbook.save(output_path)
+    workbook.close()
+    skill_snapshot = main_module._resolve_professional_skill_snapshot(None, None)
+    (job_dir / main_module.PROCESS_STATE_FILENAME).write_text(
+        main_module.json.dumps(
+            {
+                "input_filename": "input.xlsx",
+                "input_excel": "",
+                "output_excel": output_path.name,
+                "output_report": "",
+                "summary": _minimal_summary().to_dict(),
+                "project_id": "prj_aaaaaaaaaaaaaaaaaaaaaaaa",
+                "project_name": "项目A",
+                "project_relation": {
+                    "project_id": "prj_aaaaaaaaaaaaaaaaaaaaaaaa",
+                    "project_name": "项目A",
+                    "run_id": "run_aaaaaaaaaaaaaaaaaaaaaaaa",
+                },
+                "skill_snapshot": skill_snapshot,
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(main_module, "RUNTIME_DIR", tmp_path)
+    client = TestClient(app)
+    request = {
+        "job_id": "job-trusted-edit",
+        "sheet_name": "表2",
+        "row_number": 2,
+        "column_number": 2,
+        "value": 120,
+        "edit_note": "依据设计说明人工调整",
+        "actor": "编制人甲",
+    }
+
+    first = client.post("/api/preview/cell", json=request)
+    repeated = client.post("/api/preview/cell", json=request)
+
+    assert first.status_code == 200
+    assert first.json()["trusted_experience"]["status"] == "captured"
+    assert first.json()["trusted_experience"]["classification_status"] == "classified"
+    assert repeated.status_code == 200
+    assert repeated.json()["trusted_experience"]["status"] == "no_change"
+    with main_module.sqlite3.connect(tmp_path / "knowledge-memory.sqlite3") as connection:
+        assert connection.execute("SELECT COUNT(*) FROM trusted_experience_events").fetchone()[0] == 1
+        assert connection.execute("SELECT COUNT(*) FROM knowledge_items").fetchone()[0] == 1
+
+
+def test_manual_edit_capture_failure_warns_without_rolling_back_excel(tmp_path, monkeypatch):
+    job_dir = tmp_path / "job-trusted-warning"
+    job_dir.mkdir()
+    output_path = job_dir / "output.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "表2"
+    sheet.append(["项目", "基价"])
+    sheet.append(["控制测量", 100])
+    workbook.save(output_path)
+    workbook.close()
+    (job_dir / main_module.PROCESS_STATE_FILENAME).write_text(
+        main_module.json.dumps(
+            {
+                "input_filename": "input.xlsx",
+                "input_excel": "",
+                "output_excel": output_path.name,
+                "output_report": "",
+                "summary": _minimal_summary().to_dict(),
+                "skill_snapshot": main_module._resolve_professional_skill_snapshot(None, None),
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    blocked = tmp_path / "blocked-memory"
+    blocked.mkdir()
+    monkeypatch.setattr(main_module, "RUNTIME_DIR", tmp_path)
+    monkeypatch.setattr(main_module, "DEFAULT_KNOWLEDGE_MEMORY_DB_PATH", blocked)
+
+    response = TestClient(app).post(
+        "/api/preview/cell",
+        json={
+            "job_id": "job-trusted-warning",
+            "sheet_name": "表2",
+            "row_number": 2,
+            "column_number": 2,
+            "value": 130,
+            "edit_note": "人工调整",
+        },
+    )
+
+    assert response.status_code == 200
+    warning = response.json()["trusted_experience"]
+    assert warning["status"] == "capture_failed"
+    assert warning["retryable"] is True
+    assert "改单已成功保存" in warning["warning"]
+    edited = load_workbook(output_path, data_only=True)
+    try:
+        assert edited["表2"]["B2"].value == 130
+    finally:
+        edited.close()

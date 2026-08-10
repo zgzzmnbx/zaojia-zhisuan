@@ -74,6 +74,13 @@ import {
 } from "./utils/zhisuanInlineMarkdown";
 import { parseMarkdownTableAt } from "./utils/zhisuanMarkdownTable";
 import {
+  trustedMetricRows,
+  trustedProjectId,
+  trustedSourceDetails,
+  type TrustedMetricPayload,
+  type TrustedSourceMetadata,
+} from "./utils/trustedExperience";
+import {
   nextZhisuanMessageReveal,
   type ZhisuanMessageRevealMode,
   zhisuanMessageRevealDelay,
@@ -94,7 +101,7 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.19.7";
+const APP_VERSION = "v5.20.0";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const PRICE_KNOWLEDGE_ROW_COUNT = 560;
 const FORCE_KNOWLEDGE_PREFIXES = ["查库：", "查库:", "#知识库"] as const;
@@ -963,6 +970,9 @@ type ProjectMemory = {
   score?: number;
   duplicate_reused?: boolean;
   quality_warnings?: string[];
+  source_event_id?: string;
+  source_project_id?: string;
+  source_metadata?: TrustedSourceMetadata;
 };
 type KnowledgeCandidateSeed = {
   title: string;
@@ -1012,6 +1022,21 @@ type KnowledgeAuditRecord = {
   to_status?: string | null;
   version: number;
   created_at: string;
+};
+type TrustedExperienceCapsule = {
+  project_id: string;
+  project_name: string;
+  project_status: string;
+  created_at: string;
+  updated_at: string;
+  summary: {
+    project_reference?: { project_id?: string; status?: string; latest_version?: number };
+    skill_reference?: { id?: string; version?: string };
+    artifact_references?: Array<{ artifact_id: string; type: string; version: number }>;
+    event_references?: Array<Record<string, string | number>>;
+    knowledge_references?: Array<{ knowledge_id: string; title: string; status: string; version: number; source_event_id?: string }>;
+    counts?: { events: number; confirmed: number; candidates: number; inactive: number; review_opinions: number };
+  };
 };
 
 type KnowledgeAskResponse = {
@@ -2436,6 +2461,10 @@ function DaweibaApp() {
   const [knowledgeMemoryAudit, setKnowledgeMemoryAudit] = useState<KnowledgeAuditRecord[]>([]);
   const [knowledgeTransitionReason, setKnowledgeTransitionReason] = useState("");
   const [isKnowledgeMemoryLoading, setIsKnowledgeMemoryLoading] = useState(false);
+  const [knowledgeMemorySection, setKnowledgeMemorySection] = useState<"records" | "capsule" | "metrics">("records");
+  const [trustedExperienceCapsule, setTrustedExperienceCapsule] = useState<TrustedExperienceCapsule | null>(null);
+  const [trustedExperienceMetrics, setTrustedExperienceMetrics] = useState<TrustedMetricPayload | null>(null);
+  const [isTrustedExperienceLoading, setIsTrustedExperienceLoading] = useState(false);
   const [lastSavedKnowledgeMemory, setLastSavedKnowledgeMemory] = useState<ProjectMemory | null>(null);
   const [zhisuanWindowDefaults, setZhisuanWindowDefaults] = useState<ZhisuanWindowSettings>(normalizeZhisuanWindowSettings);
   const [zhisuanChatHeight, setZhisuanChatHeight] = useState(DEFAULT_ZHISUAN_WINDOW_SETTINGS.chatHeight);
@@ -4166,12 +4195,60 @@ function DaweibaApp() {
 
   async function openKnowledgeMemory() {
     setIsKnowledgeMemoryOpen(true);
+    setKnowledgeMemorySection("records");
     const projectKey = normalizeKnowledgeProjectKey(knowledgeProjectKey || knowledgeProjectName) || GENERAL_KNOWLEDGE_KEY;
     if (!knowledgeProjectKey) {
       setKnowledgeProjectName(GENERAL_KNOWLEDGE_NAME);
       setKnowledgeProjectKey(GENERAL_KNOWLEDGE_KEY);
     }
     if (projectKey) await loadKnowledgeMemoryItems(projectKey);
+  }
+
+  async function loadTrustedExperienceCapsule(refresh = false) {
+    const projectId = trustedProjectId(currentProjectId, knowledgeProjectKey);
+    if (!projectId) {
+      setTrustedExperienceCapsule(null);
+      return;
+    }
+    setIsTrustedExperienceLoading(true);
+    setError("");
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/trusted-experience/capsules/${encodeURIComponent(projectId)}${refresh ? "/refresh" : ""}`,
+        refresh ? { method: "POST" } : undefined,
+      );
+      const payload = await response.json().catch(() => null) as { capsule?: TrustedExperienceCapsule | null; detail?: string } | null;
+      if (!response.ok) throw new Error(payload?.detail ?? `读取项目胶囊失败：${response.status}`);
+      setTrustedExperienceCapsule(payload?.capsule ?? null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "读取项目胶囊失败");
+    } finally {
+      setIsTrustedExperienceLoading(false);
+    }
+  }
+
+  async function loadTrustedExperienceMetrics() {
+    const params = new URLSearchParams();
+    const projectId = trustedProjectId(currentProjectId, knowledgeProjectKey);
+    if (projectId) params.set("project_id", projectId);
+    setIsTrustedExperienceLoading(true);
+    setError("");
+    try {
+      const response = await fetch(`${API_BASE}/api/trusted-experience/metrics${params.size ? `?${params.toString()}` : ""}`);
+      const payload = await response.json().catch(() => null) as (TrustedMetricPayload & { detail?: string }) | null;
+      if (!response.ok || !payload) throw new Error(payload?.detail ?? `读取进化成效失败：${response.status}`);
+      setTrustedExperienceMetrics(payload);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "读取进化成效失败");
+    } finally {
+      setIsTrustedExperienceLoading(false);
+    }
+  }
+
+  function openKnowledgeMemorySection(section: "records" | "capsule" | "metrics") {
+    setKnowledgeMemorySection(section);
+    if (section === "capsule") void loadTrustedExperienceCapsule();
+    if (section === "metrics") void loadTrustedExperienceMetrics();
   }
 
   async function transitionKnowledgeMemory(action: "submit" | "confirm" | "reject" | "revoke" | "mark-stale") {
@@ -10275,132 +10352,96 @@ function DaweibaApp() {
   }
 
   function renderKnowledgeMemoryContent() {
+    const capsuleProjectId = trustedProjectId(currentProjectId, knowledgeProjectKey);
+    const metricRows = trustedMetricRows(trustedExperienceMetrics);
     return (
       <>
-        <div className="knowledge-memory-scope-grid">
-          <label>
-            <span>当前知识范围</span>
-            <input value={knowledgeProjectName} onChange={(event) => setKnowledgeProjectName(event.target.value)} />
-          </label>
-          <label>
-            <span>scope_key</span>
-            <input value={knowledgeProjectKey} onChange={(event) => setKnowledgeProjectKey(event.target.value)} />
-          </label>
-          <label>
-            <span>操作人</span>
-            <input value={knowledgeOperator} onChange={(event) => setKnowledgeOperator(event.target.value)} />
-          </label>
-          <label>
-            <span>本地试点确认角色</span>
-            <select value={knowledgeActorRole} onChange={(event) => setKnowledgeActorRole(event.target.value)}>
-              <option value="project_owner">项目负责人</option>
-              <option value="reviewer">复核人</option>
-              <option value="rule_maintainer">规则维护人</option>
-              <option value="viewer">普通查看人</option>
-            </select>
-          </label>
-        </div>
-        <div className="knowledge-memory-toolbar">
-          <select value={knowledgeMemoryStatus} onChange={(event) => setKnowledgeMemoryStatus(event.target.value as KnowledgeMemoryStatus | "all")}>
-            <option value="all">全部状态</option>
-            <option value="confirmed">已确认</option>
-            <option value="pending">待确认</option>
-            <option value="candidate">候选</option>
-            <option value="suspected_stale">疑似失效</option>
-            <option value="rejected">已驳回</option>
-            <option value="revoked">已撤销</option>
-          </select>
-          <input placeholder="关键词查询" value={knowledgeMemoryQuery} onChange={(event) => setKnowledgeMemoryQuery(event.target.value)} />
-          <button className="ghost-button" type="button" disabled={isKnowledgeMemoryLoading} onClick={() => {
-            const projectKey = applyKnowledgeProjectScope();
-            if (projectKey) void loadKnowledgeMemoryItems(projectKey);
-          }}>
-            <RefreshCw className={isKnowledgeMemoryLoading ? "spin" : ""} size={16} />
-            查询
-          </button>
-        </div>
-        <div className="knowledge-memory-workspace">
-          <div className="knowledge-memory-list" aria-label="知识记忆列表">
-            {knowledgeMemoryItems.length === 0 ? (
-              <div className="knowledge-memory-empty">当前知识范围暂无匹配知识。</div>
-            ) : knowledgeMemoryItems.map((item) => (
-              <button
-                className={selectedKnowledgeMemory?.id === item.id ? "is-active" : ""}
-                key={item.id}
-                type="button"
-                onClick={() => void selectKnowledgeMemory(item)}
-              >
-                <span className={`knowledge-memory-status is-${item.status}`}>{knowledgeStatusLabel(item.status)}</span>
-                <strong>{item.title}</strong>
-                <small>{knowledgeTypeLabel(item.knowledge_type)} · v{item.version} · {item.submitter} · {item.updated_at.replace("T", " ")}</small>
-              </button>
-            ))}
+        <nav className="knowledge-memory-segments" role="tablist" aria-label="可信经验工作区">
+          <button type="button" role="tab" aria-selected={knowledgeMemorySection === "records"} className={knowledgeMemorySection === "records" ? "is-active" : ""} onClick={() => openKnowledgeMemorySection("records")}><Database size={16} />知识记录</button>
+          <button type="button" role="tab" aria-selected={knowledgeMemorySection === "capsule"} className={knowledgeMemorySection === "capsule" ? "is-active" : ""} onClick={() => openKnowledgeMemorySection("capsule")}><ShieldCheck size={16} />项目胶囊</button>
+          <button type="button" role="tab" aria-selected={knowledgeMemorySection === "metrics"} className={knowledgeMemorySection === "metrics" ? "is-active" : ""} onClick={() => openKnowledgeMemorySection("metrics")}><Sparkles size={16} />进化成效</button>
+        </nav>
+
+        {knowledgeMemorySection === "records" && <>
+          <div className="knowledge-memory-scope-grid">
+            <label><span>当前知识范围</span><input value={knowledgeProjectName} onChange={(event) => setKnowledgeProjectName(event.target.value)} /></label>
+            <label><span>scope_key</span><input value={knowledgeProjectKey} onChange={(event) => setKnowledgeProjectKey(event.target.value)} /></label>
+            <label><span>操作人</span><input value={knowledgeOperator} onChange={(event) => setKnowledgeOperator(event.target.value)} /></label>
+            <label>
+              <span>本地试点确认角色</span>
+              <select value={knowledgeActorRole} onChange={(event) => setKnowledgeActorRole(event.target.value)}>
+                <option value="project_owner">项目负责人</option><option value="reviewer">复核人</option><option value="rule_maintainer">规则维护人</option><option value="viewer">普通查看人</option>
+              </select>
+            </label>
           </div>
-          <div className="knowledge-memory-detail">
-            {!selectedKnowledgeMemory ? (
-              <div className="knowledge-memory-empty">选择一条知识查看详情、来源和审计记录。</div>
-            ) : (
-              <>
+          <div className="knowledge-memory-toolbar">
+            <select value={knowledgeMemoryStatus} onChange={(event) => setKnowledgeMemoryStatus(event.target.value as KnowledgeMemoryStatus | "all")}>
+              <option value="all">全部状态</option><option value="confirmed">已确认</option><option value="pending">待确认</option><option value="candidate">候选</option><option value="suspected_stale">疑似失效</option><option value="rejected">已驳回</option><option value="revoked">已撤销</option>
+            </select>
+            <input placeholder="关键词查询" value={knowledgeMemoryQuery} onChange={(event) => setKnowledgeMemoryQuery(event.target.value)} />
+            <button className="ghost-button" type="button" disabled={isKnowledgeMemoryLoading} onClick={() => { const projectKey = applyKnowledgeProjectScope(); if (projectKey) void loadKnowledgeMemoryItems(projectKey); }}><RefreshCw className={isKnowledgeMemoryLoading ? "spin" : ""} size={16} />查询</button>
+          </div>
+          <div className="knowledge-memory-workspace">
+            <div className="knowledge-memory-list" aria-label="知识记忆列表">
+              {knowledgeMemoryItems.length === 0 ? <div className="knowledge-memory-empty">当前知识范围暂无匹配知识。</div> : knowledgeMemoryItems.map((item) => (
+                <button className={selectedKnowledgeMemory?.id === item.id ? "is-active" : ""} key={item.id} type="button" onClick={() => void selectKnowledgeMemory(item)}>
+                  <span className={`knowledge-memory-status is-${item.status}`}>{knowledgeStatusLabel(item.status)}</span>
+                  <strong>{item.title}</strong>
+                  <small>{knowledgeTypeLabel(item.knowledge_type)} · v{item.version} · {item.submitter} · {item.updated_at.replace("T", " ")}</small>
+                </button>
+              ))}
+            </div>
+            <div className="knowledge-memory-detail">
+              {!selectedKnowledgeMemory ? <div className="knowledge-memory-empty">选择一条知识查看详情、事件来源和审计记录。</div> : <>
                 <div className="knowledge-memory-detail-head">
                   <span className={`knowledge-memory-status is-${selectedKnowledgeMemory.status}`}>{knowledgeStatusLabel(selectedKnowledgeMemory.status)}</span>
-                  <strong>{selectedKnowledgeMemory.title}</strong>
-                  <small>{selectedKnowledgeMemory.id} · v{selectedKnowledgeMemory.version}</small>
+                  <strong>{selectedKnowledgeMemory.title}</strong><small>{selectedKnowledgeMemory.id} · v{selectedKnowledgeMemory.version}</small>
+                  <button className="ghost-button knowledge-memory-audit-link" type="button" onClick={() => document.getElementById("knowledge-memory-audit")?.scrollIntoView({ behavior: "smooth", block: "start" })}>查看审计</button>
                 </div>
                 <dl>
                   <div><dt>所属范围</dt><dd>{selectedKnowledgeMemory.project_name}（{selectedKnowledgeMemory.project_key}）</dd></div>
                   <div><dt>知识类型</dt><dd>{knowledgeTypeLabel(selectedKnowledgeMemory.knowledge_type)}</dd></div>
                   <div><dt>审核策略</dt><dd>{selectedKnowledgeMemory.review_policy === "auto_approve" ? "自动通过" : "人工确认"}{selectedKnowledgeMemory.review_reason ? `；${selectedKnowledgeMemory.review_reason}` : ""}</dd></div>
-                  <div><dt>原问题</dt><dd>{selectedKnowledgeMemory.question}</dd></div>
-                  <div><dt>确认结论</dt><dd>{selectedKnowledgeMemory.conclusion}</dd></div>
-                  <div><dt>适用条件</dt><dd>{selectedKnowledgeMemory.conditions || "未填写"}</dd></div>
-                  <div><dt>例外情况</dt><dd>{selectedKnowledgeMemory.exceptions || "未填写"}</dd></div>
+                  <div><dt>原问题</dt><dd>{selectedKnowledgeMemory.question}</dd></div><div><dt>确认结论</dt><dd>{selectedKnowledgeMemory.conclusion}</dd></div>
+                  <div><dt>适用条件</dt><dd>{selectedKnowledgeMemory.conditions || "未填写"}</dd></div><div><dt>例外情况</dt><dd>{selectedKnowledgeMemory.exceptions || "未填写"}</dd></div>
                   <div><dt>来源</dt><dd>{selectedKnowledgeMemory.source_reference}</dd></div>
+                  {selectedKnowledgeMemory.source_event_id && <div><dt>来源事件</dt><dd>{selectedKnowledgeMemory.source_event_id}</dd></div>}
+                  {trustedSourceDetails(selectedKnowledgeMemory.source_metadata).map((row) => <div key={row.label}><dt>{row.label}</dt><dd>{row.value}</dd></div>)}
                   <div><dt>提交 / 确认</dt><dd>{selectedKnowledgeMemory.submitter} / {selectedKnowledgeMemory.confirmer || "尚未确认"}</dd></div>
                 </dl>
-                <label>
-                  <span>状态变更原因</span>
-                  <textarea value={knowledgeTransitionReason} onChange={(event) => setKnowledgeTransitionReason(event.target.value)} placeholder="驳回、撤销或标记疑似失效时必须填写" />
-                </label>
+                <label><span>状态变更原因</span><textarea value={knowledgeTransitionReason} onChange={(event) => setKnowledgeTransitionReason(event.target.value)} placeholder="驳回、撤销或标记疑似失效时必须填写" /></label>
                 <div className="knowledge-memory-detail-actions">
-                  {["candidate", "pending"].includes(selectedKnowledgeMemory.status) && (
-                    <button className="ghost-button" type="button" onClick={() => editKnowledgeMemory(selectedKnowledgeMemory)}>编辑候选</button>
-                  )}
-                  {selectedKnowledgeMemory.status === "candidate" && (
-                    <button className="primary-button" type="button" onClick={() => void transitionKnowledgeMemory("submit")}>提交确认</button>
-                  )}
-                  {selectedKnowledgeMemory.status === "pending" && (
-                    <button className="primary-button" type="button" onClick={() => void transitionKnowledgeMemory("confirm")}>确认</button>
-                  )}
-                  {["candidate", "pending"].includes(selectedKnowledgeMemory.status) && (
-                    <button className="ghost-button danger" type="button" onClick={() => void transitionKnowledgeMemory("reject")}>驳回</button>
-                  )}
-                  {selectedKnowledgeMemory.status === "confirmed" && (
-                    <>
-                      {selectedKnowledgeMemory.scope_type !== "general" && (
-                        <button className="primary-button" type="button" onClick={() => void promoteKnowledgeMemoryToGeneral()}>提升为通用知识</button>
-                      )}
-                      <button className="ghost-button danger" type="button" onClick={() => void transitionKnowledgeMemory("mark-stale")}>标记疑似失效</button>
-                      <button className="ghost-button danger" type="button" onClick={() => void transitionKnowledgeMemory("revoke")}>撤销</button>
-                    </>
-                  )}
-                  {selectedKnowledgeMemory.status === "suspected_stale" && (
-                    <button className="ghost-button danger" type="button" onClick={() => void transitionKnowledgeMemory("revoke")}>撤销</button>
-                  )}
+                  {["candidate", "pending"].includes(selectedKnowledgeMemory.status) && <button className="ghost-button" type="button" onClick={() => editKnowledgeMemory(selectedKnowledgeMemory)}>编辑候选</button>}
+                  {selectedKnowledgeMemory.status === "candidate" && <button className="primary-button" type="button" onClick={() => void transitionKnowledgeMemory("submit")}>提交确认</button>}
+                  {selectedKnowledgeMemory.status === "pending" && <button className="primary-button" type="button" onClick={() => void transitionKnowledgeMemory("confirm")}>确认</button>}
+                  {["candidate", "pending"].includes(selectedKnowledgeMemory.status) && <button className="ghost-button danger" type="button" onClick={() => void transitionKnowledgeMemory("reject")}>驳回</button>}
+                  {selectedKnowledgeMemory.status === "confirmed" && <>{selectedKnowledgeMemory.scope_type !== "general" && <button className="primary-button" type="button" onClick={() => void promoteKnowledgeMemoryToGeneral()}>提升为通用知识</button>}<button className="ghost-button danger" type="button" onClick={() => void transitionKnowledgeMemory("mark-stale")}>标记疑似失效</button><button className="ghost-button danger" type="button" onClick={() => void transitionKnowledgeMemory("revoke")}>撤销</button></>}
+                  {selectedKnowledgeMemory.status === "suspected_stale" && <button className="ghost-button danger" type="button" onClick={() => void transitionKnowledgeMemory("revoke")}>撤销</button>}
                 </div>
-                <div className="knowledge-memory-audit">
-                  <strong>审计记录</strong>
-                  {knowledgeMemoryAudit.map((record) => (
-                    <div key={record.id}>
-                      <span>{record.created_at.replace("T", " ")}</span>
-                      <b>{record.actor} · {record.action}</b>
-                      <small>{record.reason || `${record.from_status || "无"} → ${record.to_status || "无"}`}</small>
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
+                <div className="knowledge-memory-audit" id="knowledge-memory-audit"><strong>审计记录</strong>{knowledgeMemoryAudit.length === 0 ? <div className="knowledge-memory-empty">尚无审计记录。</div> : knowledgeMemoryAudit.map((record) => <div key={record.id}><span>{record.created_at.replace("T", " ")}</span><b>{record.actor} · {record.action}</b><small>{record.reason || `${record.from_status || "无"} → ${record.to_status || "无"}`}</small></div>)}</div>
+              </>}
+            </div>
           </div>
-        </div>
+        </>}
+
+        {knowledgeMemorySection === "capsule" && <section className="knowledge-memory-evolution-panel" aria-label="项目记忆胶囊">
+          <header><span><strong>项目记忆胶囊</strong><small>只汇总项目台账、Skill、成果、知识和复核意见的受控引用，不复制文件或聊天。</small></span>{capsuleProjectId && <button className="ghost-button" type="button" disabled={isTrustedExperienceLoading} onClick={() => void loadTrustedExperienceCapsule(true)}><RefreshCw className={isTrustedExperienceLoading ? "spin" : ""} size={16} />生成 / 刷新</button>}</header>
+          {!capsuleProjectId ? <div className="knowledge-memory-empty">当前没有可靠 project_id。系统不会按项目名称合并，请先从项目看板进入真实项目。</div> : !trustedExperienceCapsule ? <div className="knowledge-memory-empty">该已完成项目尚未生成记忆胶囊；处理中项目不能生成。</div> : <>
+            <dl className="knowledge-memory-capsule-summary">
+              <div><dt>项目</dt><dd>{trustedExperienceCapsule.project_name}（{trustedExperienceCapsule.project_id}）</dd></div>
+              <div><dt>专业 Skill</dt><dd>{trustedExperienceCapsule.summary.skill_reference?.id || "未形成"} / {trustedExperienceCapsule.summary.skill_reference?.version || "未形成"}</dd></div>
+              <div><dt>成果版本</dt><dd>v{trustedExperienceCapsule.summary.project_reference?.latest_version || 1}</dd></div>
+              <div><dt>刷新时间</dt><dd>{trustedExperienceCapsule.updated_at.replace("T", " ")}</dd></div>
+            </dl>
+            <div className="knowledge-memory-count-strip">{Object.entries(trustedExperienceCapsule.summary.counts || {}).map(([key, value]) => <span key={key}><small>{({ events: "来源事件", confirmed: "已确认", candidates: "待审核", inactive: "失效 / 结束", review_opinions: "复核意见" } as Record<string, string>)[key] || key}</small><strong>{value}</strong></span>)}</div>
+            <div className="knowledge-memory-reference-list"><strong>受控引用</strong>{(trustedExperienceCapsule.summary.event_references || []).length === 0 ? <div className="knowledge-memory-empty">尚未形成事件引用。</div> : (trustedExperienceCapsule.summary.event_references || []).map((item) => <div key={String(item.event_id)}><b>{String(item.event_id)}</b><span>{String(item.event_type)} · {String(item.task_id)} · {String(item.candidate_id || "未形成候选")}</span></div>)}</div>
+          </>}
+        </section>}
+
+        {knowledgeMemorySection === "metrics" && <section className="knowledge-memory-evolution-panel" aria-label="可信经验进化成效">
+          <header><span><strong>进化成效</strong><small>{capsuleProjectId ? "当前可靠项目范围" : "当前本机实例范围"}；只统计真实审计，不估算节省工时。</small></span><button className="ghost-button" type="button" disabled={isTrustedExperienceLoading} onClick={() => void loadTrustedExperienceMetrics()}><RefreshCw className={isTrustedExperienceLoading ? "spin" : ""} size={16} />刷新</button></header>
+          {metricRows.length === 0 ? <div className="knowledge-memory-empty">尚无真实进化指标；产生并治理候选后再显示。</div> : <div className="knowledge-memory-metrics-grid">{metricRows.map((row) => <div key={row.label}><span>{row.label}</span><strong>{row.value}</strong></div>)}</div>}
+        </section>}
       </>
     );
   }
@@ -14234,7 +14275,7 @@ function DaweibaApp() {
             {activePageSettingsTab === "zhisuan" && renderZhisuanSettingsContent()}
             {activePageSettingsTab === "memory" && (
               <div className="daweiba-settings-scroll unified-memory-settings-scroll">
-                <div className="unified-memory-settings-content">
+                <div className="unified-memory-settings-content knowledge-memory-modal">
                   <p className="settings-hint">通用知识按类型审核：低风险知识可自动通过，价格系数、正式标准、冲突内容及项目知识需人工确认。所有操作保留版本与审计。</p>
                   {renderKnowledgeMemoryContent()}
                 </div>
