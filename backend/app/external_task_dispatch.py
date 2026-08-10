@@ -1896,6 +1896,7 @@ def _deliver_review_stage(
     stage: str,
     targets: list[tuple[str, str]],
     sender: Callable[[str, str], str],
+    continue_on_error: bool = False,
 ) -> tuple[dict[str, Any], list[str]]:
     try:
         state = json.loads(str(task.get("delivery_state_json") or "{}"))
@@ -1930,13 +1931,43 @@ def _deliver_review_stage(
                 delivery_state_json=json.dumps(state, ensure_ascii=False, separators=(",", ":")),
             )
             store.record_attempt(str(task["task_id"]), f"{stage}:{receive_id_type}", "failed", str(exc))
-            raise
+            if not continue_on_error:
+                raise
         state[stage] = stage_state
         task = store.update_delivery(
             str(task["task_id"]),
             delivery_state_json=json.dumps(state, ensure_ascii=False, separators=(",", ":")),
         )
     return task, message_ids
+
+
+def _review_stage_target_states(
+    task: dict[str, Any],
+    stage: str,
+    targets: list[tuple[str, str]],
+) -> dict[tuple[str, str], dict[str, Any]]:
+    try:
+        state = json.loads(str(task.get("delivery_state_json") or "{}"))
+    except (TypeError, ValueError):
+        state = {}
+    stage_state = state.get(stage) if isinstance(state, dict) and isinstance(state.get(stage), dict) else {}
+    resolved: dict[tuple[str, str], dict[str, Any]] = {}
+    for receive_id, receive_id_type in targets:
+        target_key = f"{receive_id_type}:{hashlib.sha256(receive_id.encode('utf-8')).hexdigest()[:16]}"
+        target_state = stage_state.get(target_key) if isinstance(stage_state.get(target_key), dict) else {}
+        resolved[(receive_id, receive_id_type)] = target_state
+    return resolved
+
+
+def _review_target_label(
+    task: dict[str, Any],
+    reviewer_names: dict[str, str],
+    target: tuple[str, str],
+) -> str:
+    receive_id, receive_id_type = target
+    if receive_id_type == "open_id":
+        return reviewer_names.get(receive_id) or "已选复核人"
+    return str(task.get("target_chat_name") or "已选工作群")
 
 
 def deliver_review_bundle(
@@ -1966,52 +1997,87 @@ def deliver_review_bundle(
         targets,
         explicit_named_recipients=explicit_reviewers,
     )
+    file_states = _review_stage_target_states(task, "review_file", targets)
+    if str(task.get("submission_delivery_status") or "") == "sent" and not any(
+        state.get("status") == "sent" for state in file_states.values()
+    ):
+        file_states = {target: {"status": "sent", "message_id": "", "error": ""} for target in targets}
     if str(task.get("submission_delivery_status") or "") != "sent":
-        try:
-            task, file_message_ids = _deliver_review_stage(
-                store=dispatch_store,
-                task=task,
-                stage="review_file",
-                targets=targets,
-                sender=lambda receive_id, receive_id_type: feishu.send_file_to(
-                    receive_id,
-                    receive_id_type,
-                    result_path,
-                ),
-            )
+        task, file_message_ids = _deliver_review_stage(
+            store=dispatch_store,
+            task=task,
+            stage="review_file",
+            targets=targets,
+            sender=lambda receive_id, receive_id_type: feishu.send_file_to(
+                receive_id,
+                receive_id_type,
+                result_path,
+            ),
+            continue_on_error=True,
+        )
+        file_states = _review_stage_target_states(task, "review_file", targets)
+        file_failures = [target for target in targets if file_states[target].get("status") != "sent"]
+        if not file_failures:
             dispatch_store.record_attempt(task_id, "review_file", "sent")
             task = dispatch_store.mark_submission_delivery(
                 task_id,
                 status="sent",
                 message_ids=file_message_ids,
             )
-        except Exception as exc:
-            dispatch_store.record_attempt(task_id, "review_file", "failed", str(exc))
-            dispatch_store.mark_submission_delivery(task_id, status="failed", error=exc)
-            raise
+        else:
+            error = "成果文件未送达：" + "；".join(
+                f"{_review_target_label(task, explicit_reviewers, target)}："
+                f"{sanitize_dispatch_error(file_states[target].get('error') or '待重试')}"
+                for target in file_failures
+            )
+            dispatch_store.record_attempt(task_id, "review_file", "failed", error)
+            task = dispatch_store.mark_submission_delivery(
+                task_id,
+                status="failed",
+                message_ids=file_message_ids,
+                error=error,
+            )
     if str(task.get("review_card_status") or "") != "sent":
-        try:
+        eligible_card_targets = [target for target in targets if file_states[target].get("status") == "sent"]
+        card_message_ids: list[str] = []
+        if eligible_card_targets:
             task, card_message_ids = _deliver_review_stage(
                 store=dispatch_store,
                 task=task,
                 stage="review_card",
-                targets=targets,
+                targets=eligible_card_targets,
                 sender=lambda receive_id, receive_id_type: feishu.send_card_to(
                     receive_id,
                     receive_id_type,
                     build_external_review_card(task),
                 ),
+                continue_on_error=True,
             )
+        card_states = _review_stage_target_states(task, "review_card", targets)
+        card_failures = [target for target in targets if card_states[target].get("status") != "sent"]
+        if not card_failures:
             dispatch_store.record_attempt(task_id, "review_card", "sent")
             task = dispatch_store.mark_review_card(
                 task_id,
                 status="sent",
                 message_id=json.dumps([item for item in card_message_ids if item], ensure_ascii=False),
             )
-        except Exception as exc:
-            dispatch_store.record_attempt(task_id, "review_card", "failed", str(exc))
-            dispatch_store.mark_review_card(task_id, status="failed", error=str(exc))
-            raise
+        else:
+            failure_details: list[str] = []
+            for target in card_failures:
+                if file_states[target].get("status") != "sent":
+                    reason = "成果文件尚未送达，复核卡待补发"
+                else:
+                    reason = sanitize_dispatch_error(card_states[target].get("error") or "复核卡待重试")
+                failure_details.append(f"{_review_target_label(task, explicit_reviewers, target)}：{reason}")
+            error = "复核卡未全部送达：" + "；".join(failure_details)
+            dispatch_store.record_attempt(task_id, "review_card", "failed", error)
+            task = dispatch_store.mark_review_card(
+                task_id,
+                status="failed",
+                message_id=json.dumps([item for item in card_message_ids if item], ensure_ascii=False),
+                error=error,
+            )
     return dispatch_store.get_task(task_id) or task
 
 

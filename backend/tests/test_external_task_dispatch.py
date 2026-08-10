@@ -813,6 +813,69 @@ def test_web_result_review_retry_skips_already_sent_file(service):
     assert len(feishu.cards) == 1
 
 
+def test_web_result_review_partial_recipient_failure_still_sends_card_to_reachable_reviewer(tmp_path: Path):
+    class OneUnavailableReviewerFeishu(FakeFeishu):
+        def __init__(self) -> None:
+            super().__init__()
+            self.unavailable_user_ids = {"ou-user-2"}
+
+        def send_file_to(self, receive_id: str, receive_id_type: str, path: Path) -> str:
+            if receive_id_type == "open_id" and receive_id in self.unavailable_user_ids:
+                raise RuntimeError("Bot has NO availability to this user.（错误码 230013）")
+            return super().send_file_to(receive_id, receive_id_type, path)
+
+    feishu = OneUnavailableReviewerFeishu()
+    store = external_task_dispatch.ExternalDispatchStore(tmp_path / "tasks.sqlite3")
+    dispatch = external_task_dispatch.ExternalTaskDispatchService(
+        store=store,
+        registry=ProfessionalSkillRegistry(PROJECT_ROOT, BUSINESS_SKILLS_DIR, PROJECT_DEFAULT_SETTINGS_PATH),
+        feishu=feishu,
+        profile_id="weact",
+        runtime_root=tmp_path / "runtime",
+        app_url="http://127.0.0.1:5174/",
+    )
+    dispatch.direct_delivery_verified = True
+    options = dispatch.options()
+
+    task, created = dispatch.create_web_result_review(
+        job_id="11111111111111111111111111111111",
+        file_name="网页多人复核成果.xlsx",
+        file_bytes=xlsx_bytes(),
+        task_name="网页多人复核",
+        project_name="测试项目",
+        skill_id="survey-measurement-limit-price",
+        skill_version="1.0.0",
+        reviewer_refs=tuple(person["person_ref"] for person in options["people"]),
+        deadline="2026-08-13T18:00:00+08:00",
+        instructions="请复核。",
+        delivery_mode="direct",
+    )
+
+    assert created is True
+    assert task["submission_delivery_status"] == "failed"
+    assert task["review_card_status"] == "failed"
+    assert task["can_retry"] is True
+    assert [(target, target_type) for target, target_type, _ in feishu.files] == [("ou-user-1", "open_id")]
+    assert [(target, target_type) for target, target_type, _ in feishu.cards] == [("ou-user-1", "open_id")]
+    assert "测试人员" in task["error"]
+    assert "230013" in task["error"]
+
+    feishu.unavailable_user_ids.clear()
+    retried = dispatch.retry(task["task_id"])
+
+    assert retried["submission_delivery_status"] == "sent"
+    assert retried["review_card_status"] == "sent"
+    assert retried["can_retry"] is False
+    assert [(target, target_type) for target, target_type, _ in feishu.files] == [
+        ("ou-user-1", "open_id"),
+        ("ou-user-2", "open_id"),
+    ]
+    assert [(target, target_type) for target, target_type, _ in feishu.cards] == [
+        ("ou-user-1", "open_id"),
+        ("ou-user-2", "open_id"),
+    ]
+
+
 def test_web_result_review_completion_targets_do_not_invent_a_compiler_recipient(service):
     dispatch, store, _, options = service
     dispatch.direct_delivery_verified = True

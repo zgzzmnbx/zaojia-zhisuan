@@ -33,6 +33,7 @@ COMPONENT_SAMPLE = (
 )
 UI_SPEC = ROOT / "00-PRD" / "03-UI设计规范.md"
 UI_PRD = ROOT / "00-PRD" / "03-整体UI设计PRD.md"
+PROJECT_AGENTS = ROOT / "AGENTS.md"
 
 
 def require(condition: bool, message: str) -> None:
@@ -48,6 +49,7 @@ def main() -> None:
     component_sample = COMPONENT_SAMPLE.read_text(encoding="utf-8")
     ui_spec = UI_SPEC.read_text(encoding="utf-8")
     ui_prd = UI_PRD.read_text(encoding="utf-8")
+    project_agents = PROJECT_AGENTS.read_text(encoding="utf-8")
 
     require(tokens["name"] == "大尾巴 Shadcn UI", "设计系统名称不一致")
     require(tokens["version"] == "1.0.0", "设计系统版本不是 1.0.0")
@@ -66,6 +68,10 @@ def main() -> None:
         "--dws-color-success",
         "--dws-color-warning",
         "--dws-color-danger",
+        "--dws-font-family-ui",
+        "--dws-font-size-12",
+        "--dws-font-size-13",
+        "--dws-font-size-16",
         "--dws-button-height",
         "--dws-panel-radius",
         "--dws-segmented-height",
@@ -118,10 +124,21 @@ def main() -> None:
             f"{document_name} 未登记当前 preset",
         )
 
+    for marker in (
+        "字体与字号硬门禁",
+        "可见业务文字不得小于 `12px`",
+        "发现同层级字号不一致必须在交付前修正",
+    ):
+        require(marker in ui_spec, f"UI 设计规范缺少字体硬门禁：{marker}")
+    require(
+        "UI 字体与字号是交付硬门禁" in project_agents,
+        "项目 AGENTS.md 未登记字体与字号交付硬门禁",
+    )
+
     print(
         "[PASS] 大尾巴 Shadcn UI v1.0.0："
         f"{len(required_css_tokens)} 项核心 CSS 令牌、"
-        "大尾巴主题 / Dashboard 映射、组件样张和双文档登记均通过。"
+        "大尾巴主题 / Dashboard 映射、组件样张、双文档登记和字体硬门禁均通过。"
     )
 
 

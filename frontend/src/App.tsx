@@ -90,7 +90,7 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.19.6";
+const APP_VERSION = "v5.19.7";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const PRICE_KNOWLEDGE_ROW_COUNT = 560;
 const FORCE_KNOWLEDGE_PREFIXES = ["查库：", "查库:", "#知识库"] as const;
@@ -5485,16 +5485,24 @@ function DaweibaApp() {
     results.forEach((outcome, index) => {
       const platform = enabledPlatforms[index];
       if (outcome.status === "fulfilled") {
-        successfulTasks.push(outcome.value.payload.task!);
-        successLabels.push(platform.label);
+        const task = outcome.value.payload.task!;
+        successfulTasks.push(task);
+        if (task.can_retry) {
+          const message = task.error || "部分复核人的成果文件或复核卡尚未送达";
+          failureMessages.push(`${platform.label}：${message}`);
+        } else {
+          successLabels.push(platform.label);
+        }
         updateInlineWebReviewPlatform(platform.profileId, (current) => ({
           ...current,
-          task: outcome.value.payload.task!,
-          feedback: outcome.value.payload.started_new_round
-            ? `第 ${outcome.value.payload.task!.review_round ?? 0} 轮复核已发起。`
-            : outcome.value.payload.created
-              ? "成果已冻结并进入多人复核。"
-              : "已命中本平台现有任务，本次没有重复发送。",
+          task,
+          feedback: task.can_retry
+            ? `部分人员投递未完成：${task.error || "请检查失败步骤"}。已成功人员不会重复发送，可仅重试失败步骤。`
+            : outcome.value.payload.started_new_round
+              ? `第 ${task.review_round ?? 0} 轮复核已发起。`
+              : outcome.value.payload.created
+                ? "成果已冻结并进入多人复核。"
+                : "已命中本平台现有任务，本次没有重复发送。",
         }));
       } else {
         const message = outcome.reason instanceof Error ? outcome.reason.message : `${platform.label} 发送失败`;
