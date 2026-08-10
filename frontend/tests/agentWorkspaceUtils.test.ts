@@ -8,6 +8,7 @@ import {
   agentTaskPhase,
   agentTaskPhaseLabel,
   knowledgeQuestionPrompt,
+  moveAgentMessageToEnd,
   shouldShowKnowledgeQuestionSuggestions,
 } from "../src/components/agent-workspace/agentWorkspaceUtils.ts";
 import {
@@ -45,6 +46,19 @@ const skills = [
     can_create_task: false,
   },
 ];
+
+test("moves a reused inline card after the latest user command", () => {
+  const messages = [
+    { id: "setup", role: "assistant" },
+    { id: "progress", role: "assistant" },
+    { id: "repeat-command", role: "user" },
+  ];
+  assert.deepEqual(
+    moveAgentMessageToEnd(messages, "setup").map((message) => message.id),
+    ["progress", "repeat-command", "setup"],
+  );
+  assert.equal(moveAgentMessageToEnd(messages, "missing"), messages);
+});
 
 test("completes a bare # into the knowledge command on Space", () => {
   assert.equal(agentComposerSpaceCompletion("#"), "#知识库：");

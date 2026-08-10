@@ -1,12 +1,10 @@
 import {
   Building2,
-  CalendarClock,
   Check,
   CheckCircle2,
   ChevronDown,
   FileSpreadsheet,
   Loader2,
-  MessageCircle,
   RefreshCw,
   Send,
   ShieldCheck,
@@ -164,7 +162,8 @@ export default function InlineReviewSetupCard({
       <div className="inline-review-setup__progress" aria-label={`发送准备进度 ${setupProgress} / 3`}>
         {["选择方式", "确认人员", "发起复核"].map((label, index) => (
           <span className={setupProgress > index ? "is-complete" : setupProgress === index ? "is-current" : ""} key={label}>
-            <i>{setupProgress > index ? <Check size={11} /> : index + 1}</i>{label}
+            <i>{setupProgress > index ? <Check size={12} /> : index + 1}</i>
+            <span><small>步骤 {index + 1}</small><b>{label}</b></span>
           </span>
         ))}
       </div>
@@ -177,7 +176,7 @@ export default function InlineReviewSetupCard({
 
       <section className="inline-review-setup__section">
         <div className="inline-review-setup__section-heading">
-          <span><MessageCircle size={15} /><strong>1. 选择发送平台与方式</strong></span>
+          <span className="inline-review-setup__step-heading"><i>1</i><strong>选择发送平台与方式</strong></span>
           <small>可同时勾选飞书与 WeAct</small>
         </div>
 
@@ -254,7 +253,7 @@ export default function InlineReviewSetupCard({
                     )}
 
                     <div className="inline-review-setup__subheading">
-                      <span><UsersRound size={14} />2. 选择复核人员</span>
+                      <span className="inline-review-setup__step-heading is-substep"><i>2</i><strong>选择复核人员</strong></span>
                       <small>已选 {platform.selectedReviewers.length} / 10 人</small>
                     </div>
                     {platform.people.length ? (
@@ -324,7 +323,7 @@ export default function InlineReviewSetupCard({
 
       <details className="inline-review-setup__requirements">
         <summary>
-          <span><CalendarClock size={15} /><strong>3. 补充复核要求</strong></span>
+          <span className="inline-review-setup__step-heading"><i>3</i><strong>补充复核要求</strong></span>
           <small>默认折叠 · 发送前可修改</small>
           <ChevronDown size={16} aria-hidden="true" />
         </summary>

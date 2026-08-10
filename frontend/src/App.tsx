@@ -55,7 +55,11 @@ import {
   latestReviewTasksByPlatform,
   type ReviewProgressSnapshot,
 } from "./components/agent-workspace/reviewProgress";
-import { agentComposerSpaceCompletion, knowledgeQuestionPrompt } from "./components/agent-workspace/agentWorkspaceUtils";
+import {
+  agentComposerSpaceCompletion,
+  knowledgeQuestionPrompt,
+  moveAgentMessageToEnd,
+} from "./components/agent-workspace/agentWorkspaceUtils";
 import ZhisuanFeeAnalysisCharts from "./components/agent-workspace/ZhisuanFeeAnalysisCharts";
 import { buildFeeAnalysis, type FeeAnalysis } from "./components/agent-workspace/feeAnalysis";
 import { detectZhisuanCommand, type ZhisuanCommand } from "./components/agent-workspace/zhisuanCommands";
@@ -5195,7 +5199,7 @@ function DaweibaApp() {
           label: appBotProfileShortLabel(platform.profile_id),
           configurationOk: Boolean(platform.configuration_ok && options),
           enabled,
-          expanded: enabled,
+          expanded: enabled && platform.profile_id === defaultProfile,
           options,
           deliveryChannels: [directAvailable ? "direct" : "group"] as ExternalDeliveryChannel[],
           group: nextGroup?.group_ref ?? "",
@@ -5257,13 +5261,22 @@ function DaweibaApp() {
 
   async function openInlineWebReviewSetup() {
     let messageId = inlineWebReviewMessageId;
-    if (!messageId || !chatMessages.some((message) => message.id === messageId && message.reviewSetup)) {
+    const hasExistingSetup = Boolean(
+      messageId && chatMessages.some((message) => message.id === messageId && message.reviewSetup),
+    );
+    if (!hasExistingSetup) {
       messageId = appendZhisuanMessage(
         "发送前请在下方确认协同方式、复核人员和截止时间。最终确认前不会发送任何消息。",
         "command",
         { typing: false, reviewSetup: true },
       );
       setInlineWebReviewMessageId(messageId);
+    } else {
+      setChatMessages((current) => {
+        const setupMessage = current.find((message) => message.id === messageId && message.reviewSetup);
+        if (!setupMessage || current.at(-1)?.id === messageId) return current;
+        return moveAgentMessageToEnd(current, messageId);
+      });
     }
     await prepareInlineWebReviewSetup();
   }

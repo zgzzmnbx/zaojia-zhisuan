@@ -125,10 +125,13 @@ export default function InlineReviewProgressCard({ snapshot, refreshing, onRefre
                   <div className="inline-review-progress__reviewers">
                     {reviewers.length ? reviewers.map((reviewer, index) => {
                       const kind = reviewParticipantKind(reviewer.status);
+                      const reviewDetail = kind === "pending"
+                        ? "尚未提交复核结论"
+                        : `复核结论：${reviewer.status}${reviewer.comment ? ` · 复核意见：${reviewer.comment}` : ""}`;
                       return (
                         <div className={`inline-review-progress__reviewer is-${kind}`} key={`${task.task_id}-${reviewer.name}-${index}`}>
                           <span className="inline-review-progress__avatar">{reviewer.name.trim().slice(0, 1) || "人"}</span>
-                          <div><strong>{reviewer.name}</strong>{reviewer.comment ? <small title={reviewer.comment}>{reviewer.comment}</small> : <small>{kind === "pending" ? "等待提交审核结论" : "已提交审核结论"}</small>}</div>
+                          <div><strong>{reviewer.name}</strong><small title={reviewDetail}>{reviewDetail}</small></div>
                           <b>{kind === "approved" ? <Check size={13} /> : kind === "returned" ? <RotateCcw size={13} /> : <Clock3 size={13} />}{reviewer.status}</b>
                         </div>
                       );

@@ -25,6 +25,16 @@ export function agentConversationTurns<T extends { role: "system" | "user" | "as
   }, []);
 }
 
+export function moveAgentMessageToEnd<T extends { id?: string }>(messages: T[], messageId: string) {
+  const messageIndex = messages.findIndex((message) => message.id === messageId);
+  if (messageIndex < 0 || messageIndex === messages.length - 1) return messages;
+  return [
+    ...messages.slice(0, messageIndex),
+    ...messages.slice(messageIndex + 1),
+    messages[messageIndex],
+  ];
+}
+
 export function agentTaskPhase(options: {
   hasFile: boolean;
   hasResult: boolean;
