@@ -26,6 +26,7 @@ BASE_PATHS = (
     "deploy",
     "tools/check_cloud_release.py",
     "tools/check_feishu_deployment.py",
+    "tools/deploy_cloud_release.py",
     "README.md",
     "AGENTS.md",
     "CHANGELOG.md",

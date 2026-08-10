@@ -15,7 +15,7 @@
 - 产品名：造价智算
 - 定位：工程造价辅助智能体
 - 当前版本：v5.19.7
-- 当前业务云端版本：v5.19.4；本次完成本地版本、Git 存档与代码仓库推送，但未执行服务器发布，云端运行目录仍为 `/opt/zaojiazhisuan/releases/20260805-v5.19.4-cloud-release`
+- 当前业务云端版本：v5.19.7；云端运行目录为 `/opt/zaojiazhisuan/releases/20260811-v5.19.7-cloud-release`，上一回滚目录为 `/opt/zaojiazhisuan/releases/20260805-v5.19.4-cloud-release`
 - 当前页面布局：`大尾巴主题 / daweiba` 唯一主界面
 - 当前 UI 基线：`大尾巴 Shadcn UI v1.0.0`，以 shadcn/ui preset `b1au7YYAi` 的 Rhea / Neutral / Blue / Lucide 为视觉输入，使用项目令牌和局部组件样式落地
 - 前端：React + TypeScript + Vite
@@ -52,7 +52,7 @@ CHANGELOG.md
 | Windows 绿色版 | `docs/绿色版说明.md` |
 | Tauri 桌面版 | `docs/Tauri桌面壳MVP说明.md` |
 | 统信 UOS 兼容性准备 | `docs/统信UOS兼容性开发说明.md` |
-| 云端发布与验收 | `tools/build_cloud_release.py`、`docs/云端发布与验收操作指南.md`、`00-PRD/05-线程交接提示词/云端发布专用线程-交接提示词.md` |
+| 云端发布与验收 | `tools/build_cloud_release.py`、`tools/deploy_cloud_release.py`、`docs/云端发布与验收操作指南.md`、`00-PRD/05-线程交接提示词/云端发布专用线程-交接提示词.md` |
 
 ## PRD 入口
 

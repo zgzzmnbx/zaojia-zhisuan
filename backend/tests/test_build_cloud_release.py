@@ -44,6 +44,7 @@ def create_project(tmp_path: Path) -> Path:
         ),
         "deploy/install_cloud_runtime_guard.sh": "#!/bin/sh\n",
         "tools/check_feishu_deployment.py": "print('ok')\n",
+        "tools/deploy_cloud_release.py": "print('deploy')\n",
         "README.md": "# README\n",
         "AGENTS.md": "# AGENTS\n",
         "CHANGELOG.md": "# CHANGELOG\n",
@@ -94,6 +95,7 @@ def test_assemble_release_preserves_frontend_assets_and_copies_declared_sources(
     assert (release_root / "assets/知识库.xlsx").is_file()
     assert (release_root / "06-知识库问答资料/造价资料/资料.md").is_file()
     assert (release_root / "tools/check_cloud_release.py").is_file()
+    assert (release_root / "tools/deploy_cloud_release.py").is_file()
     assert not (release_root / ".env.local").exists()
 
 
