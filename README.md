@@ -16,6 +16,7 @@
 - 定位：工程造价辅助智能体
 - 当前版本：v5.19.7
 - 当前业务云端版本：v5.19.7；云端运行目录为 `/opt/zaojiazhisuan/releases/20260811-v5.19.7-cloud-release`，上一回滚目录为 `/opt/zaojiazhisuan/releases/20260805-v5.19.4-cloud-release`
+- 云端可用性：2026-08-11 切换和强制验收完成后曾正常返回 `release_version=v5.19.7`；03:43 起主机的 SSH 与 HTTP 同时只建立 TCP 但不返回应用响应，已连续多轮确认为不可用。需从火山引擎控制台重启实例后，再执行 `python tools/deploy_cloud_release.py preflight` 完成恢复验收。
 - 当前页面布局：`大尾巴主题 / daweiba` 唯一主界面
 - 当前 UI 基线：`大尾巴 Shadcn UI v1.0.0`，以 shadcn/ui preset `b1au7YYAi` 的 Rhea / Neutral / Blue / Lucide 为视觉输入，使用项目令牌和局部组件样式落地
 - 前端：React + TypeScript + Vite
