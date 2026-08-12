@@ -129,6 +129,13 @@ test("routes the row AI entry through ranked AI pricing candidates", async () =>
   assert.match(appSource, /正在让智算对比候选并组织填价建议/);
   assert.match(appSource, /aria-label="AI填价处理进度"/);
   assert.match(appSource, /FILL_ASSIST_AI_PROGRESS_STEPS\.map/);
+  assert.match(appSource, /aria-label=\{isFillAssistAiAnswerExpanded \? "恢复三栏视图" : "放大查看AI填价建议"\}/);
+  assert.match(appSource, /is-ai-answer-expanded/);
+  assert.match(appSource, /is-answer-expanded/);
+  assert.match(appSource, /Maximize2/);
+  assert.match(appSource, /Minimize2/);
+  assert.match(css, /\.fill-assist-workspace\.is-ai-answer-expanded\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\);/s);
+  assert.match(css, /\.fill-assist-ai-review\.is-answer-expanded\s+\.fill-assist-ai-question/s);
   assert.match(css, /\.fill-assist-ai-progress__track\s*>\s*i\s*\{[^}]*background:\s*var\(--db-primary, #2563eb\);[^}]*box-shadow:\s*none;/s);
   assert.doesNotMatch(css, /\.fill-assist-ai-progress__track\s*>\s*i\s*\{[^}]*linear-gradient/s);
   assert.doesNotMatch(appSource, /开始AI复核/);

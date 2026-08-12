@@ -16,6 +16,8 @@ import {
   Settings,
   Loader2,
   MessageSquareText,
+  Maximize2,
+  Minimize2,
   MonitorUp,
   Moon,
   PanelTop,
@@ -2434,6 +2436,7 @@ function DaweibaApp() {
   const [isDemoLoading, setIsDemoLoading] = useState(false);
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [fillAssistDialog, setFillAssistDialog] = useState<FillAssistDialogState | null>(null);
+  const [isFillAssistAiAnswerExpanded, setIsFillAssistAiAnswerExpanded] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const [isChatInputFocused, setIsChatInputFocused] = useState(false);
   const [avatarSuccessUntil, setAvatarSuccessUntil] = useState(0);
@@ -7586,6 +7589,7 @@ function DaweibaApp() {
     options: { autoRunAi?: boolean } = {},
   ) {
     if (!result || !activePreview) return;
+    setIsFillAssistAiAnswerExpanded(false);
     const sourceSheet = sheetOverride ?? activePreview;
     const sourceColumns = sheetOverride
       ? buildPreviewColumns(sourceSheet, result.summary.price_column, previewColumnPreferences)
@@ -13191,6 +13195,12 @@ function DaweibaApp() {
             aria-labelledby="fill-assist-title"
             aria-describedby="fill-assist-description"
             onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+              if (event.key === "Escape" && isFillAssistAiAnswerExpanded) {
+                event.stopPropagation();
+                setIsFillAssistAiAnswerExpanded(false);
+              }
+            }}
           >
             <div className="settings-modal-head">
               <div className="fill-assist-title-wrap">
@@ -13221,7 +13231,7 @@ function DaweibaApp() {
                       {fillAssistDialog.error}
                     </div>
                   )}
-                  <div className="fill-assist-workspace">
+                  <div className={`fill-assist-workspace ${isFillAssistAiAnswerExpanded ? "is-ai-answer-expanded" : ""}`}>
                     <section className="fill-assist-candidate-panel" aria-labelledby="fill-assist-candidate-title">
                       <div className="fill-assist-column-head">
                         <span className="fill-assist-column-icon" aria-hidden="true">
@@ -13244,6 +13254,7 @@ function DaweibaApp() {
                                 onChange={() => {
                                   setFillAssistDialog((current) => current ? { ...current, selectedCandidateId: candidate.id } : current);
                                   setRowAiAnswer("");
+                                  setIsFillAssistAiAnswerExpanded(false);
                                 }}
                                 disabled={isRowAiLoading}
                               />
@@ -13369,7 +13380,7 @@ function DaweibaApp() {
                       </label>
                     </aside>
 
-                    <aside className="fill-assist-ai-review" aria-labelledby="fill-assist-ai-title">
+                    <aside className={`fill-assist-ai-review ${isFillAssistAiAnswerExpanded ? "is-answer-expanded" : ""}`} aria-labelledby="fill-assist-ai-title">
                       <div className="fill-assist-column-head">
                         <span className="fill-assist-column-icon" aria-hidden="true">
                           <Bot size={17} />
@@ -13429,13 +13440,27 @@ function DaweibaApp() {
                       </button>
 
                       <section
-                        className={`fill-assist-ai-answer ${isRowAiLoading ? "is-loading" : ""} ${rowAiAnswer ? "has-answer" : ""}`}
+                        className={`fill-assist-ai-answer ${isRowAiLoading ? "is-loading" : ""} ${rowAiAnswer ? "has-answer" : ""} ${isFillAssistAiAnswerExpanded ? "is-expanded" : ""}`}
                         aria-label="AI填价建议"
                         aria-live="polite"
                       >
                         <header>
-                          <Sparkles size={15} aria-hidden="true" />
-                          <strong>AI填价建议</strong>
+                          <span className="fill-assist-ai-answer__title">
+                            <Sparkles size={15} aria-hidden="true" />
+                            <strong>AI填价建议</strong>
+                          </span>
+                          {(rowAiAnswer || isRowAiLoading) && (
+                            <button
+                              className="fill-assist-ai-answer__expand"
+                              type="button"
+                              aria-label={isFillAssistAiAnswerExpanded ? "恢复三栏视图" : "放大查看AI填价建议"}
+                              aria-pressed={isFillAssistAiAnswerExpanded}
+                              onClick={() => setIsFillAssistAiAnswerExpanded((expanded) => !expanded)}
+                            >
+                              {isFillAssistAiAnswerExpanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+                              {isFillAssistAiAnswerExpanded ? "恢复三栏" : "放大查看"}
+                            </button>
+                          )}
                         </header>
                         <div>
                           {isRowAiLoading ? (
