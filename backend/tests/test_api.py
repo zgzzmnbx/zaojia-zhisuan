@@ -44,7 +44,7 @@ def test_health_endpoint():
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
     assert response.json()["version"] == "v5.19.4"
-    assert response.json()["release_version"] == "v5.20.0"
+    assert response.json()["release_version"] == "v5.21.0"
 
 
 def test_web_result_review_endpoint_uses_backend_frozen_output(tmp_path, monkeypatch):
@@ -2681,6 +2681,44 @@ def test_risk_report_returns_prompt_debug_without_api_key(tmp_path, monkeypatch)
     assert Path(payload["debug"]["prompt_markdown"]).exists()
     assert "secret-from-backend-env" not in str(payload["debug"])
     assert captured["messages"] == payload["debug"]["messages"]
+
+
+def test_risk_report_supplements_material_structured_evidence(tmp_path, monkeypatch):
+    import app.main as main_module
+
+    job_id = "risk-evidence-fallback"
+    job_dir = tmp_path / job_id
+    job_dir.mkdir()
+    workbook = Workbook()
+    workbook.active.append(["项目", "单价"])
+    workbook.active.append(["测试", 500000])
+    workbook.save(job_dir / "样例-填价结果-【codex】.xlsx")
+    document = Document()
+    document.add_heading("五、其他需要注意的事项", level=1)
+    document.save(job_dir / "样例-处理报告-【codex】.docx")
+    (job_dir / "样例-处理报告-【codex】.md").write_text(
+        "\n".join([
+            "## 经验池预警",
+            "- 实物工作费调整系数第二层经验：100",
+            "- 经验池预警：发现 1 条高风险预警",
+            "- 高风险：基价 当前值 500000；经验池平均值 4274；建议人工复核。",
+            "## 价格识别日志",
+        ]),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(main_module, "RUNTIME_DIR", tmp_path)
+    monkeypatch.setattr(main_module, "call_chat_completion", lambda config, messages: "建议人工复核。")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+
+    response = TestClient(app).post("/api/risk-report", data={"job_id": job_id})
+
+    assert response.status_code == 200
+    risk_report = response.json()["risk_report"]
+    assert "结构化复核事实（系统补充）" in risk_report
+    assert "第二层经验：100" in risk_report
+    assert "500000" in risk_report
+    assert "4274" in risk_report
 
 
 def test_llm_chat_endpoint_returns_model_answer(monkeypatch):

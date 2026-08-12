@@ -14,6 +14,7 @@ type Props<T extends AgentWorkspaceMessage> = {
   skills: ProfessionalSkillSummary[];
   selectedSkillId: string;
   taskSkill?: ProfessionalSkillSnapshot;
+  taskContext: ReactNode;
   fileName: string;
   currentContext: string;
   progressPercent: number;
@@ -47,6 +48,7 @@ export default function ConversationalAgentWorkspace<T extends AgentWorkspaceMes
   skills,
   selectedSkillId,
   taskSkill,
+  taskContext,
   fileName,
   currentContext,
   progressPercent,
@@ -83,6 +85,8 @@ export default function ConversationalAgentWorkspace<T extends AgentWorkspaceMes
           <button type="button" onClick={onExit}><X size={15} />退出</button>
         </div>
       </header>
+
+      <div className="agent-workspace__task-context">{taskContext}</div>
 
       <AgentMessageStream
         messages={messages}

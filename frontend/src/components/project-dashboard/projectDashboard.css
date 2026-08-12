@@ -1460,6 +1460,15 @@
 .project-dashboard__timeline span,
 .project-dashboard__timeline small { color: var(--pd-muted); font-size: var(--pd-font-meta); }
 
+.project-dashboard__business-task-list { display: grid; gap: 0; }
+.project-dashboard__business-task-list > div { min-height: 54px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; border-top: 1px solid var(--pd-border-soft); }
+.project-dashboard__business-task-list > div:first-child { border-top: 0; }
+.project-dashboard__business-task-list > div > div { min-width: 0; display: grid; gap: 2px; }
+.project-dashboard__business-task-list strong { overflow: hidden; color: var(--pd-strong); font-size: var(--pd-font-body); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.project-dashboard__business-task-list small { overflow: hidden; color: var(--pd-muted); font-size: var(--pd-font-meta); text-overflow: ellipsis; white-space: nowrap; }
+.project-dashboard__business-task-list b { color: var(--pd-text); font-size: var(--pd-font-navigation); font-weight: 500; }
+.project-dashboard__business-task-list > p { margin: 0; color: var(--pd-muted); font-size: var(--pd-font-body); }
+
 .project-dashboard__artifact-list {
   display: grid;
   gap: 7px;

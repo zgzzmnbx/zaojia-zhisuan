@@ -119,6 +119,7 @@ from .excel_recalc import recalculate_workbook
 from .formula_resolver import WorkbookFormulaResolver
 from .paths import (
     BUSINESS_SKILLS_DIR,
+    DEFAULT_BUSINESS_TASK_DB_PATH,
     DEFAULT_EXPERIENCE_FIELD_PREFERENCES_PATH,
     DEFAULT_EXPERIENCE_POOL_PATH,
     DEFAULT_EXPERIENCE_POOL_TEMPLATE_PATH,
@@ -139,6 +140,13 @@ from .paths import (
     RUNTIME_DIR,
 )
 from .project_dashboard import backfill_project_ledger
+from .business_tasks import (
+    BusinessTaskConflict,
+    BusinessTaskError,
+    BusinessTaskNotFound,
+    BusinessTaskStore,
+    now_iso,
+)
 from .settlement_audit_api import router as settlement_audit_router
 from .project_ledger import (
     ProjectArtifactNotFoundError,
@@ -152,10 +160,10 @@ from .professional_skills import (
     ProfessionalSkillRegistry,
     SkillRuntimeContext,
 )
-from .report import append_risk_report, write_report
+from .report import append_risk_report, ensure_risk_report_evidence, write_report
 
 
-APP_VERSION = "v5.20.0"
+APP_VERSION = "v5.21.0"
 # `/api/health.version` 是旧版运行器的兼容字段；当前发布版本通过
 # `release_version` 返回，避免旧客户端在小版本升级时误判服务不可用。
 HEALTH_API_COMPAT_VERSION = "v5.19.4"
@@ -397,6 +405,39 @@ def get_project(project_id: str) -> dict[str, object]:
         return _project_ledger().project_detail(project_id)
     except ProjectNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/projects/{project_id}/tasks")
+def get_project_tasks(project_id: str) -> dict[str, object]:
+    try:
+        items = _business_task_store().list_project_tasks(project_id)
+    except BusinessTaskError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"items": items, "count": len(items)}
+
+
+@app.get("/api/tasks/{task_id}")
+def get_business_task(task_id: str) -> dict[str, object]:
+    try:
+        return _business_task_detail(task_id)
+    except BusinessTaskNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except BusinessTaskError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (OSError, sqlite3.Error, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=503, detail="任务轨迹暂不可用，专业处理不受影响。") from exc
+
+
+@app.get("/api/tasks/{task_id}/timeline")
+def get_business_task_timeline(task_id: str) -> dict[str, object]:
+    try:
+        return _business_task_store().timeline(task_id)
+    except BusinessTaskNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except BusinessTaskError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (OSError, sqlite3.Error, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=503, detail="任务轨迹暂不可用，专业处理不受影响。") from exc
     except ProjectLedgerError as exc:
         raise HTTPException(status_code=503, detail=f"项目台账暂不可用：{exc}") from exc
 
@@ -433,6 +474,7 @@ def get_project_run_result(project_id: str, run_id: str) -> dict[str, object]:
     summary = _summary_from_dict(state.get("summary", {}))
     output_excel = _state_path(job_dir, state, "output_excel", required=False)
     output_report = _state_path(job_dir, state, "output_report", required=False)
+    task_tracking = _sync_business_task_from_job(job_dir, activity="restore")
     return _attach_job_skill(
         {
             "job_id": job_id,
@@ -450,6 +492,7 @@ def get_project_run_result(project_id: str, run_id: str) -> dict[str, object]:
                 "project_id": project_id,
                 "run_id": run_id,
             },
+            "task_tracking": task_tracking,
         },
         job_dir,
         state,
@@ -781,7 +824,8 @@ async def create_external_dispatch_task(
             file_name=str(file.filename or ""),
             file_bytes=file_bytes,
         )
-        return {"created": created, "task": task}
+        task_tracking = _sync_business_task_from_dispatch(task)
+        return {"created": created, "task": task, "task_tracking": task_tracking}
     except external_task_dispatch.DispatchValidationError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
@@ -860,10 +904,12 @@ def create_web_result_review(payload: dict[str, object] = Body(...)) -> dict[str
             existing_task_id=existing_task_id,
             previous_review_round=previous_review_round,
         )
+        task_tracking = _link_business_task_collaboration(job_dir, task)
         return {
             "created": created,
             "started_new_round": bool(start_new_round and created),
             "task": task,
+            "task_tracking": task_tracking,
         }
     except external_task_dispatch.DispatchValidationError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
@@ -916,6 +962,10 @@ async def process_excel(
     project_id: str | None = Form(default=None),
     project_name: str | None = Form(default=None),
     source_type: str = Form(default="web"),
+    source_task_id: str | None = Form(default=None),
+    task_name: str | None = Form(default=None),
+    task_objective: str | None = Form(default=None),
+    task_instructions: str | None = Form(default=None),
 ) -> dict[str, object]:
     if not file.filename or not file.filename.lower().endswith(".xlsx"):
         raise HTTPException(status_code=400, detail="请上传 .xlsx 文件")
@@ -934,6 +984,30 @@ async def process_excel(
     job_dir.mkdir(parents=True, exist_ok=True)
     input_path = job_dir / file.filename
     input_path.write_bytes(await file.read())
+
+    initial_state = {
+        "input_filename": file.filename,
+        "input_excel": input_path.name,
+        "output_excel": "",
+        "output_report": "",
+        "summary": {"matching_status": "pending"},
+        "skill_snapshot": skill_snapshot,
+        "source_task_id": str(source_task_id or "").strip(),
+        "business_task_seed": {
+            "task_name": str(task_name or "").strip(),
+            "objective": str(task_objective or "").strip(),
+            "instructions": str(task_instructions or "").strip(),
+        },
+        "project_id": str(project_id or "").strip(),
+        "project_name": str(project_name or "").strip(),
+        "source_type": str(source_type or "web").strip(),
+        "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "updated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+    }
+    (job_dir / PROCESS_STATE_FILENAME).write_text(
+        json.dumps(initial_state, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    _sync_business_task_from_job(job_dir, activity="process_received")
 
     output_timestamp = _output_timestamp()
     output_excel = job_dir / f"{OUTPUT_FILE_PREFIX}-控制价计算表-{output_timestamp}.xlsx"
@@ -954,6 +1028,10 @@ async def process_excel(
                 match_value_filter_field=parsed_match_value_filter_field,
             )
         except ValueError as exc:
+            _record_business_task_failure(
+                job_dir, event_type="structure_recognized", source_module="fill_engine",
+                detail=str(exc), event_key="structure-failed",
+            )
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         summary.output_excel = output_excel.name
         summary.output_report = ""
@@ -972,6 +1050,12 @@ async def process_excel(
             extra={
                 "skill_snapshot": skill_snapshot,
                 "deferred_matching": True,
+                "source_task_id": str(source_task_id or "").strip(),
+                "business_task_seed": {
+                    "task_name": str(task_name or "").strip(),
+                    "objective": str(task_objective or "").strip(),
+                    "instructions": str(task_instructions or "").strip(),
+                },
                 "process_options": {
                     "column_mapping": mapping,
                     "sheet_configs": parsed_sheet_configs,
@@ -991,6 +1075,7 @@ async def process_excel(
             source_type=source_type,
             create_project=bool(str(project_name or "").strip()),
         )
+        task_tracking = _sync_business_task_from_job(job_dir, activity="process_pending")
         return _attach_job_skill({
             "job_id": job_id,
             "summary": summary.to_dict(),
@@ -999,6 +1084,7 @@ async def process_excel(
                 "report": "",
             },
             "project_tracking": project_tracking,
+            "task_tracking": task_tracking,
         }, job_dir)
     try:
         summary = _build_skill_fill_engine(runtime_context).fill_workbook(
@@ -1014,6 +1100,10 @@ async def process_excel(
             sheet_configs=parsed_sheet_configs,
         )
     except ValueError as exc:
+        _record_business_task_failure(
+            job_dir, event_type="rules_executed", source_module="fill_engine",
+            detail=str(exc), event_key="rules-failed",
+        )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     recalculate_workbook(output_excel)
     summary.warning_summary = _warning_not_run_summary(
@@ -1039,7 +1129,15 @@ async def process_excel(
         output_excel,
         output_report,
         summary,
-        extra={"skill_snapshot": skill_snapshot},
+        extra={
+            "skill_snapshot": skill_snapshot,
+            "source_task_id": str(source_task_id or "").strip(),
+            "business_task_seed": {
+                "task_name": str(task_name or "").strip(),
+                "objective": str(task_objective or "").strip(),
+                "instructions": str(task_instructions or "").strip(),
+            },
+        },
     )
     project_tracking = _sync_project_ledger(
         job_dir,
@@ -1048,6 +1146,7 @@ async def process_excel(
         source_type=source_type,
         create_project=bool(str(project_name or "").strip()),
     )
+    task_tracking = _sync_business_task_from_job(job_dir, activity="process_completed")
 
     return _attach_job_skill({
         "job_id": job_id,
@@ -1057,6 +1156,7 @@ async def process_excel(
             "report": f"/api/download/{job_id}/report",
         },
         "project_tracking": project_tracking,
+        "task_tracking": task_tracking,
     }, job_dir)
 
 
@@ -1091,6 +1191,10 @@ async def batch_match_process(payload: dict[str, object] = Body(...)) -> dict[st
             sheet_configs=options.get("sheet_configs"),
         )
     except ValueError as exc:
+        _record_business_task_failure(
+            job_dir, event_type="rules_executed", source_module="fill_engine",
+            detail=str(exc), event_key="batch-rules-failed",
+        )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     recalculate_workbook(output_excel)
     summary.warning_summary = _warning_not_run_summary(
@@ -1128,6 +1232,7 @@ async def batch_match_process(payload: dict[str, object] = Body(...)) -> dict[st
         },
     )
     project_tracking = _sync_project_ledger_from_job(job_dir)
+    task_tracking = _sync_business_task_from_job(job_dir, activity="batch_match")
     return _attach_job_skill({
         "job_id": job_id,
         "summary": summary.to_dict(),
@@ -1136,7 +1241,8 @@ async def batch_match_process(payload: dict[str, object] = Body(...)) -> dict[st
             "report": f"/api/download/{job_id}/report",
         },
         "project_tracking": project_tracking,
-    }, job_dir, state)
+        "task_tracking": task_tracking,
+    }, job_dir)
 
 
 @app.post("/api/demo/load-sample")
@@ -1279,9 +1385,17 @@ async def run_experience_warnings(
         )
     except ValueError as exc:
         _set_warning_progress(job_id, {"status": "failed", "error": str(exc)})
+        _record_business_task_failure(
+            job_dir, event_type="risk_checked", source_module="experience_warning",
+            detail=str(exc), event_key="risk-failed",
+        )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         _set_warning_progress(job_id, {"status": "failed", "error": str(exc)})
+        _record_business_task_failure(
+            job_dir, event_type="risk_checked", source_module="experience_warning",
+            detail=str(exc), event_key="risk-failed-unexpected",
+        )
         raise
     summary.warning_summary = warning_result["summary"]
     summary.warning_summary["executed"] = True
@@ -1311,6 +1425,7 @@ async def run_experience_warnings(
     summary.output_report = report_path.name
     _save_process_state(job_dir, input_name, input_path, excel_path, report_path, summary)
     project_tracking = _sync_project_ledger_from_job(job_dir)
+    task_tracking = _sync_business_task_from_job(job_dir, activity="risk_checked")
     _set_warning_progress(
         job_id,
         {
@@ -1330,6 +1445,7 @@ async def run_experience_warnings(
             "report": f"/api/download/{job_id}/report",
         },
         "project_tracking": project_tracking,
+        "task_tracking": task_tracking,
     }, job_dir)
 
 
@@ -1445,6 +1561,11 @@ async def update_preview_cell(payload: dict[str, object] = Body(...)) -> dict[st
         excel_path=excel_path,
         edit_record=edit_record,
     )
+    task_tracking = _sync_business_task_from_job(
+        job_dir,
+        activity="manual_edit",
+        activity_payload={"trusted_experience": trusted_experience},
+    )
 
     return _attach_job_skill({
         "job_id": job_id,
@@ -1458,6 +1579,7 @@ async def update_preview_cell(payload: dict[str, object] = Body(...)) -> dict[st
         "formula_recalculated": recalculated,
         "needs_recalculate": not should_recalculate,
         "trusted_experience": trusted_experience,
+        "task_tracking": task_tracking,
     }, job_dir)
 
 
@@ -1501,6 +1623,7 @@ async def recalculate_preview_workbook(payload: dict[str, object] = Body(...)) -
     summary.output_excel = excel_path.name
     summary.output_report = report_path.name
     _save_process_state(job_dir, input_name, input_path, excel_path, report_path, summary)
+    task_tracking = _sync_business_task_from_job(job_dir, activity="recalculate")
     return _attach_job_skill({
         "job_id": job_id,
         "summary": summary.to_dict(),
@@ -1511,6 +1634,7 @@ async def recalculate_preview_workbook(payload: dict[str, object] = Body(...)) -
         "manual_edits": _load_manual_edit_log(job_dir),
         "formula_recalculated": recalculated,
         "needs_recalculate": False,
+        "task_tracking": task_tracking,
     }, job_dir)
 
 
@@ -1998,15 +2122,18 @@ async def generate_risk_report(
     except (ValueError, RuntimeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    risk_text = ensure_risk_report_evidence(risk_text, markdown_text)
     risk_md_path = job_dir / "大模型风险报告-【codex】.md"
     risk_md_path.write_text(risk_text + "\n", encoding="utf-8")
     append_risk_report(report_matches[0], risk_text)
+    task_tracking = _sync_business_task_from_job(job_dir, activity="risk_report")
     return _attach_job_skill({
         "job_id": job_id,
         "risk_report": risk_text,
         "knowledge_sources": knowledge_sources,
         "downloads": {"report": f"/api/download/{job_id}/report"},
         "debug": _build_llm_debug(config, messages, prompt_path),
+        "task_tracking": task_tracking,
     }, job_dir)
 
 
@@ -3281,6 +3408,7 @@ def _process_existing_workbook(
         summary,
         extra={"skill_snapshot": skill_snapshot},
     )
+    task_tracking = _sync_business_task_from_job(job_dir, activity="process_completed")
     return _attach_job_skill({
         "job_id": job_id,
         "demo_mode": demo_mode,
@@ -3290,6 +3418,7 @@ def _process_existing_workbook(
             "excel": f"/api/download/{job_id}/excel",
             "report": f"/api/download/{job_id}/report",
         },
+        "task_tracking": task_tracking,
     }, job_dir)
 
 
@@ -3442,6 +3571,10 @@ def _save_process_state(
                 "deferred_matching",
                 "process_options",
                 "skill_snapshot",
+                "source_task_id",
+                "business_task_seed",
+                "business_task",
+                "business_task_definition",
                 "project_relation",
                 "project_id",
                 "project_name",
@@ -3469,6 +3602,493 @@ def _save_process_state(
 
 def _project_ledger() -> ProjectLedger:
     return ProjectLedger(RUNTIME_DIR / DEFAULT_PROJECT_LEDGER_DB_PATH.name, RUNTIME_DIR)
+
+
+def _business_task_store() -> BusinessTaskStore:
+    return BusinessTaskStore(RUNTIME_DIR / DEFAULT_BUSINESS_TASK_DB_PATH.name)
+
+
+def _safe_file_snapshot(path: Path | None, *, version: int = 1) -> dict[str, object]:
+    if not path or not path.is_file():
+        return {"reference": "", "type": "", "version": version, "sha256": ""}
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    return {
+        "reference": path.name,
+        "type": path.suffix.lower().lstrip("."),
+        "version": max(1, int(version)),
+        "sha256": digest,
+    }
+
+
+def _task_skill_snapshot(state: dict[str, object]) -> dict[str, object]:
+    snapshot = state.get("skill_snapshot") if isinstance(state.get("skill_snapshot"), dict) else {}
+    runtime = snapshot.get("runtime_context") if isinstance(snapshot.get("runtime_context"), dict) else {}
+    return {
+        **ProfessionalSkillRegistry.public_snapshot(snapshot),
+        "runtime_summary": {
+            "processor_id": str(runtime.get("processor_id") or ""),
+            "capabilities": {
+                str(key): bool(value)
+                for key, value in dict(runtime.get("capabilities") or {}).items()
+            },
+            "rule_asset_count": len(dict(runtime.get("rule_assets") or {})),
+            "knowledge_source_count": len(list(runtime.get("knowledge_sources") or [])),
+        },
+    }
+
+
+def _task_status_from_state(state: dict[str, object], activity: str) -> tuple[str, str]:
+    summary = state.get("summary") if isinstance(state.get("summary"), dict) else {}
+    if activity == "process_pending":
+        return "processing", "structure_recognized"
+    if activity == "risk_checked":
+        review_rows = int(summary.get("review_rows") or 0)
+        return ("pending_review", "risk_checked") if review_rows else ("completed", "risk_checked")
+    if activity == "manual_edit":
+        return "processing", "experience_governed"
+    if activity == "risk_report":
+        return "completed", "artifact_generated"
+    if activity in {"process_completed", "batch_match", "recalculate"}:
+        return "processing", "artifact_generated"
+    return "processing", "task_defined"
+
+
+def _task_artifact_event(
+    store: BusinessTaskStore,
+    task_id: str,
+    job_dir: Path,
+    state: dict[str, object],
+    *,
+    source_module: str,
+) -> int:
+    artifacts: list[dict[str, object]] = []
+    for state_key, artifact_type in (("output_excel", "excel"), ("output_report", "word")):
+        name = str(state.get(state_key) or "").strip()
+        if not name:
+            continue
+        path = job_dir / Path(name).name
+        if path.is_file():
+            artifacts.append({"type": artifact_type, **_safe_file_snapshot(path)})
+    if not artifacts:
+        return 0
+    bundle_hash = hashlib.sha256(
+        json.dumps(artifacts, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    store.record_event(
+        task_id,
+        event_key=f"artifact:{bundle_hash}",
+        event_type="artifact_generated",
+        status="completed",
+        source_module=source_module,
+        detail="Excel / Word 成果已按当前专业处理状态生成。",
+        reference_type="job_id",
+        reference_id=job_dir.name,
+        payload={"tool": "report.write_report", "artifacts": artifacts, "bundle_hash": bundle_hash},
+    )
+    return store.event_count(task_id, "artifact_generated")
+
+
+def _sync_business_task_from_job(
+    job_dir: Path,
+    *,
+    activity: str,
+    activity_payload: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """Best-effort Task identity/lineage sync; never owns professional state."""
+    try:
+        state = _load_process_state(job_dir)
+        snapshot = _task_skill_snapshot(state)
+        skill_id = str(snapshot.get("id") or "").strip()
+        skill_version = str(snapshot.get("version") or "").strip()
+        if not skill_id:
+            raise BusinessTaskError("专业处理状态缺少 Skill 快照")
+        project_relation = state.get("project_relation") if isinstance(state.get("project_relation"), dict) else {}
+        project_id = str(state.get("project_id") or project_relation.get("project_id") or "").strip()
+        source_type = str(state.get("source_type") or project_relation.get("source_type") or "web").strip()
+        source_task_id = str(state.get("source_task_id") or "").strip()
+        input_path = _state_path(job_dir, state, "input_excel", required=False)
+        seed = state.get("business_task_seed") if isinstance(state.get("business_task_seed"), dict) else {}
+        input_name = str(state.get("input_filename") or (input_path.name if input_path else "专业处理任务.xlsx"))
+        task_name = str(seed.get("task_name") or state.get("project_name") or Path(input_name).stem or "专业处理任务").strip()
+        objective = str(seed.get("objective") or f"完成“{task_name}”的结构识别、规则匹配、风险复核和成果输出").strip()
+        definition = state.get("business_task_definition") if isinstance(state.get("business_task_definition"), dict) else {
+            "expected_artifacts": ["excel", "word"],
+            "success_criteria": ["规则处理完成", "不确定项明确待复核", "成果可下载并可追溯"],
+            "human_gates": ["多候选、无候选或字段冲突由人工复核"],
+            "collaboration_required": False,
+        }
+        input_snapshot = _safe_file_snapshot(input_path)
+        store = _business_task_store()
+        existing_task_id = ""
+        task_relation = state.get("business_task") if isinstance(state.get("business_task"), dict) else {}
+        if task_relation:
+            existing_task_id = str(task_relation.get("task_id") or "")
+        if not existing_task_id and source_task_id:
+            source_scope = f"{source_type}:{skill_id}:{skill_version}"
+            existing = store.find_by_link("source_task_id", source_task_id, source_system=source_scope)
+            existing_task_id = str(existing.get("task_id") or "") if existing else ""
+        if existing_task_id:
+            task = store.get_task(existing_task_id)
+            frozen_skill = task.get("skill_snapshot") if isinstance(task.get("skill_snapshot"), dict) else {}
+            if (
+                str(frozen_skill.get("id") or "") != skill_id
+                or str(frozen_skill.get("version") or "") != skill_version
+                or str(frozen_skill.get("manifest_hash") or "") != str(snapshot.get("manifest_hash") or "")
+            ):
+                existing_task_id = ""
+            else:
+                created = False
+        if not existing_task_id:
+            identity_key = (
+                f"source:{source_type}:{source_task_id}:{skill_id}:{skill_version}"
+                if source_task_id else f"job:{job_dir.name}:{skill_id}:{skill_version}"
+            )
+            task, created = store.ensure_task(
+                identity_key=identity_key,
+                project_id=project_id,
+                source_type=source_type,
+                source_reference=source_task_id,
+                task_name=task_name,
+                objective=objective,
+                instructions=str(seed.get("instructions") or ""),
+                definition=definition,
+                skill_snapshot=snapshot,
+                input_snapshot=input_snapshot,
+                responsibility={},
+                classification_status="classified" if project_id or source_task_id or job_dir.name else "pending_classification",
+                created_at=str(state.get("created_at") or "") or None,
+            )
+        task_id = str(task["task_id"])
+        store.link(task_id, "job_id", job_dir.name, source_system="professional")
+        run_id = str(project_relation.get("run_id") or "").strip()
+        if run_id:
+            store.link(task_id, "run_id", run_id, source_system="project_ledger")
+        if source_task_id:
+            store.link(
+                task_id,
+                "source_task_id",
+                source_task_id,
+                source_system=f"{source_type}:{skill_id}:{skill_version}",
+            )
+        if created:
+            store.record_event(
+                task_id, event_key="defined", event_type="task_defined", status="completed",
+                source_module="business_tasks", detail="业务目标与成功标准已冻结。",
+                reference_type="job_id", reference_id=job_dir.name,
+            )
+            store.record_event(
+                task_id, event_key=f"skill:{snapshot.get('manifest_hash')}", event_type="skill_frozen", status="completed",
+                source_module="professional_skills", detail=f"已锁定 {snapshot.get('display_name') or skill_id} v{skill_version}。",
+                payload={"tool": "ProfessionalSkillRegistry.create_snapshot", "manifest_hash": snapshot.get("manifest_hash")},
+            )
+            store.record_event(
+                task_id, event_key=f"input:{input_snapshot.get('sha256')}", event_type="input_received", status="completed",
+                source_module="professional_process", detail=f"已接收 {input_snapshot.get('reference') or '输入文件'}。",
+                reference_type="job_id", reference_id=job_dir.name, payload={"tool": "UploadFile", "input": input_snapshot},
+            )
+        summary = state.get("summary") if isinstance(state.get("summary"), dict) else {}
+        if activity in {"process_pending", "process_completed", "batch_match"}:
+            store.record_event(
+                task_id, event_key=f"structure:{job_dir.name}", event_type="structure_recognized", status="completed",
+                source_module="fill_engine", detail=f"已识别 {int(summary.get('total_data_rows') or 0)} 条数据行。",
+                reference_type="job_id", reference_id=job_dir.name, payload={"tool": "FillEngine.inspect_workbook"},
+            )
+        if activity in {"process_completed", "batch_match"}:
+            store.record_event(
+                task_id, event_key=f"rules:{job_dir.name}", event_type="rules_executed", status="completed",
+                source_module="fill_engine", detail="结构化价格与系数规则已按冻结 Skill 执行。",
+                reference_type="job_id", reference_id=job_dir.name, payload={"tool": "FillEngine.fill_workbook"},
+            )
+        if activity == "risk_checked":
+            warning = summary.get("warning_summary") if isinstance(summary.get("warning_summary"), dict) else {}
+            store.record_event(
+                task_id, event_key=f"risk:{job_dir.name}", event_type="risk_checked", status="completed",
+                source_module="experience_warning", detail=f"风险检查已完成，预警 {int(warning.get('warning_rows') or 0)} 行。",
+                reference_type="job_id", reference_id=job_dir.name,
+                payload={"tool": "analyze_workbook_warnings_with_progress", "summary": warning},
+            )
+        if activity == "manual_edit":
+            experience = dict((activity_payload or {}).get("trusted_experience") or {})
+            experience_status = str(experience.get("status") or "")
+            event_status = "failed" if experience_status in {"failed", "capture_failed"} else (
+                "no_candidate" if experience_status in {"no_change", "empty_opinion", ""} else "completed"
+            )
+            store.record_event(
+                task_id, event_key=f"experience:{hashlib.sha256(json.dumps(experience, sort_keys=True, default=str).encode()).hexdigest()}",
+                event_type="experience_governed", status=event_status, source_module="trusted_experience",
+                detail=str(experience.get("message") or ("已形成可信经验候选。" if event_status == "completed" else "未形成候选。")),
+                reference_type="job_id", reference_id=job_dir.name,
+                payload={"tool": "TrustedExperienceStore.capture_event", "status": experience_status},
+            )
+        artifact_version = (
+            _task_artifact_event(store, task_id, job_dir, state, source_module=activity)
+            if activity in {"process_completed", "batch_match", "risk_checked", "manual_edit", "recalculate", "risk_report"}
+            else 0
+        )
+        if activity == "restore":
+            status = str(task.get("status") or "processing")
+            stage = str(task.get("stage") or "task_defined")
+        else:
+            status, stage = _task_status_from_state(state, activity)
+        task = store.update_progress(
+            task_id,
+            status=status,
+            stage=stage,
+            current_run_id=run_id,
+            artifact_version=artifact_version or int(task.get("artifact_version") or 0),
+            project_id=project_id or None,
+            completed_at=now_iso() if status == "completed" else None,
+        )
+        state["business_task"] = {
+            "task_id": task_id,
+            "status": task["status"],
+            "stage": task["stage"],
+            "artifact_version": task["artifact_version"],
+            "review_round": task["review_round"],
+        }
+        state["business_task_definition"] = definition
+        (job_dir / PROCESS_STATE_FILENAME).write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+        return {"status": "available", "task": task, "created": created}
+    except (OSError, sqlite3.Error, BusinessTaskError, ValueError, json.JSONDecodeError, HTTPException) as exc:
+        return {
+            "status": "unavailable",
+            "message": "专业处理已继续，但任务轨迹暂不可用。",
+            "error_type": type(exc).__name__,
+        }
+
+
+def _record_business_task_failure(
+    job_dir: Path,
+    *,
+    event_type: str,
+    source_module: str,
+    detail: str,
+    event_key: str,
+) -> None:
+    try:
+        state = _load_process_state(job_dir)
+        relation = state.get("business_task") if isinstance(state.get("business_task"), dict) else {}
+        task_id = str(relation.get("task_id") or "")
+        if not task_id:
+            tracking = _sync_business_task_from_job(job_dir, activity="process_received")
+            tracked = tracking.get("task") if isinstance(tracking.get("task"), dict) else {}
+            task_id = str(tracked.get("task_id") or "")
+        if not task_id:
+            return
+        store = _business_task_store()
+        store.record_event(
+            task_id,
+            event_key=event_key,
+            event_type=event_type,
+            status="failed",
+            source_module=source_module,
+            detail=_clean_task_failure_detail(detail),
+            reference_type="job_id",
+            reference_id=job_dir.name,
+        )
+        task = store.update_progress(task_id, status="failed", stage=event_type)
+        state["business_task"] = {
+            **dict(relation), "task_id": task_id, "status": task["status"],
+            "stage": task["stage"], "artifact_version": task["artifact_version"],
+            "review_round": task["review_round"],
+        }
+        (job_dir / PROCESS_STATE_FILENAME).write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    except (OSError, sqlite3.Error, BusinessTaskError, ValueError, json.JSONDecodeError, HTTPException):
+        return
+
+
+def _clean_task_failure_detail(value: object) -> str:
+    text = str(value or "").replace("\x00", "").strip()
+    text = re.sub(r"[A-Za-z]:[\\/][^\s]+", "[本机路径已隐藏]", text)
+    return text[:500] or "该阶段执行失败，可在修正输入或配置后重试。"
+
+
+def _business_task_detail(task_id: str) -> dict[str, object]:
+    store = _business_task_store()
+    task = store.get_task(task_id)
+    timeline = store.timeline(task_id)
+    project = None
+    artifacts: list[dict[str, object]] = []
+    if task["project_id"]:
+        try:
+            project = _project_ledger().project_detail(str(task["project_id"]))
+            artifacts = list(project.get("artifacts") or [])
+        except ProjectLedgerError:
+            project = None
+    experience_events: list[dict[str, object]] = []
+    task_ids = [str(task["task_id"])] + [
+        str(link["external_id"]) for link in task["links"] if link["link_type"] == "job_id"
+    ]
+    experience_store = TrustedExperienceStore(RUNTIME_DIR / DEFAULT_KNOWLEDGE_MEMORY_DB_PATH.name)
+    for lineage_task_id in task_ids:
+        experience_events.extend(experience_store.list_events(task_id=lineage_task_id, limit=100))
+    collaboration: list[dict[str, object]] = []
+    collaboration_links = [link for link in task["links"] if link["link_type"] == "collaboration_task_id"]
+    dispatch_store = external_task_dispatch.ExternalDispatchStore() if collaboration_links else None
+    for link in collaboration_links:
+        item = dispatch_store.get_task(str(link["external_id"])) if dispatch_store else None
+        if item:
+            public = external_task_dispatch.public_dispatch_task(item)
+            collaboration.append({
+                "task_id": public["task_id"], "task_name": public["task_name"],
+                "status": public["status"], "status_label": public["status_label"],
+                "review_round": public["review_round"], "participants": public["participants"],
+                "completed_at": public["completed_at"], "trusted_experience": public["trusted_experience"],
+            })
+    tools = sorted({
+        str(item.get("payload", {}).get("tool") or "")
+        for item in timeline["items"] if isinstance(item.get("payload"), dict) and item.get("payload", {}).get("tool")
+    })
+    return {
+        **task,
+        "timeline": timeline,
+        "lineage": {
+            "project": project,
+            "artifacts": artifacts,
+            "collaboration": collaboration,
+            "experience_events": experience_events,
+            "tools": tools,
+        },
+    }
+
+
+def _sync_business_task_from_dispatch(task: dict[str, object]) -> dict[str, object]:
+    try:
+        collaboration_task_id = str(task.get("task_id") or "").strip()
+        raw = external_task_dispatch.ExternalDispatchStore().get_task(collaboration_task_id)
+        if not raw:
+            raise BusinessTaskError("协同任务不存在")
+        try:
+            frozen_snapshot = json.loads(str(raw.get("skill_snapshot_json") or "{}"))
+        except json.JSONDecodeError as exc:
+            raise BusinessTaskError("协同任务 Skill 快照无效") from exc
+        skill_snapshot = {
+            **ProfessionalSkillRegistry.public_snapshot(frozen_snapshot),
+            "runtime_summary": {
+                "processor_id": str((frozen_snapshot.get("runtime_context") or {}).get("processor_id") or ""),
+                "capabilities": dict((frozen_snapshot.get("runtime_context") or {}).get("capabilities") or {}),
+            },
+        }
+        source_task_id = str(task.get("source_task_id") or "").strip()
+        source_system = str(task.get("source_system") or "external").strip()
+        definition = {
+            "expected_artifacts": ["excel", "word"],
+            "success_criteria": ["专业成果完成", "指定复核人完成审核", "成果按原协同范围交付"],
+            "human_gates": ["指定复核人通过后完成"],
+            "collaboration_required": True,
+            "deadline": str(task.get("deadline") or ""),
+        }
+        input_snapshot = {
+            "reference": str(task.get("file_name") or ""),
+            "type": "xlsx",
+            "version": str(raw.get("template_version") or "v1.0"),
+            "sha256": str(raw.get("template_hash") or ""),
+        }
+        store = _business_task_store()
+        business_task, created = store.ensure_task(
+            identity_key=str(raw.get("business_key") or f"dispatch:{source_system}:{source_task_id}"),
+            source_type=str(task.get("platform") or source_system),
+            source_reference=source_task_id,
+            task_name=str(task.get("task_name") or "协同专业任务"),
+            objective=str(raw.get("instructions") or task.get("task_name") or "完成协同专业任务"),
+            instructions=str(raw.get("instructions") or ""),
+            definition=definition,
+            skill_snapshot=skill_snapshot,
+            input_snapshot=input_snapshot,
+            responsibility={
+                "participants": task.get("participants") or [],
+                "deadline": task.get("deadline") or "",
+            },
+            classification_status="pending_classification",
+            created_at=str(task.get("created_at") or "") or None,
+        )
+        task_id = str(business_task["task_id"])
+        store.link(task_id, "collaboration_task_id", collaboration_task_id, source_system="external_dispatch")
+        if source_task_id:
+            store.link(
+                task_id, "source_task_id", source_task_id,
+                source_system=f"{source_system}:{skill_snapshot.get('id')}:{skill_snapshot.get('version')}",
+            )
+        if created:
+            store.record_event(
+                task_id, event_key="defined", event_type="task_defined", status="completed",
+                source_module="external_task_dispatch", detail="TaskEnvelope 业务目标已冻结。",
+                reference_type="collaboration_task_id", reference_id=collaboration_task_id,
+            )
+            store.record_event(
+                task_id, event_key=f"skill:{skill_snapshot.get('manifest_hash')}", event_type="skill_frozen", status="completed",
+                source_module="professional_skills", detail=f"已锁定 {skill_snapshot.get('display_name') or skill_snapshot.get('id')} v{skill_snapshot.get('version')}。",
+                payload={"tool": "ProfessionalSkillRegistry.create_snapshot", "manifest_hash": skill_snapshot.get("manifest_hash")},
+            )
+            store.record_event(
+                task_id, event_key=f"input:{input_snapshot.get('sha256')}", event_type="input_received", status="completed",
+                source_module="external_task_dispatch", detail="协同输入模板已接收并冻结哈希。",
+                reference_type="collaboration_task_id", reference_id=collaboration_task_id,
+                payload={"tool": "TaskEnvelope", "input": input_snapshot},
+            )
+        store.record_event(
+            task_id, event_key=f"collaboration:{collaboration_task_id}:started", event_type="collaboration_completed",
+            status="in_progress", source_module="external_task_dispatch", detail="协同任务已创建，等待领取、编制与复核。",
+            reference_type="collaboration_task_id", reference_id=collaboration_task_id,
+            payload={"tool": "ExternalTaskDispatchService.create_and_deliver"},
+        )
+        business_task = store.update_progress(
+            task_id, status="processing", stage="input_received",
+            review_round=int(task.get("review_round") or 0),
+        )
+        return {"status": "available", "task": business_task, "created": created}
+    except (OSError, sqlite3.Error, BusinessTaskError, ValueError, json.JSONDecodeError) as exc:
+        return {
+            "status": "unavailable", "message": "协同任务已继续，但任务轨迹暂不可用。",
+            "error_type": type(exc).__name__,
+        }
+
+
+def _link_business_task_collaboration(job_dir: Path, task: dict[str, object]) -> dict[str, object]:
+    try:
+        state = _load_process_state(job_dir)
+        relation = state.get("business_task") if isinstance(state.get("business_task"), dict) else {}
+        task_id = str(relation.get("task_id") or "")
+        if not task_id:
+            tracking = _sync_business_task_from_job(job_dir, activity="process_completed")
+            tracked_task = tracking.get("task") if isinstance(tracking.get("task"), dict) else {}
+            task_id = str(tracked_task.get("task_id") or "")
+        if not task_id:
+            raise BusinessTaskError("网页专业任务尚未形成业务 Task")
+        collaboration_task_id = str(task.get("task_id") or "").strip()
+        store = _business_task_store()
+        store.link(task_id, "collaboration_task_id", collaboration_task_id, source_system="external_dispatch")
+        source_task_id = str(task.get("source_task_id") or "").strip()
+        if source_task_id:
+            store.link(task_id, "source_task_id", source_task_id, source_system="web_review")
+        review_round = int(task.get("review_round") or 0)
+        store.record_event(
+            task_id, event_key=f"review:{collaboration_task_id}:{review_round}", event_type="human_reviewed",
+            status="pending_review", source_module="external_task_dispatch",
+            detail=f"第 {review_round or 1} 轮人工复核已发起。",
+            reference_type="collaboration_task_id", reference_id=collaboration_task_id,
+            payload={"tool": "ExternalTaskDispatchService.create_web_result_review"},
+        )
+        store.record_event(
+            task_id, event_key=f"collaboration:{collaboration_task_id}:started", event_type="collaboration_completed",
+            status="in_progress", source_module="external_task_dispatch", detail="协同复核已进入原有投递与审核状态机。",
+            reference_type="collaboration_task_id", reference_id=collaboration_task_id,
+        )
+        business_task = store.update_progress(
+            task_id, status="pending_review", stage="human_reviewed", review_round=review_round,
+        )
+        state["business_task"] = {
+            **dict(relation), "task_id": task_id, "status": business_task["status"],
+            "stage": business_task["stage"], "artifact_version": business_task["artifact_version"],
+            "review_round": business_task["review_round"],
+        }
+        (job_dir / PROCESS_STATE_FILENAME).write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+        return {"status": "available", "task": business_task, "created": False}
+    except (OSError, sqlite3.Error, BusinessTaskError, ValueError, json.JSONDecodeError, HTTPException) as exc:
+        return {
+            "status": "unavailable", "message": "复核已继续，但任务轨迹暂不可用。",
+            "error_type": type(exc).__name__,
+        }
 
 
 def _llm_usage_ledger() -> LlmUsageLedger:
@@ -3837,7 +4457,9 @@ def _capture_manual_edit_experience(
     project_name = str(state.get("project_name") or project_relation.get("project_name") or "").strip()
     artifact_version = str(project_relation.get("run_id") or state.get("updated_at") or "").strip()
     event_basis = {
-        "task_id": job_dir.name,
+        "task_id": str((state.get("business_task") or {}).get("task_id") or job_dir.name)
+        if isinstance(state.get("business_task"), dict)
+        else job_dir.name,
         "sheet": edit_record.get("sheet"),
         "row": edit_record.get("row_number"),
         "column": edit_record.get("column_number"),
@@ -3862,7 +4484,9 @@ def _capture_manual_edit_experience(
                 "event_type": "cell_edit",
                 "project_id": project_id,
                 "project_name": project_name,
-                "task_id": job_dir.name,
+                "task_id": str((state.get("business_task") or {}).get("task_id") or job_dir.name)
+                if isinstance(state.get("business_task"), dict)
+                else job_dir.name,
                 "skill_id": runtime_context.skill_id,
                 "skill_version": runtime_context.skill_version,
                 "sheet_name": edit_record.get("sheet"),

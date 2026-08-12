@@ -32,6 +32,7 @@ DEFAULT_KNOWLEDGE_QA_INDEX_PATH = RUNTIME_DIR / "knowledge-qa-index-【codex】.
 DEFAULT_KNOWLEDGE_HYBRID_INDEX_PATH = RUNTIME_DIR / "knowledge-qa-index-hybrid-【codex】.json"
 DEFAULT_KNOWLEDGE_MEMORY_DB_PATH = RUNTIME_DIR / "knowledge-memory.sqlite3"
 DEFAULT_PROJECT_LEDGER_DB_PATH = RUNTIME_DIR / "project-ledger.sqlite3"
+DEFAULT_BUSINESS_TASK_DB_PATH = RUNTIME_DIR / "business-tasks.sqlite3"
 DEFAULT_LLM_USAGE_DB_PATH = RUNTIME_DIR / "llm-usage-ledger.sqlite3"
 DEFAULT_REPORT_TEMPLATE_PATH = TEMPLATE_DIR / "【模板勿动】控制价报告模板-yyyy-mm-dd.docx"
 DEFAULT_WORKLOAD_TERM_RULES_PATH = MATCHING_RULES_DIR / "【术语归并】术语归并与匹配放宽规则表.xlsx"

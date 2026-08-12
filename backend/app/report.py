@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 from pathlib import Path
+import re
 from typing import Any
 
 from docx import Document
@@ -17,6 +18,36 @@ from .paths import DEFAULT_REPORT_TEMPLATE_PATH
 from .schemas import FillSummary
 
 REPORT_TEMPLATE_PATH = DEFAULT_REPORT_TEMPLATE_PATH
+
+
+def ensure_risk_report_evidence(risk_text: str, report_markdown: str) -> str:
+    """Append structured facts only when the model omitted material report evidence."""
+    normalized_risk = risk_text.strip()
+    warning_section = report_markdown.split("## 经验池预警", 1)
+    if len(warning_section) < 2:
+        return normalized_risk
+    warning_text = warning_section[1].split("## 价格识别日志", 1)[0]
+    evidence_lines: list[str] = []
+    for raw_line in warning_text.splitlines():
+        line = raw_line.strip().removeprefix("-").strip()
+        if not line:
+            continue
+        if "第二层经验" in line and "第二层经验" not in normalized_risk:
+            evidence_lines.append(line)
+            continue
+        if line.startswith("经验池预警：") and "经验池预警" not in normalized_risk:
+            evidence_lines.append(line)
+            continue
+        if not re.match(r"^(?:高|中|低)风险：", line):
+            continue
+        material_values = re.findall(r"(?:当前值|经验池平均值)\s*([^；，。\s]+)", line)
+        if any(value not in normalized_risk for value in material_values):
+            evidence_lines.append(line)
+    if not evidence_lines:
+        return normalized_risk
+    supplement = "\n".join(dict.fromkeys(evidence_lines))
+    prefix = f"{normalized_risk}\n\n" if normalized_risk else ""
+    return f"{prefix}结构化复核事实（系统补充）\n{supplement}"
 
 
 def write_report(

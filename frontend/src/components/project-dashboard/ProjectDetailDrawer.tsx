@@ -5,6 +5,7 @@ import type {
   ProjectListItem,
 } from "./projectDashboardUtils";
 import { formatDashboardDate } from "./projectDashboardUtils";
+import type { BusinessTask } from "../task-context/taskContextUtils";
 
 type Props = {
   apiBase: string;
@@ -16,6 +17,7 @@ type Props = {
 export default function ProjectDetailDrawer({ apiBase, item, onClose, onOpenRun }: Props) {
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
   const [error, setError] = useState("");
+  const [businessTasks, setBusinessTasks] = useState<BusinessTask[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
@@ -30,20 +32,27 @@ export default function ProjectDetailDrawer({ apiBase, item, onClose, onOpenRun 
   useEffect(() => {
     if (!item?.project_id) {
       setDetail(null);
+      setBusinessTasks([]);
       setError("");
       return;
     }
     const controller = new AbortController();
     setIsLoading(true);
     setError("");
-    fetch(`${apiBase}/api/projects/${encodeURIComponent(item.project_id)}`, {
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        if (!response.ok) throw new Error((await response.json()).detail || "项目详情读取失败");
-        return response.json() as Promise<ProjectDetail>;
+    Promise.all([
+      fetch(`${apiBase}/api/projects/${encodeURIComponent(item.project_id)}`, { signal: controller.signal }),
+      fetch(`${apiBase}/api/projects/${encodeURIComponent(item.project_id)}/tasks`, { signal: controller.signal }),
+    ])
+      .then(async ([detailResponse, taskResponse]) => {
+        if (!detailResponse.ok) throw new Error((await detailResponse.json()).detail || "项目详情读取失败");
+        const detailPayload = await detailResponse.json() as ProjectDetail;
+        const taskPayload = taskResponse.ok ? await taskResponse.json() as { items?: BusinessTask[] } : { items: [] };
+        return { detailPayload, taskItems: taskPayload.items ?? [] };
       })
-      .then(setDetail)
+      .then(({ detailPayload, taskItems }) => {
+        setDetail(detailPayload);
+        setBusinessTasks(taskItems);
+      })
       .catch((reason) => {
         if (reason.name !== "AbortError") setError(reason.message || "项目详情读取失败");
       })
@@ -119,6 +128,19 @@ export default function ProjectDetailDrawer({ apiBase, item, onClose, onOpenRun 
               ))}
               {!detail?.runs.length ? <li><div><strong>原历史任务</strong><span>{formatDashboardDate(item.updated_at)}</span></div></li> : null}
             </ol>
+          </section>
+          <section>
+            <h3>业务 Task</h3>
+            <div className="project-dashboard__business-task-list">
+              {businessTasks.map((task) => (
+                <div key={task.task_id}>
+                  <span className={`project-dashboard__status is-${task.status}`}>{task.status_label}</span>
+                  <div><strong>{task.task_name}</strong><small>{task.task_id} · {task.stage_label}</small></div>
+                  <b>Run {task.links.filter((link) => link.link_type === "run_id").length} · 成果 v{task.artifact_version} · 复核 {task.review_round}</b>
+                </div>
+              ))}
+              {!businessTasks.length ? <p>该项目尚无可靠关联的业务 Task；旧 Run 不会按同名项目自动合并。</p> : null}
+            </div>
           </section>
           <section>
             <h3>现有成果</h3>

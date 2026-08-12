@@ -17,7 +17,8 @@ from openpyxl import load_workbook
 
 from . import feishu_app_bot
 from .knowledge_memory import KnowledgeMemoryStore
-from .paths import DEFAULT_KNOWLEDGE_MEMORY_DB_PATH
+from .business_tasks import BusinessTaskError, BusinessTaskStore
+from .paths import DEFAULT_BUSINESS_TASK_DB_PATH, DEFAULT_KNOWLEDGE_MEMORY_DB_PATH
 from .professional_skills import ProfessionalSkillError, ProfessionalSkillRegistry
 from .trusted_experience import TrustedExperienceStore
 
@@ -528,6 +529,7 @@ class ExternalDispatchStore:
 
     def _capture_completed_review_experience(self, task: dict[str, Any]) -> dict[str, Any]:
         task_id = str(task.get("task_id") or "")
+        business_task_id = self._business_task_id(task_id) or task_id
         review_round = int(task.get("review_round") or 0)
         with self._connect() as connection:
             rows = connection.execute(
@@ -558,7 +560,7 @@ class ExternalDispatchStore:
                         "event_type": "review_opinion",
                         "project_id": "",
                         "project_name": str(task.get("project_name") or ""),
-                        "task_id": task_id,
+                        "task_id": business_task_id,
                         "skill_id": str(task.get("skill_id") or ""),
                         "skill_version": str(task.get("skill_version") or ""),
                         "reason": "多人复核最终完成后捕获",
@@ -585,6 +587,81 @@ class ExternalDispatchStore:
                 type(exc).__name__,
             )
         return self.get_task(task_id) or task
+
+    def _business_task_id(self, collaboration_task_id: str) -> str:
+        try:
+            task = BusinessTaskStore(
+                self.db_path.parent / DEFAULT_BUSINESS_TASK_DB_PATH.name
+            ).find_by_link(
+                "collaboration_task_id",
+                collaboration_task_id,
+                source_system="external_dispatch",
+            )
+            return str((task or {}).get("task_id") or "")
+        except (OSError, sqlite3.Error, BusinessTaskError):
+            return ""
+
+    def _sync_business_task_review(self, task: dict[str, Any]) -> None:
+        collaboration_task_id = str(task.get("task_id") or "")
+        business_task_id = self._business_task_id(collaboration_task_id)
+        if not business_task_id:
+            return
+        try:
+            store = BusinessTaskStore(self.db_path.parent / DEFAULT_BUSINESS_TASK_DB_PATH.name)
+            review_round = int(task.get("review_round") or 0)
+            task_status = str(task.get("status") or "")
+            returned = task_status == "returned"
+            completed = task_status == "completed"
+            if returned or completed:
+                store.record_event(
+                    business_task_id,
+                    event_key=f"review:{collaboration_task_id}:{review_round}:{task_status}",
+                    event_type="human_reviewed",
+                    status="pending_review" if returned else "completed",
+                    source_module="external_task_dispatch",
+                    detail=f"第 {review_round} 轮复核已{'退回编制' if returned else '全部通过'}。",
+                    reference_type="collaboration_task_id",
+                    reference_id=collaboration_task_id,
+                )
+            if completed:
+                store.record_event(
+                    business_task_id,
+                    event_key=f"collaboration:{collaboration_task_id}:completed:r{review_round}",
+                    event_type="collaboration_completed",
+                    status="completed",
+                    source_module="external_task_dispatch",
+                    detail="原有智能协同状态机已完成投递、编制和复核。",
+                    reference_type="collaboration_task_id",
+                    reference_id=collaboration_task_id,
+                )
+            experience_status = str(task.get("trusted_experience_status") or "")
+            if completed and experience_status:
+                event_status = {
+                    "captured": "completed", "no_opinion": "no_candidate", "failed": "failed",
+                }.get(experience_status, "no_candidate")
+                store.record_event(
+                    business_task_id,
+                    event_key=f"experience:review:{collaboration_task_id}:r{review_round}:{experience_status}",
+                    event_type="experience_governed",
+                    status=event_status,
+                    source_module="trusted_experience",
+                    detail=(
+                        "复核意见已形成可信经验候选。" if event_status == "completed"
+                        else "本轮复核未形成候选。" if event_status == "no_candidate"
+                        else "复核已生效，但可信经验候选捕获失败，可重试。"
+                    ),
+                    reference_type="collaboration_task_id",
+                    reference_id=collaboration_task_id,
+                )
+            store.update_progress(
+                business_task_id,
+                status="completed" if completed else "returned" if returned else "pending_review",
+                stage="collaboration_completed" if completed else "human_reviewed",
+                review_round=review_round,
+                completed_at=feishu_app_bot.utc_now() if completed else None,
+            )
+        except (OSError, sqlite3.Error, BusinessTaskError, ValueError):
+            return
 
     def _set_trusted_experience_capture(self, task_id: str, *, status: str, warning: str) -> None:
         with self._connect() as connection:
@@ -980,6 +1057,7 @@ class ExternalDispatchStore:
         result = self._with_reviewers(dict(updated))
         if str(result.get("status") or "") == "completed":
             result = self._capture_completed_review_experience(result)
+        self._sync_business_task_review(result)
         return result, True
 
     def record_attempt(self, task_id: str, step: str, status: str, error: str = "") -> None:

@@ -1,6 +1,5 @@
 import {
   AlertTriangle,
-  ChevronRight,
   CircleX,
   History,
   Loader2,
@@ -14,6 +13,8 @@ import ProjectDetailDrawer from "./ProjectDetailDrawer";
 import ProjectHistoryTable from "./ProjectHistoryTable";
 import ProjectLifecycleFunnel from "./ProjectLifecycleFunnel";
 import ProjectMetricGrid from "./ProjectMetricGrid";
+import CurrentTaskBar from "../task-context/CurrentTaskBar";
+import type { BusinessTask, TaskTarget } from "../task-context/taskContextUtils";
 import {
   clearFilterChip,
   defaultProjectFilters,
@@ -30,12 +31,10 @@ import "./projectDashboard.css";
 type Props = {
   active: boolean;
   apiBase: string;
-  currentTask?: {
-    projectName: string;
-    status: string;
-    jobId: string;
-  } | null;
+  currentTask?: BusinessTask | null;
+  taskAvailability?: "available" | "loading" | "unavailable";
   onOpenCurrentTask: () => void;
+  onNavigateTask: (target: TaskTarget) => void;
   onOpenRun: (
     projectId: string,
     runId: string,
@@ -55,7 +54,9 @@ export default function ProjectDashboard({
   active,
   apiBase,
   currentTask,
+  taskAvailability,
   onOpenCurrentTask,
+  onNavigateTask,
   onOpenRun,
 }: Props) {
   const [filters, setFilters] = useState<ProjectFilters>(() => defaultProjectFilters());
@@ -260,14 +261,12 @@ export default function ProjectDashboard({
         </div>
       </header>
 
-      {currentTask ? (
-        <button className="project-dashboard__current-task" type="button" onClick={onOpenCurrentTask}>
-          <span><i />当前任务</span>
-          <strong>{currentTask.projectName || "当前填价任务"}</strong>
-          <small>{currentTask.status} · {currentTask.jobId.slice(0, 8)}</small>
-          <ChevronRight size={16} />
-        </button>
-      ) : null}
+      <CurrentTaskBar
+        task={currentTask ?? null}
+        availability={taskAvailability}
+        onViewTask={onOpenCurrentTask}
+        onNavigate={onNavigateTask}
+      />
 
       {chips.length ? (
         <div className="project-dashboard__chips" aria-label="当前筛选">

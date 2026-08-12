@@ -63,6 +63,9 @@ import {
   moveAgentMessageToEnd,
 } from "./components/agent-workspace/agentWorkspaceUtils";
 import ZhisuanFeeAnalysisCharts from "./components/agent-workspace/ZhisuanFeeAnalysisCharts";
+import CurrentTaskBar from "./components/task-context/CurrentTaskBar";
+import TaskDetailDrawer from "./components/task-context/TaskDetailDrawer";
+import type { BusinessTask, TaskTarget } from "./components/task-context/taskContextUtils";
 import { buildFeeAnalysis, type FeeAnalysis } from "./components/agent-workspace/feeAnalysis";
 import { detectZhisuanCommand, type ZhisuanCommand } from "./components/agent-workspace/zhisuanCommands";
 import {
@@ -103,7 +106,7 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.20.0";
+const APP_VERSION = "v5.21.0";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const PRICE_KNOWLEDGE_ROW_COUNT = 560;
 const FORCE_KNOWLEDGE_PREFIXES = ["查库：", "查库:", "#知识库"] as const;
@@ -393,6 +396,19 @@ type ProcessResult = {
     status: string;
     project_id?: string | null;
     run_id?: string | null;
+    message?: string;
+  };
+  business_task?: {
+    task_id: string;
+    status: string;
+    stage: string;
+    artifact_version: number;
+    review_round: number;
+  } | null;
+  task_tracking?: {
+    status: string;
+    task?: BusinessTask;
+    created?: boolean;
     message?: string;
   };
 };
@@ -2303,6 +2319,9 @@ function DaweibaApp() {
   const [onlyMatchRowsWithValue, setOnlyMatchRowsWithValue] = useState(true);
   const [matchValueFilterField, setMatchValueFilterField] = useState<WarningFilterField>("数量");
   const [result, setResult] = useState<ProcessResult | null>(null);
+  const [currentBusinessTask, setCurrentBusinessTask] = useState<BusinessTask | null>(null);
+  const [businessTaskAvailability, setBusinessTaskAvailability] = useState<"available" | "loading" | "unavailable">("available");
+  const [isTaskDetailOpen, setIsTaskDetailOpen] = useState(false);
   const [professionalSkills, setProfessionalSkills] = useState<ProfessionalSkillSummary[]>([]);
   const [selectedProfessionalSkillId, setSelectedProfessionalSkillId] = useState("");
   const [isProfessionalSkillsLoading, setIsProfessionalSkillsLoading] = useState(true);
@@ -2586,6 +2605,44 @@ function DaweibaApp() {
     setReportPreviewUpdateMessage("");
     setReportPreviewStatus("idle");
   }, [result?.job_id]);
+
+  const currentBusinessTaskId = result?.business_task?.task_id || result?.task_tracking?.task?.task_id || currentBusinessTask?.task_id || "";
+
+  useEffect(() => {
+    if (!currentBusinessTaskId) {
+      setCurrentBusinessTask(null);
+      setBusinessTaskAvailability(result?.task_tracking?.status === "unavailable" ? "unavailable" : "available");
+      setIsTaskDetailOpen(false);
+      return undefined;
+    }
+    const controller = new AbortController();
+    setBusinessTaskAvailability("loading");
+    fetch(`${API_BASE}/api/tasks/${encodeURIComponent(currentBusinessTaskId)}`, { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error((await response.json()).detail || "任务轨迹读取失败");
+        return response.json() as Promise<BusinessTask>;
+      })
+      .then((task) => {
+        setCurrentBusinessTask(task);
+        setBusinessTaskAvailability("available");
+      })
+      .catch((reason) => {
+        if (reason.name === "AbortError") return;
+        setCurrentBusinessTask(null);
+        setBusinessTaskAvailability("unavailable");
+      });
+    return () => controller.abort();
+  }, [currentBusinessTaskId, result?.business_task?.artifact_version, result?.business_task?.review_round, result?.business_task?.stage, result?.task_tracking?.status]);
+
+  function navigateFromBusinessTask(target: TaskTarget) {
+    setIsTaskDetailOpen(false);
+    if (target === "fill") {
+      setActiveDaweibaModule("fill");
+      setFillWorkspaceView("new");
+      return;
+    }
+    setActiveDaweibaModule(target);
+  }
 
   useEffect(() => {
     try {
@@ -10815,9 +10872,20 @@ function DaweibaApp() {
         <div className="daweiba-main-content">
 
       <section
-        className={`daweiba-workspace-frame daweiba-workspace is-daweiba-module-${activeDaweibaModule} ${activeDaweibaModule === "fill" && fillWorkspaceView === "dashboard" ? "is-fill-dashboard-active" : ""}`}
+        className={`daweiba-workspace-frame daweiba-workspace is-daweiba-module-${activeDaweibaModule} ${activeDaweibaModule !== "agent" && !(activeDaweibaModule === "fill" && fillWorkspaceView === "dashboard") ? "has-task-context" : ""} ${activeDaweibaModule === "fill" && fillWorkspaceView === "dashboard" ? "is-fill-dashboard-active" : ""}`}
         id="soft-workspace-start"
       >
+        {activeDaweibaModule !== "agent" && !(activeDaweibaModule === "fill" && fillWorkspaceView === "dashboard") ? (
+          <div className="task-context-host" aria-label="当前业务任务">
+            <CurrentTaskBar
+              task={currentBusinessTask}
+              availability={businessTaskAvailability}
+              variant={activeDaweibaModule === "preview" || activeDaweibaModule === "report" ? "compact" : "default"}
+              onViewTask={() => setIsTaskDetailOpen(true)}
+              onNavigate={navigateFromBusinessTask}
+            />
+          </div>
+        ) : null}
         {activeDaweibaModule === "fill" ? (
           <nav className="daweiba-fill-view-tabs" aria-label="辅助填价视图">
             <button
@@ -10851,12 +10919,10 @@ function DaweibaApp() {
               <ProjectDashboard
                 active={activeDaweibaModule === "fill" && fillWorkspaceView === "dashboard"}
                 apiBase={API_BASE}
-                currentTask={result ? {
-                  projectName: projectName || file?.name.replace(/\.xlsx$/i, "") || "当前填价任务",
-                  status: result.summary.matching_status === "completed" ? "已完成匹配" : "待开始匹配",
-                  jobId: result.job_id,
-                } : null}
-                onOpenCurrentTask={() => setFillWorkspaceView("new")}
+                currentTask={currentBusinessTask}
+                taskAvailability={businessTaskAvailability}
+                onOpenCurrentTask={() => setIsTaskDetailOpen(true)}
+                onNavigateTask={navigateFromBusinessTask}
                 onOpenRun={openProjectRun}
               />
             </Suspense>
@@ -12823,6 +12889,14 @@ function DaweibaApp() {
             skills={professionalSkills}
             selectedSkillId={selectedProfessionalSkillId}
             taskSkill={result?.professional_skill}
+            taskContext={(
+              <CurrentTaskBar
+                task={currentBusinessTask}
+                availability={businessTaskAvailability}
+                onViewTask={() => setIsTaskDetailOpen(true)}
+                onNavigate={navigateFromBusinessTask}
+              />
+            )}
             fileName={file?.name ?? ""}
             currentContext={agentCurrentContext}
             progressPercent={agentTaskProgress}
@@ -12876,6 +12950,14 @@ function DaweibaApp() {
                   </button>
                 </div>
               </div>
+
+              <CurrentTaskBar
+                task={currentBusinessTask}
+                availability={businessTaskAvailability}
+                variant="dock"
+                onViewTask={() => setIsTaskDetailOpen(true)}
+                onNavigate={navigateFromBusinessTask}
+              />
 
               <div className={`chat-window ${isChatOpen ? "is-open" : ""}`}>
                 <button className="llm-window-toggle" type="button" onClick={() => setIsChatOpen((current) => !current)}>
@@ -13498,6 +13580,15 @@ function DaweibaApp() {
           </div>
         </div>
       )}
+
+      {isTaskDetailOpen && currentBusinessTask ? (
+        <TaskDetailDrawer
+          task={currentBusinessTask}
+          apiBase={API_BASE}
+          onClose={() => setIsTaskDetailOpen(false)}
+          onNavigate={navigateFromBusinessTask}
+        />
+      ) : null}
 
       {isWebReviewOpen && (
         <div className="modal-backdrop web-review-backdrop" role="presentation" onClick={closeWebReviewDialog}>

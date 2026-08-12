@@ -1,6 +1,6 @@
 {
   "name": "guankanzhisuan-frontend",
-  "version": "5.20.0",
+  "version": "5.21.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -15,6 +15,7 @@
     "test:fee-analysis": "node --test tests/feeAnalysis.test.ts",
     "test:review-progress": "node --test tests/reviewProgress.test.ts",
     "test:project-dashboard": "node --test tests/projectDashboardUtils.test.ts",
+    "test:task-context": "node --test tests/taskContextUtils.test.ts",
     "test:report-preview": "node --test tests/wordReportPreviewUtils.test.ts"
   },
   "dependencies": {
