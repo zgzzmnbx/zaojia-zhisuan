@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import sys
 import threading
 import time
@@ -19,7 +20,7 @@ from app.feishu_app_bot import (
     credential_configuration_issue, is_bot_enabled, load_bot_defaults,
     load_completion_card_app_url, load_credentials,
     delayed_file_matches_pending_window, message_is_stale, parse_message_envelope,
-    should_acknowledge_message, utc_now,
+    sanitize_error, should_acknowledge_message, utc_now,
 )
 from app import external_task_dispatch
 
@@ -28,6 +29,36 @@ WS_RECONNECT_JITTER_SECONDS = 1
 WS_RECONNECT_INTERVAL_SECONDS = 5
 WEACT_PROFILE_ID = "weact_cost"
 CARD_ACTION_FOLLOW_UP_DELAY_SECONDS = 1.0
+TASK_WORKER_IDLE_POLL_SECONDS = 1.0
+TASK_WORKER_ERROR_RETRY_SECONDS = 3.0
+
+
+def run_task_worker_cycle(worker: TaskWorker, profile_id: str) -> float:
+    """Run one queue cycle and return the delay before the next cycle."""
+    try:
+        processed = worker.run_once()
+    except sqlite3.OperationalError as exc:
+        database_locked = "locked" in str(exc).lower()
+        append_runtime_event(
+            "task",
+            (
+                f"任务队列数据库繁忙，工作线程将自动重试：{sanitize_error(exc)}"
+                if database_locked
+                else f"任务队列数据库异常，工作线程将自动重试：{sanitize_error(exc)}"
+            ),
+            level="warning" if database_locked else "error",
+            profile_id=profile_id,
+        )
+        return TASK_WORKER_ERROR_RETRY_SECONDS
+    except Exception as exc:
+        append_runtime_event(
+            "task",
+            f"任务工作线程异常，已保持运行并将自动重试：{sanitize_error(exc)}",
+            level="error",
+            profile_id=profile_id,
+        )
+        return TASK_WORKER_ERROR_RETRY_SECONDS
+    return 0.0 if processed else TASK_WORKER_IDLE_POLL_SECONDS
 
 
 def configure_long_connection_reconnect(client: object) -> None:
@@ -337,8 +368,9 @@ def main() -> int:
 
     def worker_loop() -> None:
         while True:
-            if not worker.run_once():
-                time.sleep(1)
+            delay = run_task_worker_cycle(worker, profile_id)
+            if delay:
+                time.sleep(delay)
 
     threading.Thread(target=worker_loop, name="feishu-task-worker", daemon=True).start()
     threading.Thread(target=control_loop, name="feishu-control", daemon=True).start()

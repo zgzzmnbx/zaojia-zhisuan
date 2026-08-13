@@ -1,3 +1,5 @@
+import sqlite3
+
 from backend import feishu_bot_runner
 
 
@@ -13,6 +15,26 @@ def test_long_connection_reconnect_delays_are_shortened():
 
     assert client._reconnect_nonce == 1
     assert client._reconnect_interval == 5
+
+
+def test_task_worker_cycle_retries_after_database_lock(monkeypatch):
+    events: list[tuple] = []
+
+    class LockedWorker:
+        def run_once(self):
+            raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(
+        feishu_bot_runner,
+        "append_runtime_event",
+        lambda *args, **kwargs: events.append((args, kwargs)),
+    )
+
+    delay = feishu_bot_runner.run_task_worker_cycle(LockedWorker(), "default")
+
+    assert delay == feishu_bot_runner.TASK_WORKER_ERROR_RETRY_SECONDS
+    assert events[-1][1]["level"] == "warning"
+    assert "数据库繁忙" in events[-1][0][1]
 
 
 def test_weact_card_action_response_returns_toast_without_inline_card():

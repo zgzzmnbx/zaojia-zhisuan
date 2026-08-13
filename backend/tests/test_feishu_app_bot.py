@@ -383,6 +383,24 @@ def test_enqueue_is_idempotent_and_fifo(tmp_path):
     assert store.claim_next()["task_id"] == second["task_id"]
 
 
+def test_claim_next_does_not_request_write_lock_when_queue_is_empty(tmp_path, monkeypatch):
+    import sqlite3
+
+    monkeypatch.setattr(
+        feishu_app_bot,
+        "credential_profiles",
+        lambda: [{"profile_id": "default", "label": "普通飞书"}],
+    )
+    monkeypatch.setattr(feishu_app_bot, "is_bot_enabled", lambda profile_id=None: True)
+    db_path = tmp_path / "tasks.sqlite3"
+    store = feishu_app_bot.TaskStore(db_path)
+
+    with sqlite3.connect(db_path, timeout=0) as blocker:
+        blocker.execute("BEGIN IMMEDIATE")
+
+        assert store.claim_next("default") is None
+
+
 def test_parallel_profiles_share_one_global_fifo_worker_slot(tmp_path, monkeypatch):
     monkeypatch.setattr(
         feishu_app_bot,

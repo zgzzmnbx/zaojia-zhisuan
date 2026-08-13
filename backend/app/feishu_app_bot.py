@@ -1408,7 +1408,39 @@ class TaskStore:
 
     def claim_next(self, platform_profile_id: str | None = None) -> dict[str, Any] | None:
         profile_id = str(platform_profile_id or "").strip()
+        profiles = credential_profiles()
+        known_profile_ids = {
+            str(profile["profile_id"])
+            for profile in profiles
+        }
+        enabled_profile_ids = [
+            str(profile["profile_id"])
+            for profile in profiles
+            if is_bot_enabled(str(profile["profile_id"]))
+        ]
+        if profile_id and profile_id in known_profile_ids and profile_id not in enabled_profile_ids:
+            return None
+        if profile_id and not profiles:
+            enabled_profile_ids.append(profile_id)
+        if profile_id and enabled_profile_ids:
+            enabled_placeholders = ",".join("?" for _ in enabled_profile_ids)
+            queued_sql = (
+                "SELECT * FROM tasks WHERE status IN ('queued','retryable_failed') "
+                f"AND platform_profile_id IN ({enabled_placeholders}) "
+                "ORDER BY created_at, rowid LIMIT 1"
+            )
+            queued_parameters: tuple[Any, ...] = tuple(enabled_profile_ids)
+        else:
+            queued_sql = (
+                "SELECT * FROM tasks WHERE status IN ('queued','retryable_failed') "
+                "ORDER BY created_at, rowid LIMIT 1"
+            )
+            queued_parameters = ()
         with self._connect() as connection:
+            # Idle workers only need a read. Avoid making both platform runners
+            # compete for SQLite's single write lock once per second.
+            if not connection.execute(queued_sql, queued_parameters).fetchone():
+                return None
             connection.execute("BEGIN IMMEDIATE")
             active_placeholders = ",".join("?" for _ in ACTIVE_STATES)
             active = connection.execute(
@@ -1417,33 +1449,7 @@ class TaskStore:
             ).fetchone()
             if active:
                 return None
-            profiles = credential_profiles()
-            known_profile_ids = {
-                str(profile["profile_id"])
-                for profile in profiles
-            }
-            enabled_profile_ids = [
-                str(profile["profile_id"])
-                for profile in profiles
-                if is_bot_enabled(str(profile["profile_id"]))
-            ]
-            if profile_id and profile_id in known_profile_ids and profile_id not in enabled_profile_ids:
-                return None
-            if profile_id and not profiles:
-                enabled_profile_ids.append(profile_id)
-            if profile_id and enabled_profile_ids:
-                enabled_placeholders = ",".join("?" for _ in enabled_profile_ids)
-                row = connection.execute(
-                    "SELECT * FROM tasks WHERE status IN ('queued','retryable_failed') "
-                    f"AND platform_profile_id IN ({enabled_placeholders}) "
-                    "ORDER BY created_at, rowid LIMIT 1",
-                    tuple(enabled_profile_ids),
-                ).fetchone()
-            else:
-                row = connection.execute(
-                    "SELECT * FROM tasks WHERE status IN ('queued','retryable_failed') "
-                    "ORDER BY created_at, rowid LIMIT 1"
-                ).fetchone()
+            row = connection.execute(queued_sql, queued_parameters).fetchone()
             if not row:
                 return None
             if profile_id and str(row["platform_profile_id"] or "") != profile_id:
