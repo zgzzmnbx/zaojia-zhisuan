@@ -644,7 +644,7 @@ def test_formal_knowledge_is_presented_before_project_memory(monkeypatch):
     assert response.json()["sources"][0]["source_type"] == "standard"
 
 
-def test_memory_database_failure_does_not_break_existing_no_evidence_behavior(monkeypatch):
+def test_memory_database_failure_still_uses_general_model_fallback(monkeypatch):
     import app.main as main_module
 
     monkeypatch.setattr(main_module, "search_knowledge", lambda *args, **kwargs: [])
@@ -652,22 +652,24 @@ def test_memory_database_failure_does_not_break_existing_no_evidence_behavior(mo
     def broken_memory(*args, **kwargs):
         raise sqlite3.DatabaseError("broken")
 
-    def fail_model(*args, **kwargs):
-        raise AssertionError("无正式依据且记忆库故障时不应调用大模型")
+    def fake_model(*args, **kwargs):
+        return "这是不依赖项目知识记忆的通用回答。"
 
     monkeypatch.setattr(main_module, "search_confirmed_project_memory", broken_memory)
-    monkeypatch.setattr(main_module, "call_chat_completion", fail_model)
+    monkeypatch.setattr(main_module, "call_chat_completion", fake_model)
     response = TestClient(app).post(
         "/api/knowledge/ask",
         json={"question": "完全未知的问题", "project_key": "项目一"},
     )
 
     assert response.status_code == 200
-    assert response.json()["answer"] == "当前知识库未找到明确依据，需要人工复核。"
+    assert response.json()["answer"].startswith("已自动转为大模型回答")
+    assert "这是不依赖项目知识记忆的通用回答" in response.json()["answer"]
+    assert response.json()["answer_mode"] == "general_model_fallback"
     assert response.json()["memory_available"] is False
 
 
-def test_memory_only_no_evidence_explains_revoked_record_isolation(monkeypatch):
+def test_memory_only_no_evidence_uses_general_model_fallback(monkeypatch):
     import app.main as main_module
 
     monkeypatch.setattr(main_module, "search_knowledge", lambda *args, **kwargs: [])
@@ -675,6 +677,11 @@ def test_memory_only_no_evidence_explains_revoked_record_isolation(monkeypatch):
         main_module,
         "search_confirmed_project_memory",
         lambda *args, **kwargs: [],
+    )
+    monkeypatch.setattr(
+        main_module,
+        "call_chat_completion",
+        lambda *args, **kwargs: "已撤销记录不应作为当前有效知识使用。",
     )
     response = TestClient(app).post(
         "/api/knowledge/ask",
@@ -687,10 +694,9 @@ def test_memory_only_no_evidence_explains_revoked_record_isolation(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["evidence_found"] is False
-    assert response.json()["answer"] == (
-        "当前没有可参与回答的已撤销知识。"
-        "已撤销记录在检索前即按状态隔离，不会作为问答依据。"
-    )
+    assert response.json()["answer"].startswith("已自动转为大模型回答")
+    assert "已撤销记录不应作为当前有效知识使用" in response.json()["answer"]
+    assert response.json()["answer_mode"] == "general_model_fallback"
 
 
 def test_duplicate_is_reused_without_creating_a_second_item(tmp_path):

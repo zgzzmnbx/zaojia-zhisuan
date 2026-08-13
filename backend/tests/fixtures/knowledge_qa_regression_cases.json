@@ -134,15 +134,16 @@
     },
     {
       "id": "project_no_evidence",
-      "name": "无依据固定降级",
+      "name": "无依据自动转大模型回答",
       "questionType": "negative",
       "libraryIds": ["project-core"],
       "question": "#知识库：火星土豆怎么收费？",
       "expected": {
         "evidenceFound": false,
-        "exactAnswer": "当前知识库未找到明确依据，需要人工复核。",
-        "mustInclude": [],
-        "mustNotInclude": [],
+        "generatedByModel": true,
+        "answerMode": "general_model_fallback",
+        "mustInclude": ["已自动转为大模型回答"],
+        "mustNotInclude": ["当前知识库未找到明确依据，需要人工复核"],
         "sourceContains": []
       }
     }

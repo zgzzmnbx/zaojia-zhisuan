@@ -1140,6 +1140,30 @@ def test_answer_knowledge_without_table_uses_classic_card_for_weact():
     assert "**结论：**" in body["content"]
 
 
+def test_answer_knowledge_general_model_fallback_uses_explicit_card_boundary():
+    feishu = FakeFeishu()
+
+    class Professional:
+        def ask_knowledge(self, question):
+            return (
+                "已自动转为大模型回答\n\n"
+                "这是普通大模型兜底答案。\n\n"
+                "提示：本回答未检索到本地知识库明确依据。"
+            )
+
+    feishu_app_bot.answer_knowledge_event("chat-1", "火星土豆怎么收费？", feishu, Professional())
+
+    card = feishu.cards[-1][1]
+    assert "已自动转为大模型回答" in json.dumps(card, ensure_ascii=False)
+    assert card["elements"][-1] == {
+        "tag": "note",
+        "elements": [{
+            "tag": "plain_text",
+            "content": "本回答由大模型兜底生成，未检索到知识库明确依据；价格与系数仍以项目规则及人工复核为准。",
+        }],
+    }
+
+
 def test_answer_chat_without_table_keeps_plain_text_message():
     feishu = FakeFeishu()
 

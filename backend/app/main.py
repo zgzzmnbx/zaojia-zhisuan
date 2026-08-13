@@ -37,7 +37,6 @@ from .knowledge_demo_answers import get_demo_answer
 from .knowledge_qa import (
     ASSISTANT_TABLE_FORMAT_RULE,
     HybridRetrievalError,
-    NO_EVIDENCE_ANSWER,
     build_knowledge_answer_prompt,
     ensure_knowledge_answer,
     hybrid_search_knowledge,
@@ -163,7 +162,7 @@ from .professional_skills import (
 from .report import append_risk_report, ensure_risk_report_evidence, write_report
 
 
-APP_VERSION = "v5.22.0"
+APP_VERSION = "v5.22.1"
 # `/api/health.version` 是旧版运行器的兼容字段；当前发布版本通过
 # `release_version` 返回，避免旧客户端在小版本升级时误判服务不可用。
 HEALTH_API_COMPAT_VERSION = "v5.19.4"
@@ -2137,6 +2136,82 @@ async def generate_risk_report(
     }, job_dir)
 
 
+GENERAL_MODEL_FALLBACK_NOTICE = "已自动转为大模型回答"
+GENERAL_MODEL_FALLBACK_BOUNDARY = (
+    "提示：本回答未检索到本地知识库明确依据，仅供一般参考；"
+    "涉及价格、系数、正式标准或项目口径时，请以项目规则和人工复核为准。"
+)
+
+
+def _build_general_model_fallback_messages(question: str) -> list[dict[str, str]]:
+    return [
+        {
+            "role": "system",
+            "content": (
+                "你是造价智算的普通大模型兜底助手。本次本地知识库检索没有提供可引用的明确依据，"
+                "请基于通用知识直接回答用户问题。不得声称回答来自本地知识库或项目正式资料，"
+                "不得把回答当作知识库依据；不得编造价格、系数、条款编号、标准出处或项目内部事实。"
+                "如果问题必须依赖项目资料或权威文件，应明确说明无法核验的部分和建议补充的材料。"
+                "不要输出固定句“当前知识库未找到明确依据，需要人工复核”。"
+                f"{ASSISTANT_TABLE_FORMAT_RULE}"
+            ),
+        },
+        {"role": "user", "content": question},
+    ]
+
+
+def _general_model_fallback_unavailable(reason: str) -> dict[str, object]:
+    return {
+        "answer": (
+            f"{GENERAL_MODEL_FALLBACK_NOTICE}\n\n"
+            "大模型回答暂时不可用，请稍后重试。\n\n"
+            f"{GENERAL_MODEL_FALLBACK_BOUNDARY}"
+        ),
+        "answer_mode": "general_model_fallback_unavailable",
+        "generated_by_model": False,
+        "debug": None,
+        "model_degradation_reason": reason,
+    }
+
+
+def _run_general_model_fallback(
+    question: str,
+    *,
+    provider: str,
+    model: str,
+    base_url: str,
+    source: str,
+) -> dict[str, object]:
+    config = LlmConfig(provider=provider, model=model, base_url=base_url)
+    messages = _build_general_model_fallback_messages(question)
+    prompt_path = _write_llm_prompt_markdown(source, config, messages)
+    try:
+        model_answer = _call_chat_completion_tracked(
+            config,
+            messages,
+            source=source,
+            prompt_path=prompt_path,
+        ).strip()
+    except (ValueError, RuntimeError) as exc:
+        return _general_model_fallback_unavailable(
+            f"general_model_unavailable:{type(exc).__name__}"
+        )
+
+    if not model_answer:
+        return _general_model_fallback_unavailable("general_model_empty_answer")
+    model_answer = model_answer.replace(
+        "当前知识库未找到明确依据，需要人工复核。",
+        "该问题缺少可核验的项目依据，以下仅作一般性说明。",
+    )
+    return {
+        "answer": f"{GENERAL_MODEL_FALLBACK_NOTICE}\n\n{model_answer}\n\n{GENERAL_MODEL_FALLBACK_BOUNDARY}",
+        "answer_mode": "general_model_fallback",
+        "generated_by_model": True,
+        "debug": _build_llm_debug(config, messages, prompt_path),
+        "model_degradation_reason": None,
+    }
+
+
 @app.post("/api/llm-chat")
 async def llm_chat(
     message: str = Form(...),
@@ -2161,14 +2236,20 @@ async def llm_chat(
             raise HTTPException(status_code=400, detail="请输入查库问题")
         results = search_knowledge(knowledge_message, limit=8)
         if not results:
+            fallback = _run_general_model_fallback(
+                knowledge_message,
+                provider=provider,
+                model=model,
+                base_url=base_url,
+                source="强制知识库问答-大模型兜底",
+            )
             return {
                 "provider": provider,
                 "model": model,
-                "answer": NO_EVIDENCE_ANSWER,
                 "forced_knowledge": True,
                 "evidence_found": False,
                 "sources": [],
-                "debug": None,
+                **fallback,
             }
         messages = build_knowledge_answer_prompt(knowledge_message, results)
         prompt_path = _write_llm_prompt_markdown("强制知识库问答", config, messages)
@@ -2574,15 +2655,14 @@ async def knowledge_ask(payload: dict[str, Any] = Body(...)) -> dict[str, object
         and row_context.get("candidate_recommendations")
     )
     if not results and not project_memories and not has_ranked_candidates:
-        answer = NO_EVIDENCE_ANSWER
-        if (
-            selection.memory_enabled
-            and not selection.static_library_ids
-            and memory_available
-        ):
-            answer = _knowledge_memory_no_evidence_answer(question)
+        fallback = _run_general_model_fallback(
+            question,
+            provider=str(payload.get("provider") or DEFAULT_PROVIDER),
+            model=str(payload.get("model") or DEFAULT_MODEL),
+            base_url=str(payload.get("base_url") or DEFAULT_BASE_URL),
+            source="知识库问答-大模型兜底",
+        )
         return {
-            "answer": answer,
             "sources": [],
             "project_memories": [],
             "project_key": project_key or None,
@@ -2596,6 +2676,7 @@ async def knowledge_ask(payload: dict[str, Any] = Body(...)) -> dict[str, object
             "selected_libraries": _selected_library_payload(selection),
             "professional_skill": skill_snapshot,
             **_retrieval_response_fields(retrieval_trace),
+            **fallback,
         }
 
     provider = str(payload.get("provider") or DEFAULT_PROVIDER)
@@ -3019,37 +3100,6 @@ def _filter_project_memories_for_question(
         if any(term in searchable for term in required_terms):
             filtered.append(memory)
     return filtered
-
-
-def _knowledge_memory_no_evidence_answer(question: str) -> str:
-    clean = re.sub(r"\s+", "", question)
-    if "已撤销" in clean:
-        return (
-            "当前没有可参与回答的已撤销知识。"
-            "已撤销记录在检索前即按状态隔离，不会作为问答依据。"
-        )
-    if "冲突" in clean and ("正式规则" in clean or "正式依据" in clean):
-        return (
-            "当前未检索到与该问题匹配的有效知识记忆。"
-            "如果已确认知识记忆与项目正式规则冲突，必须以项目正式规则为准，"
-            "并提交人工复核；知识记忆不得反向修改正式价格或系数。"
-        )
-    if all(marker in clean for marker in ("通用知识", "项目知识", "任务知识")):
-        return (
-            "当前未检索到与该问题匹配的有效知识记忆。"
-            "通用知识可在所有项目使用；项目知识仅在 project_key 完全一致时使用；"
-            "任务知识还必须符合对应任务范围。范围不一致时不得跨项目或跨任务引用。"
-        )
-    if "过期" in clean or "疑似失效" in clean:
-        return (
-            "已经过期或被标记为疑似失效的知识记忆不能参与回答。"
-            "系统只检索 confirmed 且未过期的记录；候选、待确认、已驳回、"
-            "已撤销和疑似失效记录均在回答前过滤。"
-        )
-    return (
-        "未找到与问题匹配的已确认且未失效知识记忆。"
-        "候选、待确认、已驳回、已撤销、疑似失效或范围不一致的记录不会参与回答。"
-    )
 
 
 def _knowledge_memory_http_error(exc: Exception) -> HTTPException:

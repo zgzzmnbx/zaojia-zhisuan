@@ -44,7 +44,7 @@ def test_health_endpoint():
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
     assert response.json()["version"] == "v5.19.4"
-    assert response.json()["release_version"] == "v5.22.0"
+    assert response.json()["release_version"] == "v5.22.1"
 
 
 def test_web_result_review_endpoint_uses_backend_frozen_output(tmp_path, monkeypatch):
@@ -2932,13 +2932,16 @@ def test_knowledge_search_finds_risk_report_generation_card(tmp_path, monkeypatc
     assert "Word" in joined or "审查" in joined
 
 
-def test_knowledge_ask_returns_no_evidence_without_calling_model(monkeypatch):
+def test_knowledge_ask_falls_back_to_general_model_without_evidence(monkeypatch):
     import app.main as main_module
 
-    def fail_call_chat_completion(config, messages):
-        raise AssertionError("没有证据时不应调用大模型")
+    captured = {}
 
-    monkeypatch.setattr(main_module, "call_chat_completion", fail_call_chat_completion)
+    def fake_call_chat_completion(config, messages):
+        captured["messages"] = messages
+        return "火星环境下暂无可直接采用的工程收费标准。"
+
+    monkeypatch.setattr(main_module, "call_chat_completion", fake_call_chat_completion)
     client = TestClient(app)
     response = client.post("/api/knowledge/ask", json={"question": "火星土豆怎么收费？"})
 
@@ -2946,7 +2949,31 @@ def test_knowledge_ask_returns_no_evidence_without_calling_model(monkeypatch):
     payload = response.json()
     assert payload["evidence_found"] is False
     assert payload["sources"] == []
-    assert payload["answer"] == "当前知识库未找到明确依据，需要人工复核。"
+    assert payload["answer_mode"] == "general_model_fallback"
+    assert payload["generated_by_model"] is True
+    assert payload["answer"].startswith("已自动转为大模型回答")
+    assert "火星环境下暂无可直接采用的工程收费标准" in payload["answer"]
+    assert "当前知识库未找到明确依据，需要人工复核" not in payload["answer"]
+    assert "不得把回答当作知识库依据" in captured["messages"][0]["content"]
+
+
+def test_knowledge_ask_reports_general_model_unavailable_without_old_no_evidence_sentence(monkeypatch):
+    import app.main as main_module
+
+    def fail_call_chat_completion(config, messages):
+        raise RuntimeError("model unavailable")
+
+    monkeypatch.setattr(main_module, "call_chat_completion", fail_call_chat_completion)
+    response = TestClient(app).post("/api/knowledge/ask", json={"question": "火星土豆怎么收费？"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["evidence_found"] is False
+    assert payload["answer_mode"] == "general_model_fallback_unavailable"
+    assert payload["generated_by_model"] is False
+    assert payload["answer"].startswith("已自动转为大模型回答")
+    assert "大模型回答暂时不可用" in payload["answer"]
+    assert "当前知识库未找到明确依据，需要人工复核" not in payload["answer"]
 
 
 @pytest.mark.parametrize(
@@ -3158,6 +3185,34 @@ def test_llm_chat_force_knowledge_prefix_uses_knowledge_path(monkeypatch):
     assert "只能基于【已检索资料】和【当前行上下文】回答" in system_prompt
     assert "0.22 是哪来的？" in user_prompt
     assert "#知识库" not in user_prompt
+
+
+def test_llm_chat_force_knowledge_prefix_falls_back_to_general_model(monkeypatch):
+    import app.main as main_module
+
+    captured = {}
+
+    def fake_call_chat_completion(config, messages):
+        captured["messages"] = messages
+        return "这是普通大模型兜底答案。"
+
+    monkeypatch.setattr(main_module, "search_knowledge", lambda *args, **kwargs: [])
+    monkeypatch.setattr(main_module, "call_chat_completion", fake_call_chat_completion)
+
+    response = TestClient(app).post(
+        "/api/llm-chat",
+        data={"message": "#知识库 火星土豆怎么收费？", "model": "demo-model"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["forced_knowledge"] is True
+    assert payload["evidence_found"] is False
+    assert payload["answer_mode"] == "general_model_fallback"
+    assert payload["answer"].startswith("已自动转为大模型回答")
+    assert "这是普通大模型兜底答案" in payload["answer"]
+    assert "当前知识库未找到明确依据，需要人工复核" not in payload["answer"]
+    assert "不得把回答当作知识库依据" in captured["messages"][0]["content"]
 
 
 

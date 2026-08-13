@@ -2345,7 +2345,10 @@ class ProfessionalApi:
             "/api/knowledge/ask",
             json_body={"question": question, "force_knowledge": True},
         )
-        answer = str(payload.get("answer") or "当前知识库未找到明确依据，需要人工复核。").strip()
+        answer = str(
+            payload.get("answer")
+            or "已自动转为大模型回答\n\n大模型暂未返回有效回答，请稍后重试。"
+        ).strip()
         sources = payload.get("sources") or []
         source_lines = []
         for index, source in enumerate(sources[:5], start=1):
@@ -2690,6 +2693,7 @@ def answer_knowledge_event(
     profile_id = str(platform_profile_id or active_profile_id() or DEFAULT_PROFILE_ID).strip()
     try:
         answer = professional.ask_knowledge(question)
+        general_model_fallback = answer.lstrip().startswith("已自动转为大模型回答")
         send_answer_with_table_card(
             chat_id,
             answer,
@@ -2700,7 +2704,11 @@ def answer_knowledge_event(
             profile_id=profile_id,
             always_card=True,
             rich_text=True,
-            footer_note="由造价智算知识库检索生成；价格与系数仍以项目规则及人工复核为准。",
+            footer_note=(
+                "本回答由大模型兜底生成，未检索到知识库明确依据；价格与系数仍以项目规则及人工复核为准。"
+                if general_model_fallback
+                else "由造价智算知识库检索生成；价格与系数仍以项目规则及人工复核为准。"
+            ),
         )
         append_runtime_event("knowledge", "知识库问题查询完成并已回复", level="success", profile_id=profile_id)
     except Exception as exc:
