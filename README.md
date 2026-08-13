@@ -22,6 +22,7 @@
 - 当前业务云端版本：v5.19.7；云端运行目录为 `/opt/zaojiazhisuan/releases/20260811-v5.19.7-cloud-release`，上一回滚目录为 `/opt/zaojiazhisuan/releases/20260805-v5.19.4-cloud-release`
 - 云端可用性：2026-08-11 切换和强制验收完成后曾正常返回 `release_version=v5.19.7`；03:43 起主机的 SSH 与 HTTP 同时只建立 TCP 但不返回应用响应，已连续多轮确认为不可用。需从火山引擎控制台重启实例后，再执行 `python tools/deploy_cloud_release.py preflight` 完成恢复验收。
 - 当前页面布局：`大尾巴主题 / daweiba` 唯一主界面
+- 竖屏与触控：新增 `<=1024px` 独立适配层；`>=1025px` 桌面宽屏界面与可见版本信息冻结不变
 - 当前 UI 基线：`大尾巴 Shadcn UI v1.0.0`，以 shadcn/ui preset `b1au7YYAi` 的 Rhea / Neutral / Blue / Lucide 为视觉输入，使用项目令牌和局部组件样式落地
 - 前端：React + TypeScript + Vite
 - 界面字体：项目内置简体苹方 WOFF2（准体 / 中黑 / 中粗），跨 Windows、macOS、Linux / UOS 与 Tauri 统一加载
@@ -190,6 +191,15 @@ python tools/check_prd_consistency.py --strict
 00-PRD/01-模块PRD/20-跨模块专业数据可视化/实施进度.md
 00-PRD/01-模块PRD/20-跨模块专业数据可视化/目标模式开发提示词.md
 ```
+
+### 竖屏与触控适配（已完成）
+
+- 新增独立 `frontend/src/compact-touch.css`，全部业务规则只在 `<=1024px` 生效；现有 React 组件、桌面主样式、三栏尺寸、折叠偏好和业务状态均未修改。
+- iPad / 手机使用横向触控模块带、单列主工作区和覆盖式智算 Sheet；智算收起后主工作区保持全宽，Excel 宽表只在自身容器横向滚动。
+- 主要按钮与表单控件达到 `44px` 触控高度，输入框为 `16px`；使用动态视口和安全区变量处理移动浏览器地址栏与刘海区域。
+- 浏览器已核对 `390 / 768 / 820 / 1024 / 1366 / 1440 / 1920px`；窄屏无页面级横向溢出，1440×900 实施前后六个核心节点的坐标、尺寸、布局、padding、display 和 position 完全一致。
+
+详细功能边界和验收口径见 `00-PRD/01-模块PRD/21-竖屏与触控适配/PRD.md`。
 
 ### 填价结果预览与输出
 
