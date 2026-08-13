@@ -400,6 +400,22 @@ class BusinessTaskStore:
             ).fetchall()
             return [self._public_task(row, connection) for row in rows]
 
+    def list_recent_tasks(self, *, skill_id: str = "", limit: int = 20) -> list[dict[str, Any]]:
+        clean_skill_id = _clean(skill_id, 120)
+        clean_limit = max(1, min(int(limit), 100))
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM business_tasks ORDER BY updated_at DESC,task_id LIMIT 500"
+            ).fetchall()
+            items = [self._public_task(row, connection) for row in rows]
+        if clean_skill_id:
+            items = [
+                item
+                for item in items
+                if str((item.get("skill_snapshot") or {}).get("id") or "") == clean_skill_id
+            ]
+        return items[:clean_limit]
+
     def timeline(self, task_id: str) -> dict[str, Any]:
         task = self.get_task(task_id)
         with self._connect() as connection:

@@ -146,6 +146,7 @@ from .business_tasks import (
     BusinessTaskStore,
     now_iso,
 )
+from .digital_employee_evidence import build_onboarding_evidence
 from .settlement_audit_api import router as settlement_audit_router
 from .project_ledger import (
     ProjectArtifactNotFoundError,
@@ -162,7 +163,7 @@ from .professional_skills import (
 from .report import append_risk_report, ensure_risk_report_evidence, write_report
 
 
-APP_VERSION = "v5.22.1"
+APP_VERSION = "v5.23.0"
 # `/api/health.version` 是旧版运行器的兼容字段；当前发布版本通过
 # `release_version` 返回，避免旧客户端在小版本升级时误判服务不可用。
 HEALTH_API_COMPAT_VERSION = "v5.19.4"
@@ -583,6 +584,62 @@ async def plan_professional_skill_lifecycle(payload: dict[str, object] = Body(..
         )
     except ProfessionalSkillError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail()) from exc
+
+
+@app.get("/api/professional-skills/{skill_id}/onboarding-evidence")
+async def get_professional_skill_onboarding_evidence(skill_id: str) -> dict[str, object]:
+    try:
+        skill = PROFESSIONAL_SKILL_REGISTRY.get_public(skill_id)
+    except ProfessionalSkillError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail()) from exc
+
+    warnings: list[str] = []
+    task_details: list[dict[str, object]] = []
+    try:
+        task_summaries = _business_task_store().list_recent_tasks(skill_id=skill_id, limit=5)
+    except Exception:
+        task_summaries = []
+        warnings.append("Task 聚合暂不可用；专业处理主流程不受影响。")
+    for task in task_summaries:
+        try:
+            detail = _business_task_detail(str(task.get("task_id") or ""))
+        except Exception:
+            detail = task
+            warnings.append("个别 Task 血缘暂不可用，已保留安全摘要。")
+        lineage = detail.get("lineage") if isinstance(detail.get("lineage"), dict) else {}
+        events = lineage.get("experience_events") if isinstance(lineage.get("experience_events"), list) else []
+        for event in events:
+            if not isinstance(event, dict) or not event.get("candidate_id") or not event.get("project_key"):
+                continue
+            try:
+                candidate = _knowledge_memory_store().get_item(
+                    str(event["candidate_id"]),
+                    str(event["project_key"]),
+                )
+                event["governance_status"] = str(candidate.get("status") or "candidate")
+            except Exception:
+                event["governance_status"] = "candidate"
+                warnings.append("个别 Experience 治理状态暂不可用，按候选状态保守展示。")
+        task_details.append(detail)
+
+    try:
+        validation_evidence = PROFESSIONAL_SKILL_REGISTRY.onboarding_validation(skill_id)
+    except ProfessionalSkillError:
+        validation_evidence = {}
+        warnings.append("正式验证事实暂不可用，已回退到 Manifest 验证状态。")
+    try:
+        experience_metrics = _trusted_experience_store().metrics()
+    except Exception:
+        experience_metrics = {}
+        warnings.append("可信经验指标暂不可用；已有任务和成果证据仍可查看。")
+
+    return build_onboarding_evidence(
+        skill=skill,
+        tasks=task_details,
+        validation_evidence=validation_evidence,
+        experience_metrics=experience_metrics,
+        aggregation_warnings=warnings,
+    )
 
 
 @app.get("/api/professional-skills/{skill_id}")

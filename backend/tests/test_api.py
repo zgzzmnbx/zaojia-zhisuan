@@ -44,7 +44,7 @@ def test_health_endpoint():
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
     assert response.json()["version"] == "v5.19.4"
-    assert response.json()["release_version"] == "v5.22.1"
+    assert response.json()["release_version"] == "v5.23.0"
 
 
 def test_web_result_review_endpoint_uses_backend_frozen_output(tmp_path, monkeypatch):

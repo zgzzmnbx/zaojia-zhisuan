@@ -59,6 +59,7 @@ ASSET_LABELS = {
     "ruleDocuments": "核心规则说明",
     "ruleWorkbooks": "结构化规则表",
     "validationSample": "回归验证样例",
+    "onboardingEvidence": "上岗证据验证事实",
 }
 TRUSTED_PROCESSOR_IDS = {"survey-measurement-v1"}
 KNOWLEDGE_SOURCE_SUFFIXES = {".csv", ".md", ".xlsx"}
@@ -154,6 +155,22 @@ class ProfessionalSkillRegistry:
     def get_public(self, skill_id: str) -> dict[str, object]:
         manifest = self.load(skill_id)
         return self.public_detail(manifest, default_id=self.default_skill_id())
+
+    def onboarding_validation(self, skill_id: str) -> dict[str, object]:
+        manifest = self.load(skill_id)
+        asset = manifest.get("assets", {}).get("onboardingEvidence")
+        if not asset:
+            return dict(manifest.get("validation") or {})
+        paths = self._asset_paths(manifest, "onboardingEvidence", "上岗证据验证事实")
+        if len(paths) != 1 or paths[0].suffix.lower() != ".json":
+            raise ProfessionalSkillError("skill_evidence_invalid", "上岗证据验证事实必须是单个 JSON 文件", status_code=503)
+        try:
+            payload = json.loads(paths[0].read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ProfessionalSkillError("skill_evidence_invalid", "上岗证据验证事实不可读取", status_code=503) from exc
+        if not isinstance(payload, dict):
+            raise ProfessionalSkillError("skill_evidence_invalid", "上岗证据验证事实格式无效", status_code=503)
+        return payload
 
     def recommend_for_file(self, filename: str, content: bytes) -> dict[str, object]:
         clean_name = Path(str(filename or "")).name

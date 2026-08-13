@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, FileSearch, Loader2, RefreshCw, ShieldCheck, X } from "lucide-react";
 import type { ProfessionalSkillSummary } from "./ProfessionalSkillSelector";
 import { SkillCapabilityMatrix } from "../data-visualization/ProfessionalVisuals";
+import DigitalEmployeeEvidencePanel from "./DigitalEmployeeEvidencePanel";
 
 type RecommendationItem = {
   id: string;
@@ -77,6 +78,7 @@ function responseError(payload: unknown, fallback: string) {
 }
 
 export default function ProfessionalSkillCenter({ apiBase, currentFile, skills, onSelect, onClose }: Props) {
+  const closeRef = useRef<HTMLButtonElement>(null);
   const [management, setManagement] = useState<ManagementPayload | null>(null);
   const [openFormat, setOpenFormat] = useState<OpenFormatPayload | null>(null);
   const [recommendation, setRecommendation] = useState<RecommendationPayload | null>(null);
@@ -109,6 +111,15 @@ export default function ProfessionalSkillCenter({ apiBase, currentFile, skills, 
   };
 
   useEffect(loadCenter, [apiBase]);
+
+  useEffect(() => {
+    closeRef.current?.focus();
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
 
   const analyzeFile = async () => {
     if (!currentFile) return;
@@ -161,8 +172,8 @@ export default function ProfessionalSkillCenter({ apiBase, currentFile, skills, 
     <div className="professional-skill-modal" role="presentation" onMouseDown={(event) => {
       if (event.currentTarget === event.target) onClose();
     }}>
-      <section className="professional-skill-modal__dialog professional-skill-center" role="dialog" aria-modal="true" aria-labelledby="professional-skill-center-title">
-        <button type="button" className="professional-skill-modal__close" aria-label="关闭专业能力中心" onClick={onClose}><X size={19} /></button>
+      <section className="professional-skill-modal__dialog professional-skill-center has-digital-employee-evidence" role="dialog" aria-modal="true" aria-labelledby="professional-skill-center-title">
+        <button ref={closeRef} type="button" className="professional-skill-modal__close" aria-label="关闭专业能力中心" onClick={onClose}><X size={19} /></button>
         <div className="professional-skill-modal__hero">
           <span>P1 / P2 安全接口</span>
           <h3 id="professional-skill-center-title">专业能力中心</h3>
@@ -239,6 +250,7 @@ export default function ProfessionalSkillCenter({ apiBase, currentFile, skills, 
               <ShieldCheck size={17} />
               <div><strong>开放格式 v{openFormat.format_version}</strong><p>{openFormat.descriptor} + {openFormat.documentation}；{openFormat.runtime_policy}</p></div>
             </div>
+            <DigitalEmployeeEvidencePanel apiBase={apiBase} skills={management.items} />
           </>
         )}
       </section>
