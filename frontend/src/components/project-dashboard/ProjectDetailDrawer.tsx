@@ -6,6 +6,7 @@ import type {
 } from "./projectDashboardUtils";
 import { formatDashboardDate } from "./projectDashboardUtils";
 import type { BusinessTask } from "../task-context/taskContextUtils";
+import { ProjectRunVersionTrend } from "../data-visualization/ProfessionalVisuals";
 
 type Props = {
   apiBase: string;
@@ -128,6 +129,7 @@ export default function ProjectDetailDrawer({ apiBase, item, onClose, onOpenRun 
               ))}
               {!detail?.runs.length ? <li><div><strong>原历史任务</strong><span>{formatDashboardDate(item.updated_at)}</span></div></li> : null}
             </ol>
+            <ProjectRunVersionTrend runs={detail?.runs ?? []} />
           </section>
           <section>
             <h3>业务 Task</h3>

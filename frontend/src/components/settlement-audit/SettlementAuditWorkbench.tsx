@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { ChangeEvent, DragEvent, KeyboardEvent, useEffect, useMemo, useState } from "react";
+import { SettlementWaterfall, SheetRiskSmallMultiples, type SheetSummary } from "../data-visualization/ProfessionalVisuals";
 import "./settlement-audit.css";
 
 
@@ -69,6 +70,7 @@ type SettlementAuditResult = {
     reported_detail_total: number;
     reviewed_detail_total: number;
     suggested_difference: number;
+    sheet_summaries?: SheetSummary[];
   };
   risks: SettlementRisk[];
   manual_checklist: ManualChecklistItem[];
@@ -521,6 +523,10 @@ export default function SettlementAuditWorkbench({ apiBase }: Props) {
                 <small>{detail}</small>
               </div>
             ))}
+          </div>
+          <div className="settlement-audit__visual-grid">
+            <SettlementWaterfall reported={result.summary.reported_detail_total} reviewed={result.summary.reviewed_detail_total} />
+            <SheetRiskSmallMultiples summaries={result.summary.sheet_summaries} risks={result.risks} />
           </div>
 
           <div className="settlement-audit__scope-note">

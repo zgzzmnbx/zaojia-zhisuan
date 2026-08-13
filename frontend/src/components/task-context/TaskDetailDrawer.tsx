@@ -3,6 +3,7 @@ import { useEffect, useRef } from "react";
 import type { BusinessTask, TaskTarget } from "./taskContextUtils";
 import { formatTaskTime, taskStatusTone } from "./taskContextUtils";
 import TaskTimeline from "./TaskTimeline";
+import { ProjectVersionTrend, TaskLineageGraph } from "../data-visualization/ProfessionalVisuals";
 
 type Props = {
   task: BusinessTask | null;
@@ -81,6 +82,9 @@ export default function TaskDetailDrawer({ task, apiBase, onClose, onNavigate }:
             <TaskTimeline items={task.timeline?.items ?? []} onNavigate={onNavigate} />
           </section>
           <section>
+            <TaskLineageGraph task={task} />
+          </section>
+          <section>
             <h3>实际 Tool</h3>
             <ul className="task-tool-list">
               {(task.lineage?.tools ?? []).map((tool) => <li key={tool}><ShieldCheck size={15} />{tool}</li>)}
@@ -99,6 +103,7 @@ export default function TaskDetailDrawer({ task, apiBase, onClose, onNavigate }:
               ))}
               {!artifacts.length ? <p>尚无项目台账成果；当前 Task 的成果版本为 v{task.artifact_version}。</p> : null}
             </div>
+            <ProjectVersionTrend task={task} />
           </section>
           <section>
             <h3>人工复核与智能协同</h3>

@@ -16,8 +16,17 @@ function EventIcon({ status }: { status: string }) {
 }
 
 export default function TaskTimeline({ items, onNavigate }: Props) {
+  const actualItems = items.filter((item) => !item.is_placeholder);
+  const completedItems = items.filter((item) => item.status === "completed").length;
+  const progress = items.length ? Math.round((completedItems / items.length) * 100) : 0;
   return (
-    <ol className="task-timeline" aria-label="任务执行轨迹">
+    <div className="task-timeline-visual" data-visualization="VIS-01">
+      <div className="task-timeline-visual__summary">
+        <span>真实事件 {actualItems.length} / 节点 {items.length}</span>
+        <span>完成 {completedItems}</span>
+        <div role="progressbar" aria-label="任务真实执行进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}><i style={{ width: `${progress}%` }} /></div>
+      </div>
+      <ol className="task-timeline" aria-label="任务真实执行轨迹">
       {items.map((item) => {
         const target = taskEventTarget(item);
         return (
@@ -32,6 +41,7 @@ export default function TaskTimeline({ items, onNavigate }: Props) {
           </li>
         );
       })}
-    </ol>
+      </ol>
+    </div>
   );
 }

@@ -794,6 +794,16 @@
   box-shadow: var(--dws-panel-shadow);
 }
 
+.settlement-audit__visual-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+@media (max-width: 900px) {
+  .settlement-audit__visual-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
 .settlement-audit__metrics > div {
   display: grid;
   min-width: 0;

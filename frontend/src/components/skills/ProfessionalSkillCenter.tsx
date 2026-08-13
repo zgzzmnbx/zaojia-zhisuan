@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { CheckCircle2, FileSearch, Loader2, RefreshCw, ShieldCheck, X } from "lucide-react";
 import type { ProfessionalSkillSummary } from "./ProfessionalSkillSelector";
+import { SkillCapabilityMatrix } from "../data-visualization/ProfessionalVisuals";
 
 type RecommendationItem = {
   id: string;
@@ -219,6 +220,13 @@ export default function ProfessionalSkillCenter({ apiBase, currentFile, skills, 
                   </div>
                 ))}
               </div>
+              <SkillCapabilityMatrix
+                items={management.items}
+                onCreateTask={(skillId) => {
+                  const skill = skills.find((item) => item.id === skillId && item.can_create_task);
+                  if (skill) onSelect(skill);
+                }}
+              />
               {plan && (
                 <div className="professional-skill-center__plan" role="status">
                   <strong>{plan.display_name}：仅生成审核计划，未修改任何文件</strong>

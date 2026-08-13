@@ -66,7 +66,9 @@ def test_sample_builder_and_engine_hit_expected_rules_without_touching_template(
     assert _sha256(TEMPLATE_PATH) == template_hash_before
     assert _sha256(sample_path) == sample_hash_before
     assert result["project_name"] == "专项测试项目"
-    assert result["summary"] == {
+    summary = dict(result["summary"])
+    sheet_summaries = summary.pop("sheet_summaries")
+    assert summary == {
         "sheet_count": 3,
         "sheet_counts": {"measure": 1, "survey": 1, "other": 1},
         "audited_rows": 8,
@@ -78,6 +80,10 @@ def test_sample_builder_and_engine_hit_expected_rules_without_touching_template(
         "reviewed_detail_total": 429505.02,
         "suggested_difference": 32372.0,
     }
+    assert len(sheet_summaries) == 4  # 3 张明细表 + 1 张含汇总参数风险的表
+    assert sum(item["total"] for item in sheet_summaries) == result["summary"]["risk_count"]
+    assert sum(item["high"] for item in sheet_summaries) == result["summary"]["high_risk_count"]
+    assert all({"sheet", "audited_rows", "reported_total", "reviewed_total", "high", "medium", "low", "total"} <= item.keys() for item in sheet_summaries)
     observed = {(risk["rule_id"], risk["coordinate"]) for risk in result["risks"]}
     assert observed == {
         ("JS-001", "H11"),

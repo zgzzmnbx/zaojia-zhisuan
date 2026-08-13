@@ -5737,6 +5737,23 @@ h2 {
   overflow: auto;
 }
 
+.preview-table-with-minimap {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.preview-table-with-minimap > .table-scroll { min-width: 0; }
+
+@media (max-width: 720px) {
+  .preview-table-with-minimap { grid-template-columns: minmax(0, 1fr); }
+  .preview-table-with-minimap > .dv-row-minimap { order: 2; }
+  .preview-table-with-minimap .dv-row-minimap__rail { width: 100%; max-height: none; flex-direction: row; overflow-x: auto; }
+  .preview-table-with-minimap .dv-row-minimap__rail button { min-width: 7px; min-height: 16px; }
+}
+
 tr.preview-row-focused td {
   background-image: linear-gradient(rgba(59, 130, 246, 0.08), rgba(59, 130, 246, 0.08));
   animation: preview-row-flash 1.05s ease-out 1;

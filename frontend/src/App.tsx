@@ -67,6 +67,17 @@ import ZhisuanFeeAnalysisCharts from "./components/agent-workspace/ZhisuanFeeAna
 import CurrentTaskMenu from "./components/task-context/CurrentTaskMenu";
 import TaskDetailDrawer from "./components/task-context/TaskDetailDrawer";
 import type { BusinessTask, TaskTarget } from "./components/task-context/taskContextUtils";
+import {
+  CandidatePriceDotPlot,
+  ExperienceWarningVisuals,
+  RetrievalChannelChart,
+  ReviewerStatusMatrix,
+  ReviewRoundPhaseBand,
+  RowRiskMinimap,
+  TrustedExperienceBars,
+  WorkloadGroupedBars,
+  type RowRiskDatum,
+} from "./components/data-visualization/ProfessionalVisuals";
 import { buildFeeAnalysis, type FeeAnalysis } from "./components/agent-workspace/feeAnalysis";
 import { detectZhisuanCommand, type ZhisuanCommand } from "./components/agent-workspace/zhisuanCommands";
 import {
@@ -107,7 +118,7 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.21.0";
+const APP_VERSION = "v5.22.0";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const PRICE_KNOWLEDGE_ROW_COUNT = 560;
 const FORCE_KNOWLEDGE_PREFIXES = ["查库：", "查库:", "#知识库"] as const;
@@ -3153,6 +3164,20 @@ function DaweibaApp() {
   );
   const warningSummary = result?.summary.warning_summary;
   const warningDetails = result?.summary.warning_details ?? [];
+  const previewRiskRows = useMemo<RowRiskDatum[]>(() => {
+    const sheetName = normalizePreviewSheetName(activePreview.sheet_name);
+    return visiblePreviewRows.map(({ row, sourceIndex }) => {
+      const rowNumber = previewExcelRowNumber(activePreview, sourceIndex, sheetConfigs);
+      const warning = warningDetails.find((item) => normalizePreviewSheetName(item.sheet_name) === sheetName && item.excel_row === rowNumber);
+      const review = result?.summary.review_details?.find((item) => item.excel_row === rowNumber);
+      const rowText = row.map((value) => String(value ?? "")).join(" ");
+      if (warning?.severity === "high") return { rowNumber, tone: "high", label: "高风险" };
+      if (review || /待复核|字段冲突|多候选/.test(rowText)) return { rowNumber, tone: "review", label: "待复核" };
+      if (/第二层|经验提示/.test(rowText)) return { rowNumber, tone: "experience", label: "第二层经验提示" };
+      if (/第一层|标准命中/.test(rowText)) return { rowNumber, tone: "standard", label: "第一层标准命中" };
+      return { rowNumber, tone: "other", label: warning ? `${warning.severity_label || "预警"}` : "其他 / 未运行" };
+    });
+  }, [activePreview, result, sheetConfigs, visiblePreviewRows, warningDetails]);
   const hasCurrentReport = Boolean(
     result?.downloads.report
     && result.summary.output_report
@@ -8315,6 +8340,13 @@ function DaweibaApp() {
     setFocusedPreviewJump(target);
   }
 
+  function jumpToPreviewRow(excelRow: number) {
+    const sheetName = activePreview.sheet_name || previewSheetLabel(activePreview, 0);
+    const target = { sheetName, excelRow, metric: "" };
+    setPendingPreviewJump(target);
+    setFocusedPreviewJump(target);
+  }
+
   useEffect(() => {
     return () => {
       if (previewFocusTimeoutRef.current !== null) {
@@ -9571,6 +9603,10 @@ function DaweibaApp() {
             </section>
 
             <section className="zhisuan-debug-section">
+              <RetrievalChannelChart trace={message.retrievalTrace} />
+            </section>
+
+            <section className="zhisuan-debug-section">
               <div className="zhisuan-debug-section-head">
                 <span><Send size={14} />给大模型的内容</span>
                 <small>{debugMessages.length} 条消息</small>
@@ -10521,6 +10557,7 @@ function DaweibaApp() {
 
         {knowledgeMemorySection === "metrics" && <section className="knowledge-memory-evolution-panel" aria-label="可信经验进化成效">
           <header><span><strong>进化成效</strong><small>{capsuleProjectId ? "当前可靠项目范围" : "当前本机实例范围"}；只统计真实审计，不估算节省工时。</small></span><button className="ghost-button" type="button" disabled={isTrustedExperienceLoading} onClick={() => void loadTrustedExperienceMetrics()}><RefreshCw className={isTrustedExperienceLoading ? "spin" : ""} size={16} />刷新</button></header>
+          <TrustedExperienceBars metrics={trustedExperienceMetrics} />
           {metricRows.length === 0 ? <div className="knowledge-memory-empty">尚无真实进化指标；产生并治理候选后再显示。</div> : <div className="knowledge-memory-metrics-grid">{metricRows.map((row) => <div key={row.label}><span>{row.label}</span><strong>{row.value}</strong></div>)}</div>}
         </section>}
       </>
@@ -11547,11 +11584,13 @@ function DaweibaApp() {
                     <span className="preview-tabs-count">共 {previewSheets.length} 个</span>
                   </div>
                 )}
-                <div
-                  className="table-scroll"
-                  ref={previewScrollRef}
-                  style={{ "--preview-cell-max-chars": `${previewColumnPreferences.maxDisplayChars}ch` } as CSSProperties}
-                >
+                <div className="preview-table-with-minimap">
+                  <RowRiskMinimap items={previewRiskRows} onSelect={jumpToPreviewRow} />
+                  <div
+                    className="table-scroll"
+                    ref={previewScrollRef}
+                    style={{ "--preview-cell-max-chars": `${previewColumnPreferences.maxDisplayChars}ch` } as CSSProperties}
+                  >
                   <table>
                     <thead>
                       <tr>
@@ -11671,6 +11710,7 @@ function DaweibaApp() {
                       })}
                     </tbody>
                   </table>
+                  </div>
                 </div>
               </div>
             </div>
@@ -11838,6 +11878,11 @@ function DaweibaApp() {
                       </>
                     )}
                   </div>
+                  <ExperienceWarningVisuals
+                    items={warningDetails}
+                    lowThreshold={warningSummary.low_risk_threshold_percent ?? 5}
+                    highThreshold={warningSummary.high_risk_threshold_percent ?? 20}
+                  />
                   {warningDetails.length > 0 ? (
                     <div className="warning-list">
                       {visibleWarnings.map((warning, index) => (
@@ -12272,6 +12317,7 @@ function DaweibaApp() {
                     工作量源行 {workloadCaptureResult.summary.source_rows} · 控制价目标行 {workloadCaptureResult.summary.target_rows} ·
                     保守跳过 {workloadCaptureResult.summary.skipped_existing_rows ?? 0} · 一对多预警 {workloadCaptureResult.summary.duplicate_warning_rows}
                   </span>
+                  <WorkloadGroupedBars summary={workloadCaptureResult.summary} />
                   <div className="download-row compact" data-ui-key="download-row" style={uiStyle("download-row")}>
                     {workloadCaptureResult.downloads?.workload && (
                     <a className="download-button secondary" href={`${API_BASE}${workloadCaptureResult.downloads.workload}`}>
@@ -12608,6 +12654,7 @@ function DaweibaApp() {
               </div>
               {externalDispatchFeedback && <p className={`daweiba-collaboration-feedback ${/(失败|拒绝|异常|未找到)/.test(externalDispatchFeedback) ? "is-error" : ""}`}>{externalDispatchFeedback}</p>}
               {externalDispatchTasks.length ? <div className="daweiba-external-dispatch-table" role="table"><div className="is-header" role="row"><span>任务</span><span>项目</span><span>流程人员</span><span>状态</span><span>投递步骤</span><span>操作</span></div>{externalDispatchTasks.slice(0, 8).map((task) => <div role="row" key={task.task_id}><span title={task.task_id}><strong>{task.source_task_id}</strong><small>{task.task_id}</small></span><span><strong>{task.project_name}</strong><small>{task.target_group_name || "个人 · 编制人"}</small></span><span>{(task.participants?.length ? task.participants : [{ role: "编制人", name: task.assignee_name, status: task.status === "claimed" ? "已领取" : "待领取" }]).map((person) => <small className="daweiba-external-dispatch-person" key={`${person.role}-${person.name}`}><b>{person.role}</b>{person.name} · {person.status}{person.comment ? <em title={person.comment}>评论：{person.comment}</em> : null}</small>)}</span><span><b className={task.status === "dispatch_failed" ? "is-error" : "is-success"}>{task.status_label}</b>{task.review_round ? <small>第 {task.review_round} 轮复核</small> : null}{task.error && <small title={task.error}>{task.error}</small>}</span><span><small>任务卡 {task.card_status} · 待填文件 {task.file_status}</small>{task.submission_file_name ? <small title={task.submission_file_name}>编制成果 {task.submission_delivery_status || "待投递"} · {task.submission_file_name}</small> : <small>编制成果 待提交</small>}{task.review_card_status ? <small>复核卡 {task.review_card_status}</small> : null}{task.completion_card_status ? <small>结果通知 {task.completion_card_status}</small> : null}<small>重试 {task.delivery_retry_count} 次</small></span><span>{task.can_retry ? <button className="ghost-button" type="button" disabled={retryingExternalDispatchTaskId === task.task_id} onClick={() => void retryExternalDispatchTask(task.task_id)}>{retryingExternalDispatchTaskId === task.task_id ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />}重试</button> : "-"}</span></div>)}</div> : <p className="daweiba-collaboration-empty">暂无外部派发任务。前端只显示人员名称和状态，不回显平台用户 ID、群 ID 或文件 Key。</p>}
+              <ReviewerStatusMatrix tasks={externalDispatchTasks.slice(0, 8)} />
             </section>
 
             <section className="daweiba-collaboration-settings is-second-layer" aria-label="第二层企业应用机器人状态">
@@ -13322,6 +13369,15 @@ function DaweibaApp() {
                         </div>
                         <small>{fillAssistDialog.candidates.length} 个候选</small>
                       </div>
+                      <CandidatePriceDotPlot
+                        items={fillAssistDialog.candidates}
+                        selectedId={fillAssistDialog.selectedCandidateId}
+                        onSelect={(candidateId) => {
+                          setFillAssistDialog((current) => current ? { ...current, selectedCandidateId: candidateId } : current);
+                          setRowAiAnswer("");
+                          setIsFillAssistAiAnswerExpanded(false);
+                        }}
+                      />
                       {fillAssistDialog.candidates.length > 0 ? (
                         <div className="fill-assist-candidates">
                           {fillAssistDialog.candidates.map((candidate, candidateIndex) => (
@@ -13768,6 +13824,7 @@ function DaweibaApp() {
                 </footer>
               </section>
             )}
+            <ReviewRoundPhaseBand task={webReviewTask} />
 
             <p className={`web-review-feedback ${webReviewFeedback.includes("失败") || webReviewFeedback.includes("拒绝") ? "is-error" : ""}`} aria-live="polite">
               {webReviewFeedback}

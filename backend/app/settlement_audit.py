@@ -351,6 +351,7 @@ class SettlementAuditEngine:
         reported_total = 0.0
         reviewed_total = 0.0
         sheet_counts = {"measure": 0, "survey": 0, "other": 0}
+        sheet_stats: dict[str, dict[str, Any]] = {}
 
         for sheet_name, profile in profiles:
             sheet_counts[profile.kind] += 1
@@ -373,8 +374,25 @@ class SettlementAuditEngine:
             passed_rows += stats["passed_rows"]
             reported_total += stats["reported_total"]
             reviewed_total += stats["reviewed_total"]
+            sheet_stats[sheet_name] = {
+                "sheet": sheet_name,
+                "audited_rows": stats["audited_rows"],
+                "reported_total": round(stats["reported_total"], 2),
+                "reviewed_total": round(stats["reviewed_total"], 2),
+                "high": 0,
+                "medium": 0,
+                "low": 0,
+                "total": 0,
+            }
 
         self._audit_summary_parameters(workbook, values_workbook, reference_workbook, reference_values, risks)
+        for risk in risks:
+            row = sheet_stats.setdefault(
+                risk.sheet,
+                {"sheet": risk.sheet, "audited_rows": 0, "reported_total": 0.0, "reviewed_total": 0.0, "high": 0, "medium": 0, "low": 0, "total": 0},
+            )
+            row[risk.severity] += 1
+            row["total"] += 1
 
         source_file_name = source_name or input_path.name
         resolved_project_name = project_name or self._project_name(workbook, source_file_name)
@@ -393,6 +411,7 @@ class SettlementAuditEngine:
             "reported_detail_total": round(reported_total, 2),
             "reviewed_detail_total": round(reviewed_total, 2),
             "suggested_difference": round(structured_difference, 2),
+            "sheet_summaries": list(sheet_stats.values()),
         }
         created_at = datetime.now().astimezone().isoformat(timespec="seconds")
         result = {

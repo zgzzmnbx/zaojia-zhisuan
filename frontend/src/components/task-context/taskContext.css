@@ -89,6 +89,9 @@
 .task-detail-grid dt { color: var(--dws-color-foreground-muted); font-size: var(--task-font-meta); }
 .task-detail-grid dd { margin: 0; overflow-wrap: anywhere; font-size: var(--task-font-control); }
 .task-timeline { margin: 0; padding: 0; list-style: none; }
+.task-timeline-visual__summary { display: grid; grid-template-columns: auto auto minmax(120px, 1fr); align-items: center; gap: 10px; margin-bottom: 10px; color: var(--dws-color-foreground-muted); font-size: var(--dws-font-size-12); font-variant-numeric: tabular-nums; }
+.task-timeline-visual__summary [role="progressbar"] { height: 6px; overflow: hidden; border-radius: var(--dws-radius-6); background: var(--dws-neutral-100); }
+.task-timeline-visual__summary [role="progressbar"] i { display: block; height: 100%; border-radius: inherit; background: var(--dws-color-primary); }
 .task-timeline li { position: relative; min-height: 54px; display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 8px; padding: 7px 0; }
 .task-timeline li::before { position: absolute; top: 31px; bottom: -7px; left: 12px; width: 1px; background: var(--dws-color-border); content: ""; }
 .task-timeline li:last-child::before { display: none; }
@@ -281,6 +284,8 @@
 }
 
 @media (max-width: 620px) {
+  .task-timeline-visual__summary { grid-template-columns: 1fr 1fr; }
+  .task-timeline-visual__summary [role="progressbar"] { grid-column: 1 / -1; }
   .global-task-menu__popover { position: fixed; top: 62px; right: 12px; left: 12px; width: auto; }
   .global-task-menu__meta { grid-template-columns: minmax(0, 1fr); }
   .global-task-menu__actions { flex-wrap: wrap; }
