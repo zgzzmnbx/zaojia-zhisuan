@@ -135,7 +135,7 @@
   --dws-button-radius: var(--dws-radius-8);
   --dws-button-bg: var(--dws-color-primary);
   --dws-button-bg-hover: var(--dws-color-primary-hover);
-  --dws-button-fg: var(--dws-neutral-0);
+  --dws-button-fg: #ffffff;
   --dws-button-border: var(--dws-color-border);
 
   /* Component · input */

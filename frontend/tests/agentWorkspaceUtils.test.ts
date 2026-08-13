@@ -9,6 +9,7 @@ import {
   agentTaskPhaseLabel,
   knowledgeQuestionPrompt,
   moveAgentMessageToEnd,
+  nextAgentGuidedAction,
   shouldShowKnowledgeQuestionSuggestions,
 } from "../src/components/agent-workspace/agentWorkspaceUtils.ts";
 import {
@@ -175,6 +176,46 @@ test("derives the deterministic task phase used by the workspace", () => {
   assert.equal(agentTaskPhaseLabel("preview-ready"), "待批量匹配");
 });
 
+test("moves the single blue action through the professional workflow", () => {
+  const state = {
+    hasFile: true,
+    hasResult: true,
+    matchingPending: false,
+    warningExecuted: false,
+    riskReportGenerated: false,
+    wordPreviewOpened: false,
+    reviewTaskCreated: false,
+  };
+  assert.equal(nextAgentGuidedAction({ ...state, hasFile: false, hasResult: false }), null);
+  assert.equal(nextAgentGuidedAction({ ...state, hasResult: false }), "start-conversion");
+  assert.equal(nextAgentGuidedAction({ ...state, matchingPending: true }), "batch-match");
+  assert.equal(nextAgentGuidedAction(state), "experience-warning");
+  assert.equal(nextAgentGuidedAction({ ...state, warningExecuted: true }), "risk-report");
+  assert.equal(nextAgentGuidedAction({ ...state, warningExecuted: true, riskReportGenerated: true }), "word-preview");
+  assert.equal(nextAgentGuidedAction({ ...state, warningExecuted: true, riskReportGenerated: true, wordPreviewOpened: true }), "send-review");
+  assert.equal(nextAgentGuidedAction({
+    ...state,
+    warningExecuted: true,
+    riskReportGenerated: true,
+    wordPreviewOpened: true,
+    reviewTaskCreated: true,
+  }), "review-progress");
+});
+
+test("styles only the guided composer action as the high-contrast primary button", async () => {
+  const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const css = await readFile(new URL("../src/components/agent-workspace/agentWorkspace.css", import.meta.url), "utf8");
+  assert.equal((appSource.match(/aria-current=\{agentGuidedAction ===/g) || []).length, 7);
+  assert.match(appSource, /agentGuidedAction === "experience-warning"[\s\S]*\u8fd0\u884c\u9884\u8b66/);
+  assert.match(appSource, /agentGuidedAction === "risk-report"[\s\S]*\u751f\u6210\u62a5\u544a/);
+  assert.match(appSource, /agentGuidedAction === "word-preview"[\s\S]*Word \u9884\u89c8/);
+  assert.match(appSource, /agentGuidedAction === "send-review"[\s\S]*\u53d1\u5e03\u540c\u4e8b\u590d\u6838/);
+  assert.match(appSource, /agentGuidedAction === "review-progress"[\s\S]*\u5ba1\u6838\u8fdb\u5ea6\u67e5\u8be2/);
+  assert.match(css, /button\.is-primary:not\(:disabled\)[\s\S]*background:\s*#2563eb;[\s\S]*color:\s*#ffffff;/);
+  assert.match(css, /button\.is-primary:hover:not\(:disabled\)[\s\S]*background:\s*#1d4ed8;[\s\S]*color:\s*#ffffff;/);
+  assert.match(css, /button\.is-primary svg\s*\{[^}]*color:\s*currentColor;[^}]*stroke:\s*currentColor;/s);
+});
+
 test("uses registry data and locks the task skill snapshot", () => {
   assert.deepEqual(agentSelectedSkill(skills, "survey"), {
     id: "survey",
@@ -223,4 +264,28 @@ test("composer send action uses the project primary blue with accessible states"
   assert.match(css, /\.shell\.layout-daweiba \.agent-workspace \.agent-composer__send:hover:not\(:disabled\)\s*\{[^}]*background:\s*#1d4ed8;/s);
   assert.match(css, /\.shell\.layout-daweiba \.agent-workspace \.agent-composer__send:disabled\s*\{[^}]*background:\s*#e8eef8;[^}]*color:\s*#94a3b8;/s);
   assert.match(css, /\.shell\.layout-daweiba \.agent-workspace \.agent-composer__send:focus-visible\s*\{[^}]*outline-color:\s*#2563eb;/s);
+});
+
+test("current task is isolated to the global nav menu and does not alter workspace layout", async () => {
+  const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const workspaceSource = await readFile(new URL("../src/components/agent-workspace/ConversationalAgentWorkspace.tsx", import.meta.url), "utf8");
+  const dashboardSource = await readFile(new URL("../src/components/project-dashboard/ProjectDashboard.tsx", import.meta.url), "utf8");
+  const taskMenuSource = await readFile(new URL("../src/components/task-context/CurrentTaskMenu.tsx", import.meta.url), "utf8");
+  const taskCss = await readFile(new URL("../src/components/task-context/taskContext.css", import.meta.url), "utf8");
+  const designTokens = await readFile(new URL("../src/design-system/dabawei-shadcn-ui.css", import.meta.url), "utf8");
+  const css = await readFile(new URL("../src/components/agent-workspace/agentWorkspace.css", import.meta.url), "utf8");
+  const globalCss = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+  assert.match(appSource, /<ProfessionalSkillSelector[\s\S]*<CurrentTaskMenu/);
+  assert.equal((appSource.match(/<CurrentTaskMenu/g) || []).length, 1);
+  assert.match(taskMenuSource, /aria-label="当前 Task"/);
+  assert.match(taskMenuSource, /global-task-menu__label">Task<\/span>/);
+  assert.match(taskMenuSource, /role="dialog"[\s\S]*aria-label="当前 Task 菜单"/);
+  assert.doesNotMatch(workspaceSource, /taskContext|当前任务|CurrentTask/);
+  assert.doesNotMatch(dashboardSource, /CurrentTaskBar|currentTask|当前任务/);
+  assert.doesNotMatch(appSource, /CurrentTaskBar|has-task-context|task-context-host|variant="dock"/);
+  assert.match(css, /grid-template-rows:\s*auto\s+minmax\(0,\s*1fr\)\s+auto/);
+  assert.match(globalCss, /\.nav-work-context \.professional-skill-selector__trigger > span,[\s\S]*\.nav-work-context \.global-task-menu__label\s*\{[^}]*font-size:\s*12px;[^}]*font-weight:\s*700;[^}]*line-height:\s*1\.2;/s);
+  assert.match(designTokens, /--dws-button-fg:\s*#ffffff;/);
+  assert.match(taskCss, /\.global-task-menu__actions button\.is-primary,[\s\S]*color:\s*var\(--dws-button-fg\) !important;[\s\S]*-webkit-text-fill-color:\s*var\(--dws-button-fg\);/s);
+  assert.match(taskCss, /\.global-task-menu__actions button\.is-primary svg\s*\{[^}]*color:\s*currentColor;[^}]*stroke:\s*currentColor;/s);
 });

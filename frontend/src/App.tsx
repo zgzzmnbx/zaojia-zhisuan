@@ -61,9 +61,10 @@ import {
   agentComposerSpaceCompletion,
   knowledgeQuestionPrompt,
   moveAgentMessageToEnd,
+  nextAgentGuidedAction,
 } from "./components/agent-workspace/agentWorkspaceUtils";
 import ZhisuanFeeAnalysisCharts from "./components/agent-workspace/ZhisuanFeeAnalysisCharts";
-import CurrentTaskBar from "./components/task-context/CurrentTaskBar";
+import CurrentTaskMenu from "./components/task-context/CurrentTaskMenu";
 import TaskDetailDrawer from "./components/task-context/TaskDetailDrawer";
 import type { BusinessTask, TaskTarget } from "./components/task-context/taskContextUtils";
 import { buildFeeAnalysis, type FeeAnalysis } from "./components/agent-workspace/feeAnalysis";
@@ -2448,6 +2449,7 @@ function DaweibaApp() {
   const [llmSettings, setLlmSettings] = useState(DEFAULT_LLM_SETTINGS);
   const [activeLlmSettingsTab, setActiveLlmSettingsTab] = useState<"model" | "window" | "commands">("model");
   const [riskReport, setRiskReport] = useState("");
+  const [agentWordPreviewedJobId, setAgentWordPreviewedJobId] = useState("");
   const [riskSummary, setRiskSummary] = useState<RiskSummaryPayload | null>(null);
   const [isRiskSummaryLoading, setIsRiskSummaryLoading] = useState(false);
   const [experienceGovernance, setExperienceGovernance] = useState<GovernanceReport | null>(null);
@@ -3179,6 +3181,24 @@ function DaweibaApp() {
     : `下一步：${FILL_WORKFLOW_STEPS[fillWorkflowCurrentIndex]}`;
   const canDownloadOutputs = Boolean(result?.downloads.excel && hasCurrentReport);
   const reportDownloadHref = hasCurrentReport && result ? `${API_BASE}${result.downloads.report}` : "";
+  const hasCurrentReviewTask = Boolean(result?.job_id && (
+    (webReviewTask?.is_web_result_review && webReviewTask.source_job_id === result.job_id)
+    || inlineWebReviewPlatforms.some((platform) => (
+      platform.task?.is_web_result_review && platform.task.source_job_id === result.job_id
+    ))
+    || externalDispatchTasks.some((task) => (
+      task.is_web_result_review && task.source_job_id === result.job_id
+    ))
+  ));
+  const agentGuidedAction = nextAgentGuidedAction({
+    hasFile: Boolean(file),
+    hasResult: Boolean(result),
+    matchingPending: Boolean(isBatchMatchPending),
+    warningExecuted: Boolean(warningSummary?.executed),
+    riskReportGenerated: Boolean(riskReport),
+    wordPreviewOpened: Boolean(result?.job_id && agentWordPreviewedJobId === result.job_id),
+    reviewTaskCreated: hasCurrentReviewTask,
+  });
   const visibleWarnings = showAllWarnings ? warningDetails : warningDetails.slice(0, 6);
   const visibleWorkloadIssueLogs = useMemo(
     () => {
@@ -10063,28 +10083,28 @@ function DaweibaApp() {
     <>
       <input ref={agentFileInputRef} hidden accept=".xlsx" type="file" onChange={handleAgentFileChange} />
       <button type="button" disabled={agentTaskBusy} onClick={() => agentFileInputRef.current?.click()}><Upload size={14} />上传 Excel</button>
-      <button className="is-primary" type="button" disabled={!file || agentTaskBusy || Boolean(result)} onClick={() => { appendUserCommand("开始转换"); void processFile(); }}>
+      <button className={agentGuidedAction === "start-conversion" ? "is-primary" : undefined} aria-current={agentGuidedAction === "start-conversion" ? "step" : undefined} type="button" disabled={!file || agentTaskBusy || Boolean(result)} onClick={() => { appendUserCommand("开始转换"); void processFile(); }}>
         {isProcessing ? <Loader2 className="spin" size={14} /> : <Sparkles size={14} />}开始转换
       </button>
-      <button className="is-primary" type="button" disabled={!isBatchMatchPending || agentTaskBusy} onClick={() => void runZhisuanQuickCommand("batch-match", "批量匹配")}>
+      <button className={agentGuidedAction === "batch-match" ? "is-primary" : undefined} aria-current={agentGuidedAction === "batch-match" ? "step" : undefined} type="button" disabled={!isBatchMatchPending || agentTaskBusy} onClick={() => void runZhisuanQuickCommand("batch-match", "批量匹配")}>
         {isBatchMatching ? <Loader2 className="spin" size={14} /> : <ShieldCheck size={14} />}批量匹配
       </button>
       <button type="button" disabled={agentTaskBusy} onClick={() => void runZhisuanQuickCommand("fee-analysis", "图表分析")}>
         <PanelTop size={14} />图表分析
       </button>
-      <button type="button" disabled={!result || isBatchMatchPending || agentTaskBusy} onClick={() => void runZhisuanQuickCommand("experience-warning", "运行经验池预警")}>
+      <button className={agentGuidedAction === "experience-warning" ? "is-primary" : undefined} aria-current={agentGuidedAction === "experience-warning" ? "step" : undefined} type="button" disabled={!result || isBatchMatchPending || agentTaskBusy} onClick={() => void runZhisuanQuickCommand("experience-warning", "运行经验池预警")}>
         <AlertTriangle size={14} />运行预警
       </button>
       <button type="button" disabled={!result || isBatchMatchPending || agentTaskBusy} onClick={() => { appendUserCommand("查看风险清单"); void loadRiskSummary(); }}>
         <ShieldCheck size={14} />风险清单
       </button>
-      <button type="button" disabled={!result || isBatchMatchPending || agentTaskBusy} onClick={() => void runZhisuanQuickCommand("risk-report", "生成风险报告")}>
+      <button className={agentGuidedAction === "risk-report" ? "is-primary" : undefined} aria-current={agentGuidedAction === "risk-report" ? "step" : undefined} type="button" disabled={!result || isBatchMatchPending || agentTaskBusy} onClick={() => void runZhisuanQuickCommand("risk-report", "生成风险报告")}>
         <FileText size={14} />生成报告
       </button>
       <button type="button" disabled={!result} onClick={() => { appendUserCommand("查看结果预览"); setActiveDaweibaModule("preview"); }}><FileSpreadsheet size={14} />结果预览</button>
-      <button type="button" disabled={!hasCurrentReport} onClick={() => { appendUserCommand("查看 Word 预览"); setActiveDaweibaModule("report"); }}><FileText size={14} />Word 预览</button>
-      <button type="button" disabled={!canDownloadOutputs || agentTaskBusy} onClick={() => void runZhisuanQuickCommand("send-review", "发送同事复核")}><Send size={14} />发送同事复核</button>
-      <button type="button" disabled={!result || agentTaskBusy} onClick={() => void runZhisuanQuickCommand("review-progress", "审核进度查询")}><Clock3 size={14} />审核进度查询</button>
+      <button className={agentGuidedAction === "word-preview" ? "is-primary" : undefined} aria-current={agentGuidedAction === "word-preview" ? "step" : undefined} type="button" disabled={!hasCurrentReport} onClick={() => { appendUserCommand("查看 Word 预览"); if (result?.job_id) setAgentWordPreviewedJobId(result.job_id); setActiveDaweibaModule("report"); }}><FileText size={14} />Word 预览</button>
+      <button className={agentGuidedAction === "send-review" ? "is-primary" : undefined} aria-current={agentGuidedAction === "send-review" ? "step" : undefined} type="button" disabled={!canDownloadOutputs || agentTaskBusy} onClick={() => void runZhisuanQuickCommand("send-review", "发布同事复核")}><Send size={14} />发布同事复核</button>
+      <button className={agentGuidedAction === "review-progress" ? "is-primary" : undefined} aria-current={agentGuidedAction === "review-progress" ? "step" : undefined} type="button" disabled={!result || agentTaskBusy} onClick={() => void runZhisuanQuickCommand("review-progress", "审核进度查询")}><Clock3 size={14} />审核进度查询</button>
     </>
   );
   const agentWorkspaceArtifacts = result ? (
@@ -10515,17 +10535,25 @@ function DaweibaApp() {
     >
       <nav className="global-nav" aria-label="全局导航">
         <span>{APP_NAME}</span>
-        <ProfessionalSkillSelector
-          apiBase={API_BASE}
-          items={professionalSkills}
-          selectedSkillId={selectedProfessionalSkillId}
-          taskSkill={result?.professional_skill}
-          loading={isProfessionalSkillsLoading}
-          error={professionalSkillsError}
-          currentFile={file}
-          onSelect={(skill) => setSelectedProfessionalSkillId(skill.id)}
-          onReload={() => void loadProfessionalSkills()}
-        />
+        <div className="nav-work-context">
+          <ProfessionalSkillSelector
+            apiBase={API_BASE}
+            items={professionalSkills}
+            selectedSkillId={selectedProfessionalSkillId}
+            taskSkill={result?.professional_skill}
+            loading={isProfessionalSkillsLoading}
+            error={professionalSkillsError}
+            currentFile={file}
+            onSelect={(skill) => setSelectedProfessionalSkillId(skill.id)}
+            onReload={() => void loadProfessionalSkills()}
+          />
+          <CurrentTaskMenu
+            task={currentBusinessTask}
+            availability={businessTaskAvailability}
+            onViewTask={() => setIsTaskDetailOpen(true)}
+            onNavigate={navigateFromBusinessTask}
+          />
+        </div>
         <span className="nav-status">{API_BASE_LABEL} · {APP_VERSION}</span>
         <div className="nav-bot-statuses" aria-label="第二层机器人连接状态">
           {APP_BOT_STATUS_TAGS.map((item) => {
@@ -10872,20 +10900,9 @@ function DaweibaApp() {
         <div className="daweiba-main-content">
 
       <section
-        className={`daweiba-workspace-frame daweiba-workspace is-daweiba-module-${activeDaweibaModule} ${activeDaweibaModule !== "agent" && !(activeDaweibaModule === "fill" && fillWorkspaceView === "dashboard") ? "has-task-context" : ""} ${activeDaweibaModule === "fill" && fillWorkspaceView === "dashboard" ? "is-fill-dashboard-active" : ""}`}
+        className={`daweiba-workspace-frame daweiba-workspace is-daweiba-module-${activeDaweibaModule} ${activeDaweibaModule === "fill" && fillWorkspaceView === "dashboard" ? "is-fill-dashboard-active" : ""}`}
         id="soft-workspace-start"
       >
-        {activeDaweibaModule !== "agent" && !(activeDaweibaModule === "fill" && fillWorkspaceView === "dashboard") ? (
-          <div className="task-context-host" aria-label="当前业务任务">
-            <CurrentTaskBar
-              task={currentBusinessTask}
-              availability={businessTaskAvailability}
-              variant={activeDaweibaModule === "preview" || activeDaweibaModule === "report" ? "compact" : "default"}
-              onViewTask={() => setIsTaskDetailOpen(true)}
-              onNavigate={navigateFromBusinessTask}
-            />
-          </div>
-        ) : null}
         {activeDaweibaModule === "fill" ? (
           <nav className="daweiba-fill-view-tabs" aria-label="辅助填价视图">
             <button
@@ -10919,10 +10936,6 @@ function DaweibaApp() {
               <ProjectDashboard
                 active={activeDaweibaModule === "fill" && fillWorkspaceView === "dashboard"}
                 apiBase={API_BASE}
-                currentTask={currentBusinessTask}
-                taskAvailability={businessTaskAvailability}
-                onOpenCurrentTask={() => setIsTaskDetailOpen(true)}
-                onNavigateTask={navigateFromBusinessTask}
                 onOpenRun={openProjectRun}
               />
             </Suspense>
@@ -12889,14 +12902,6 @@ function DaweibaApp() {
             skills={professionalSkills}
             selectedSkillId={selectedProfessionalSkillId}
             taskSkill={result?.professional_skill}
-            taskContext={(
-              <CurrentTaskBar
-                task={currentBusinessTask}
-                availability={businessTaskAvailability}
-                onViewTask={() => setIsTaskDetailOpen(true)}
-                onNavigate={navigateFromBusinessTask}
-              />
-            )}
             fileName={file?.name ?? ""}
             currentContext={agentCurrentContext}
             progressPercent={agentTaskProgress}
@@ -12950,14 +12955,6 @@ function DaweibaApp() {
                   </button>
                 </div>
               </div>
-
-              <CurrentTaskBar
-                task={currentBusinessTask}
-                availability={businessTaskAvailability}
-                variant="dock"
-                onViewTask={() => setIsTaskDetailOpen(true)}
-                onNavigate={navigateFromBusinessTask}
-              />
 
               <div className={`chat-window ${isChatOpen ? "is-open" : ""}`}>
                 <button className="llm-window-toggle" type="button" onClick={() => setIsChatOpen((current) => !current)}>

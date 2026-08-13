@@ -1,6 +1,14 @@
 import type { ProfessionalSkillSnapshot, ProfessionalSkillSummary } from "../skills/ProfessionalSkillSelector";
 
 export type AgentTaskPhase = "empty" | "file-ready" | "preview-ready" | "matched" | "warning-complete";
+export type AgentGuidedAction =
+  | "start-conversion"
+  | "batch-match"
+  | "experience-warning"
+  | "risk-report"
+  | "word-preview"
+  | "send-review"
+  | "review-progress";
 
 export function agentComposerSpaceCompletion(value: string) {
   return value === "#" ? "#知识库：" : null;
@@ -55,6 +63,25 @@ export function agentTaskPhaseLabel(phase: AgentTaskPhase) {
     matched: "匹配已完成",
     "warning-complete": "预警已完成",
   }[phase];
+}
+
+export function nextAgentGuidedAction(options: {
+  hasFile: boolean;
+  hasResult: boolean;
+  matchingPending: boolean;
+  warningExecuted: boolean;
+  riskReportGenerated: boolean;
+  wordPreviewOpened: boolean;
+  reviewTaskCreated: boolean;
+}): AgentGuidedAction | null {
+  if (!options.hasFile) return null;
+  if (!options.hasResult) return "start-conversion";
+  if (options.matchingPending) return "batch-match";
+  if (!options.warningExecuted) return "experience-warning";
+  if (!options.riskReportGenerated) return "risk-report";
+  if (!options.wordPreviewOpened) return "word-preview";
+  if (!options.reviewTaskCreated) return "send-review";
+  return "review-progress";
 }
 
 export function agentSelectedSkill(

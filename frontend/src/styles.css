@@ -947,6 +947,26 @@ button {
   line-height: 1.2;
 }
 
+.shell.layout-daweiba .nav-work-context {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 3px;
+}
+
+.shell.layout-daweiba .nav-work-context .professional-skill-selector__trigger > span,
+.shell.layout-daweiba .nav-work-context .global-task-menu__label {
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: normal;
+}
+
 .shell.layout-daweiba .global-nav .nav-status {
   overflow: hidden;
   color: var(--db-text-muted);
