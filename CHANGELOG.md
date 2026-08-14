@@ -2,8 +2,9 @@
 
 ## v5.23.2 - 2026-08-14
 
-- 统一根项目、前端包、后端健康接口、README 和当前版本计划的版本标识为 `v5.23.2`，并执行本地 Git 存档与远端推送。
-- 本版是 v5.23.1 已验收成果的版本号小升级，不新增功能，不改变暗色 / 亮色主题、三个数字裁决、正式规则、结构化计价库、经验池母版、报告模板、业务流程或成果文件。
+- 统一根项目、前端包、后端健康接口、README 和当前版本计划的版本标识为 `v5.23.2`；本版沿用 v5.23.1 已验收成果完成云端发布，不新增功能，不改变暗色 / 亮色主题、三个数字裁决、正式规则、结构化计价库、经验池母版、报告模板、业务流程或成果文件。
+- 云端发布目录为 `/opt/zaojiazhisuan/releases/20260814-v5.23.2-cloud-release`，上一回滚目录为 `/opt/zaojiazhisuan/releases/20260811-v5.19.7-cloud-release`，UTF-8 `tar.gz` SHA256 为 `B75110858451FBD130D17F7D9E41E51077C9C313B11C7D0EE4CDE58228125480`。
+- 发布验收通过：`/api/health` HTTP 200 且 `release_version=v5.23.2`；首页实际引用的 4 个 JS / CSS 资源均 HTTP 200，主 bundle 含“数智员工”“上岗证据”标识；`/api/knowledge/search` HTTP 200 并返回 5 条结果；主服务与双平台监督器 `active`，普通飞书和企业 WeAct 均保持 `enabled=false / running=false / profile_consistent=true`，真实 runner 为 0。前端构建、前端 62 项单测、后端 `536 passed, 5 skipped`、UI 设计系统、PRD 严格巡检和发布包资产门禁通过；未发送任何飞书 / WeAct 测试消息。
 
 ## v5.23.1 - 2026-08-14
 
