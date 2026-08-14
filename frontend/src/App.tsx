@@ -101,6 +101,11 @@ import {
   type ZhisuanMessageRevealMode,
   zhisuanMessageRevealDelay,
 } from "./utils/zhisuanMessageReveal";
+import {
+  OFFLINE_DEMO_FILL_PRESET_ID,
+  OFFLINE_DEMO_FILL_PROCESSING_MS,
+  isOfflineDemoFillContext,
+} from "./utils/offlineDemoFill";
 
 const ProjectDashboard = lazy(() => import("./components/project-dashboard/ProjectDashboard"));
 const SettlementAuditWorkbench = lazy(() => import("./components/settlement-audit/SettlementAuditWorkbench"));
@@ -3150,6 +3155,10 @@ function DaweibaApp() {
   const previewColumns = useMemo(
     () => buildPreviewColumns(activePreview, result?.summary.price_column, previewColumnPreferences),
     [activePreview, previewColumnPreferences, result],
+  );
+  const previewFillAssistTargetColumn = useMemo(
+    () => findFillAssistTargetColumn(previewColumns, result?.summary.price_column),
+    [previewColumns, result?.summary.price_column],
   );
   const visiblePreviewRows = useMemo(
     () => filterPreviewRows(activePreview, outputRowFilterSettings),
@@ -8106,6 +8115,9 @@ function DaweibaApp() {
       }
       const payload = (await response.json()) as KnowledgeAskResponse;
       if (payload.preset_answer) {
+        const presetProcessingMs = payload.preset_id === OFFLINE_DEMO_FILL_PRESET_ID
+          ? OFFLINE_DEMO_FILL_PROCESSING_MS
+          : PRESET_KNOWLEDGE_PROCESSING_MS;
         window.clearTimeout(evidenceTimer);
         window.clearTimeout(modelTimer);
         replaceZhisuanMessage(thinking, "正在分析问题并查找相关知识...", "thinking", { typing: false });
@@ -8113,7 +8125,7 @@ function DaweibaApp() {
         replaceZhisuanMessage(thinking, "已找到相关内容，正在核对依据和来源...", "thinking", { typing: false });
         await waitUntilElapsed(processingStartedAt, 3500, controller.signal);
         replaceZhisuanMessage(thinking, "依据核对完成，正在整理回答...", "thinking", { typing: false });
-        await waitUntilElapsed(processingStartedAt, PRESET_KNOWLEDGE_PROCESSING_MS, controller.signal);
+        await waitUntilElapsed(processingStartedAt, presetProcessingMs, controller.signal);
       }
       const answer = formatKnowledgeAnswer(payload, { forcedKnowledge: options.forcedKnowledge });
       const projectMemories = payload.project_memories ?? [];
@@ -11575,6 +11587,8 @@ function DaweibaApp() {
                     <tbody>
                       {visiblePreviewRows.map(({ row, sourceIndex }) => {
                         const excelRowNumber = previewExcelRowNumber(activePreview, sourceIndex, sheetConfigs);
+                        const previewRowAiContext = buildRowAiContext(row, sourceIndex);
+                        const isOfflineDemoFillRow = isOfflineDemoFillContext(previewRowAiContext);
                         const isFocusedRow = (
                           Boolean(focusedPreviewJump)
                           && normalizePreviewSheetName(activePreview.sheet_name) === normalizePreviewSheetName(focusedPreviewJump?.sheetName)
@@ -11607,6 +11621,9 @@ function DaweibaApp() {
                                 previewColumnSavedWidth(activePreview, column) ? "preview-column-custom-width" : "",
                                 isFocusedRow && column.index === focusedPreviewColumnIndex ? "preview-cell-focused" : "",
                                 isEditable ? "preview-cell-editable" : "preview-cell-readonly",
+                                isOfflineDemoFillRow && column.index === previewFillAssistTargetColumn?.index
+                                  ? "preview-offline-demo-cell"
+                                  : "",
                                 isEditing ? "is-editing" : "",
                                 isSaving ? "is-saving" : "",
                               ].filter(Boolean).join(" ")}
@@ -11632,8 +11649,20 @@ function DaweibaApp() {
                                   );
                                 })()
                               ) : (
-                                <span className="preview-cell-content">
+                                <span className={`preview-cell-content ${
+                                  isOfflineDemoFillRow && column.index === previewFillAssistTargetColumn?.index
+                                    ? "is-offline-demo-fill"
+                                    : ""
+                                }`}>
                                   {isSaving ? "保存中..." : renderPreviewCellContent(column, row, previewColumns)}
+                                  {isOfflineDemoFillRow && column.index === previewFillAssistTargetColumn?.index && (
+                                    <span
+                                      aria-label="离线演示保障"
+                                      className="preview-offline-demo-dot"
+                                      role="img"
+                                      title="离线演示保障：该行 AI 填价不依赖外部模型"
+                                    />
+                                  )}
                                 </span>
                               )}
                             </td>

@@ -161,9 +161,34 @@
   background: var(--dws-color-surface);
   box-shadow: none;
 }
-.shell.layout-daweiba.theme-dark .inline-review-progress__header,
+.shell.layout-daweiba.theme-dark .inline-review-progress__header {
+  border-color: var(--dws-color-border-soft);
+  background: var(--dws-color-surface-subtle);
+}
 .shell.layout-daweiba.theme-dark .inline-review-progress__footer,
 .shell.layout-daweiba.theme-dark .inline-review-progress__delivery { border-color: var(--dws-color-border-soft); }
+.shell.layout-daweiba.theme-dark .inline-review-progress__hero-icon {
+  border-color: var(--dws-blue-200);
+  background: var(--dws-color-primary-soft);
+  color: var(--dws-color-primary-hover);
+  box-shadow: none;
+}
+.shell.layout-daweiba.theme-dark .inline-review-progress__state {
+  background: var(--dws-color-surface-subtle);
+  color: var(--dws-color-foreground-muted);
+}
+.shell.layout-daweiba.theme-dark .inline-review-progress__state.is-active {
+  background: var(--dws-color-primary-soft);
+  color: var(--dws-color-primary-hover);
+}
+.shell.layout-daweiba.theme-dark .inline-review-progress__state.is-returned {
+  background: var(--dws-color-danger-soft);
+  color: var(--dws-color-danger);
+}
+.shell.layout-daweiba.theme-dark .inline-review-progress__state.is-completed {
+  background: var(--dws-color-success-soft);
+  color: var(--dws-color-success);
+}
 .shell.layout-daweiba.theme-dark .inline-review-progress__heading h3,
 .shell.layout-daweiba.theme-dark .inline-review-progress__platform header strong,
 .shell.layout-daweiba.theme-dark .inline-review-progress__reviewer strong,
@@ -175,6 +200,11 @@
 .shell.layout-daweiba.theme-dark .inline-review-progress__reviewer { border-color: var(--dws-color-border); background: var(--dws-color-surface); color: var(--dws-color-foreground); }
 .shell.layout-daweiba.theme-dark .inline-review-progress__platform > header,
 .shell.layout-daweiba.theme-dark .inline-review-progress__footer { background: var(--dws-color-surface-subtle); }
+.shell.layout-daweiba.theme-dark .inline-review-progress__refresh:hover:not(:disabled) {
+  border-color: var(--dws-color-primary);
+  background: var(--dws-color-primary-soft);
+  color: var(--dws-color-primary-hover);
+}
 .shell.layout-daweiba.theme-dark .inline-review-progress__heading p,
 .shell.layout-daweiba.theme-dark .inline-review-progress__summary span,
 .shell.layout-daweiba.theme-dark .inline-review-progress__summary small,
@@ -185,8 +215,38 @@
 .shell.layout-daweiba.theme-dark .inline-review-progress__reviewer small,
 .shell.layout-daweiba.theme-dark .inline-review-progress__footer { color: var(--dws-color-foreground-muted); }
 .shell.layout-daweiba.theme-dark .inline-review-progress__track { background: #263449; }
+.shell.layout-daweiba.theme-dark .inline-review-progress__platform-mark {
+  background: var(--dws-color-primary-soft);
+  color: var(--dws-color-primary-hover);
+}
+.shell.layout-daweiba.theme-dark .inline-review-progress__platform-mark.is-weact_cost,
+.shell.layout-daweiba.theme-dark .inline-review-progress__reviewer b,
+.shell.layout-daweiba.theme-dark .inline-review-progress__avatar {
+  background: var(--dws-color-surface-subtle);
+  color: var(--dws-color-foreground-muted);
+}
+.shell.layout-daweiba.theme-dark .inline-review-progress__reviewer.is-approved b,
+.shell.layout-daweiba.theme-dark .inline-review-progress__reviewer.is-approved .inline-review-progress__avatar {
+  background: var(--dws-color-success-soft);
+  color: var(--dws-color-success);
+}
+.shell.layout-daweiba.theme-dark .inline-review-progress__reviewer.is-pending b {
+  background: var(--dws-color-warning-soft);
+  color: var(--dws-color-warning);
+}
+.shell.layout-daweiba.theme-dark .inline-review-progress__reviewer.is-returned b,
+.shell.layout-daweiba.theme-dark .inline-review-progress__reviewer.is-returned .inline-review-progress__avatar {
+  background: var(--dws-color-danger-soft);
+  color: var(--dws-color-danger);
+}
 .shell.layout-daweiba.theme-dark .inline-review-progress__empty { border-color: var(--dws-color-border-strong); background: var(--dws-color-primary-weak); }
 .shell.layout-daweiba.theme-dark .inline-review-progress__empty strong { color: var(--dws-color-foreground-strong); }
+.shell.layout-daweiba.theme-dark .inline-review-progress__error {
+  border-color: var(--dws-color-danger);
+  background: var(--dws-color-danger-soft);
+  color: var(--dws-color-danger);
+}
+.shell.layout-daweiba.theme-dark .inline-review-progress__error span { color: var(--dws-color-danger); }
 
 @media (prefers-reduced-motion: reduce) {
   .inline-review-progress__track i { transition: none; }

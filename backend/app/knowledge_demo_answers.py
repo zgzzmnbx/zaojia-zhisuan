@@ -20,6 +20,7 @@ DEMO_QUESTION_BRIDGE_CHART = (
     "按管径从小到大输出柱状图，并指出价格平台区间和最高单价，"
     "只使用造价通用知识库数据，不进行区间插值。"
 )
+OFFLINE_DEMO_FILL_PRESET_ID = "offline-demo-fill-table2-row6"
 
 
 def _normalized_question(value: str) -> str:
@@ -73,6 +74,15 @@ _COST_LIBRARY_SOURCE = _source(
     module="造价通用知识库",
     library_id="cost-aiw",
     library_name="造价通用知识库",
+)
+
+_OFFLINE_DEMO_FILL_SOURCE = _source(
+    "03-知识库-二维数据库制作/【数据库】【导入】.xlsx",
+    "【母表】首级控制测量 / GPS测量E级 / 中等 / 个",
+    "结构化计价库中的目标要素组合对应基价3203元，AI填价只解释该确定性候选，最终仍由人工确认写入。",
+    module="结构化计价库",
+    library_id="project-core",
+    library_name="项目正式知识库",
 )
 
 
@@ -169,6 +179,62 @@ _DEMO_ANSWERS: dict[str, dict[str, Any]] = {
 def get_demo_answer(question: str) -> dict[str, Any] | None:
     answer = _DEMO_ANSWERS.get(_normalized_question(question))
     return deepcopy(answer) if answer is not None else None
+
+
+def _row_context_value(values: dict[str, Any], aliases: tuple[str, ...]) -> str:
+    normalized_aliases = tuple(_normalized_question(alias) for alias in aliases)
+    for key, value in values.items():
+        normalized_key = _normalized_question(key)
+        if any(alias == normalized_key or alias in normalized_key for alias in normalized_aliases):
+            return _normalized_question(value)
+    return ""
+
+
+def get_row_demo_answer(question: str, row_context: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(row_context, dict):
+        return None
+    normalized_question = _normalized_question(question)
+    if "推荐本行基价" not in normalized_question or "候选" not in normalized_question:
+        return None
+    if _normalized_question(row_context.get("sheet_name")) != _normalized_question("表2-通用工程测量费用"):
+        return None
+    try:
+        if int(row_context.get("row_number")) != 6:
+            return None
+    except (TypeError, ValueError):
+        return None
+    values = row_context.get("values")
+    if not isinstance(values, dict):
+        return None
+    price = _row_context_value(values, ("基价（元）", "基价/单价", "基价", "单价"))
+    expected_values = (
+        (_row_context_value(values, ("内容", "要素2")), _normalized_question("首级控制测量")),
+        (_row_context_value(values, ("类别", "要素4")), _normalized_question("GPS测量E级")),
+        (_row_context_value(values, ("比例尺", "要素5")), _normalized_question("中等")),
+        (_row_context_value(values, ("单位",)), _normalized_question("个")),
+    )
+    if any(actual != expected for actual, expected in expected_values) or price not in {"", "3203"}:
+        return None
+    return {
+        "id": OFFLINE_DEMO_FILL_PRESET_ID,
+        "question": question,
+        "answer": """## 结论
+
+本行建议采用结构化排序首选 **3203 元/个**。目标条件为“首级控制测量 / GPS测量E级 / 中等 / 个”，与预置的确定性候选一致。
+
+## 依据与解释
+
+- 当前定位：表2-通用工程测量费用，第6行，基价单元格 H6。
+- 目标要素组合与项目结构化计价库记录一致，候选值为3203元；该值不是由大模型生成。
+- AI填价只负责解释候选，正式写入仍需用户点击“采用并写入”确认。
+
+## 边界说明
+
+本回答为该指定行的离线演示兜底，不改变程序批量匹配结果、候选排序或其他行的AI填价流程。""".strip(),
+        "sources": [_OFFLINE_DEMO_FILL_SOURCE],
+        "chart": None,
+        "bypass_reason": "offline_demo_fill_answer",
+    }
 
 
 def demo_questions() -> tuple[str, ...]:

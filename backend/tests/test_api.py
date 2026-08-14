@@ -3021,6 +3021,46 @@ def test_knowledge_demo_answers_bypass_search_and_model(monkeypatch, question, p
         assert payload["chart"]["items"][-1] == {"label": "D1422", "value": 4500, "highlight": True}
 
 
+def test_row_ai_offline_demo_answer_bypasses_search_and_model(monkeypatch):
+    def fail_search(*args, **kwargs):
+        raise AssertionError("目标演示行不应调用检索")
+
+    def fail_model(*args, **kwargs):
+        raise AssertionError("目标演示行不应调用大模型")
+
+    monkeypatch.setattr(main_module, "_search_selected_knowledge_with_mode", fail_search)
+    monkeypatch.setattr(main_module, "_call_chat_completion_tracked", fail_model)
+
+    response = TestClient(app).post(
+        "/api/knowledge/ask",
+        json={
+            "question": "请根据已排序的结构化候选，推荐本行基价。候选列表已经排序。",
+            "row_context": {
+                "sheet_name": "表2-通用工程测量费用",
+                "row_number": 6,
+                "values": {
+                    "内容": "首级控制测量",
+                    "类别": "GPS测量E级",
+                    "比例尺": "中等",
+                    "单位": "个",
+                    "基价（元）": "",
+                },
+                "candidate_recommendations": [{"rank": 1, "value": 3203}],
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["preset_answer"] is True
+    assert payload["preset_id"] == "offline-demo-fill-table2-row6"
+    assert payload["generated_by_model"] is False
+    assert payload["retrieval_trace"]["bypass_reason"] == "offline_demo_fill_answer"
+    assert payload["answer"].startswith("## 结论")
+    assert "离线演示保障｜未调用外部大模型" not in payload["answer"]
+    assert "3203 元/个" in payload["answer"]
+
+
 def test_knowledge_ask_uses_evidence_bounded_prompt(monkeypatch):
     import app.main as main_module
 

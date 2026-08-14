@@ -5827,6 +5827,30 @@ td {
   line-clamp: 2;
 }
 
+.shell.layout-daweiba .preview-cell-content.is-offline-demo-fill {
+  display: inline-flex;
+  width: 100%;
+  align-items: center;
+  justify-content: flex-end;
+  overflow: visible;
+  gap: 4px;
+}
+
+.shell.layout-daweiba .preview-offline-demo-dot {
+  display: inline-block;
+  flex: 0 0 3px;
+  width: 3px;
+  height: 3px;
+  border-radius: 999px;
+  background: rgb(37 99 235 / 55%);
+  box-shadow: 0 0 0 1px rgb(37 99 235 / 8%);
+}
+
+.shell.layout-daweiba.theme-dark .preview-offline-demo-dot {
+  background: rgb(96 165 250 / 68%);
+  box-shadow: 0 0 0 1px rgb(96 165 250 / 9%);
+}
+
 .preview-number-cell {
   text-align: right;
   font-variant-numeric: tabular-nums;
@@ -10536,6 +10560,221 @@ tbody tr:hover .row-ai-cell {
   .professional-skill-card__meta
 ) {
   color: var(--db-text-muted);
+}
+
+/* Professional Skill surfaces require a complete dark-theme pass. Keep every
+   override inside the active dark shell so the accepted light theme is frozen. */
+.shell.layout-daweiba.theme-dark .professional-skill-card.is-selected {
+  border-color: var(--dws-color-primary);
+  box-shadow: 0 0 0 2px rgb(96 165 250 / 14%);
+}
+
+.shell.layout-daweiba.theme-dark :is(
+  .professional-skill-card__meta span,
+  .professional-skill-modal__columns > div,
+  .professional-skill-modal__section,
+  .professional-skill-modal__subskill,
+  .professional-skill-center__plan
+) {
+  border-color: var(--db-border);
+  background: var(--db-surface-tint);
+}
+
+.shell.layout-daweiba.theme-dark :is(
+  .professional-skill-card__actions button,
+  .professional-skill-center__section-title button,
+  .professional-skill-center__recommendation button,
+  .professional-skill-center__inventory button,
+  .professional-skill-center__error button
+) {
+  border-color: var(--db-border-strong);
+  background: var(--db-surface-tint);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark :is(
+  .professional-skill-card__actions button,
+  .professional-skill-center__section-title button,
+  .professional-skill-center__recommendation button,
+  .professional-skill-center__inventory button,
+  .professional-skill-center__error button
+):not(:disabled):hover {
+  border-color: var(--dws-color-primary);
+  background: var(--db-primary-soft);
+  color: var(--dws-color-primary-hover);
+}
+
+.shell.layout-daweiba.theme-dark .professional-skill-card__actions button:disabled {
+  border-color: var(--db-border);
+  background: var(--db-bg-alt);
+  color: var(--db-text-weak);
+  opacity: 1;
+}
+
+.shell.layout-daweiba.theme-dark :is(
+  .professional-skill-card__actions .is-selected-state,
+  .professional-skill-selector__selection,
+  .professional-skill-modal__chips span,
+  .professional-skill-modal__section-heading > strong,
+  .professional-skill-modal__boundary,
+  .professional-skill-center__format,
+  .professional-skill-center__recommendation.is-recommended,
+  .professional-skill-center .dv-skill-matrix button
+) {
+  border-color: var(--dws-blue-200);
+  background: var(--db-primary-soft);
+  color: var(--dws-color-primary-hover);
+}
+
+.shell.layout-daweiba.theme-dark :is(
+  .professional-skill-selector__selection strong,
+  .professional-skill-selector__selection svg,
+  .professional-skill-modal__boundary svg,
+  .professional-skill-center__format svg,
+  .professional-skill-center__format strong,
+  .professional-skill-center .dv-skill-matrix button
+) {
+  color: var(--dws-color-primary-hover);
+}
+
+.shell.layout-daweiba.theme-dark .professional-skill-card__status.is-active {
+  background: var(--dws-color-success-soft);
+  color: var(--dws-color-success);
+}
+
+.shell.layout-daweiba.theme-dark .professional-skill-card__status.is-planned {
+  background: var(--db-bg-alt);
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark :is(
+  .professional-skill-selector__heading p,
+  .professional-skill-selector__detail-link,
+  .professional-skill-modal__hero > span
+) {
+  color: var(--dws-color-primary-hover);
+}
+
+.shell.layout-daweiba.theme-dark :is(
+  .professional-skill-modal__hero h3,
+  .professional-skill-modal h4,
+  .professional-skill-center__section-title h4,
+  .professional-skill-modal__subskill > strong,
+  .professional-skill-center__recommendation strong,
+  .professional-skill-center__inventory strong,
+  .professional-skill-center__plan strong
+) {
+  color: var(--db-text-strong);
+}
+
+.shell.layout-daweiba.theme-dark :is(
+  .professional-skill-card__content > p,
+  .professional-skill-modal__hero p,
+  .professional-skill-modal__section p,
+  .professional-skill-modal ul,
+  .professional-skill-center__section-title p,
+  .professional-skill-center__section-title > span,
+  .professional-skill-center__recommendation span,
+  .professional-skill-center__recommendation p,
+  .professional-skill-center__recommendations > small,
+  .professional-skill-center__inventory span,
+  .professional-skill-center__inventory p,
+  .professional-skill-center__format p,
+  .professional-skill-center__plan
+) {
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark .professional-skill-center__section {
+  border-color: var(--db-border-soft);
+}
+
+.shell.layout-daweiba.theme-dark .professional-skill-center__inventory {
+  border-color: var(--db-border);
+  background: var(--db-border-soft);
+}
+
+.shell.layout-daweiba.theme-dark .professional-skill-modal__close:hover {
+  border-color: var(--dws-color-primary);
+  background: var(--db-primary-soft);
+  color: var(--dws-color-primary-hover);
+}
+
+.shell.layout-daweiba.theme-dark .professional-skill-modal__section .professional-skill-modal__limitation,
+.shell.layout-daweiba.theme-dark .professional-skill-selector__selection em,
+.shell.layout-daweiba.theme-dark .professional-skill-center__recommendation em {
+  color: var(--dws-color-warning);
+}
+
+.shell.layout-daweiba.theme-dark .professional-skill-modal__subskill-topline em {
+  background: var(--db-bg-alt);
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark .professional-skill-modal__subskill-topline i {
+  background: var(--dws-color-success-soft);
+  color: var(--dws-color-success);
+}
+
+.shell.layout-daweiba.theme-dark .professional-skill-modal__subskill.is-planned .professional-skill-modal__subskill-topline i {
+  background: var(--dws-color-warning-soft);
+  color: var(--dws-color-warning);
+}
+
+.shell.layout-daweiba.theme-dark .professional-skill-center__error {
+  background: var(--dws-color-danger-soft);
+  color: var(--dws-color-danger);
+}
+
+.shell.layout-daweiba.theme-dark .professional-skill-center .dv-skill-matrix td.is-available {
+  color: var(--dws-color-success);
+}
+
+.shell.layout-daweiba.theme-dark .professional-skill-center .dv-skill-matrix td.is-planned {
+  color: var(--dws-color-warning);
+}
+
+.shell.layout-daweiba.theme-dark .professional-skill-center .dv-skill-matrix td.is-unsupported {
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark .professional-skill-selector__heading p,
+.shell.layout-daweiba.theme-dark .professional-skill-card__topline,
+.shell.layout-daweiba.theme-dark .professional-skill-card__status,
+.shell.layout-daweiba.theme-dark .professional-skill-card__content > p,
+.shell.layout-daweiba.theme-dark .professional-skill-card__meta,
+.shell.layout-daweiba.theme-dark .professional-skill-selector__selection {
+  font-size: var(--dws-font-size-12);
+  line-height: 1.5;
+}
+
+.shell.layout-daweiba.theme-dark .professional-skill-selector__heading h3 {
+  font-size: var(--dws-font-size-16);
+  line-height: 1.4;
+}
+
+.shell.layout-daweiba.theme-dark .professional-skill-selector__detail-link,
+.shell.layout-daweiba.theme-dark .professional-skill-card__actions button,
+.shell.layout-daweiba.theme-dark .professional-skill-card__actions .is-selected-state {
+  font-size: var(--dws-font-size-13);
+}
+
+.shell.layout-daweiba.theme-dark .professional-skill-card__content > strong {
+  font-size: var(--dws-font-size-14);
+  line-height: 1.4;
+}
+
+.shell.layout-daweiba.theme-dark :is(
+  .professional-skill-modal__chips span,
+  .professional-skill-modal__section-heading p,
+  .professional-skill-modal__section-heading > strong,
+  .professional-skill-modal__subskill-topline span,
+  .professional-skill-modal__subskill-topline em,
+  .professional-skill-modal__subskill-topline i,
+  .professional-skill-modal__subskill > strong,
+  .professional-skill-modal__subskill > p
+) {
+  font-size: var(--dws-font-size-12);
 }
 
 .shell.layout-daweiba.theme-dark .settlement-audit {

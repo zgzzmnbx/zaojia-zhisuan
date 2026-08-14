@@ -33,7 +33,7 @@ from . import feishu_webhook
 from . import feishu_app_bot
 from . import external_task_dispatch
 from .knowledge_base import KnowledgeBase
-from .knowledge_demo_answers import get_demo_answer
+from .knowledge_demo_answers import get_demo_answer, get_row_demo_answer
 from .knowledge_qa import (
     ASSISTANT_TABLE_FORMAT_RULE,
     HybridRetrievalError,
@@ -2646,8 +2646,9 @@ async def knowledge_ask(payload: dict[str, Any] = Body(...)) -> dict[str, object
         raise HTTPException(status_code=400, detail="请输入要询问的问题")
     requested_retrieval_mode = _parse_retrieval_mode(payload)
     force_knowledge = bool(payload.get("force_knowledge")) or prefix_forced
+    row_context = _parse_row_context(payload.get("row_context"))
 
-    demo_answer = get_demo_answer(question)
+    demo_answer = get_row_demo_answer(question, row_context) or get_demo_answer(question)
     if demo_answer is not None:
         return {
             "answer": demo_answer["answer"],
@@ -2679,12 +2680,11 @@ async def knowledge_ask(payload: dict[str, Any] = Body(...)) -> dict[str, object
                 "retrieval_mode_used": "curated_demo",
                 "evidence_status": "curated_demo",
                 "bypassed_retrieval": True,
-                "bypass_reason": "curated_demo_answer",
+                "bypass_reason": demo_answer.get("bypass_reason", "curated_demo_answer"),
             },
         }
 
     limit = _parse_knowledge_limit(payload.get("limit"))
-    row_context = _parse_row_context(payload.get("row_context"))
     runtime_context, job_dir, skill_snapshot = _knowledge_runtime_from_payload(payload)
     selection = _knowledge_library_selection(payload, runtime_context, job_dir)
     results, retrieval_trace = _search_selected_knowledge_with_mode(
