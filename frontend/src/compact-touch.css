@@ -138,6 +138,7 @@
   }
 
   .shell.layout-daweiba .daweiba-icon-link.is-active {
+    flex: 0 0 auto;
     grid-template-columns: auto minmax(0, auto);
     width: auto;
     min-width: 44px;
@@ -239,6 +240,115 @@
     overflow-x: auto;
     overscroll-behavior-inline: contain;
     -webkit-overflow-scrolling: touch;
+  }
+
+  .shell.layout-daweiba .global-nav .professional-skill-selector__menu {
+    position: fixed;
+    top: calc(62px + env(safe-area-inset-top, 0px));
+    right: max(12px, env(safe-area-inset-right, 0px));
+    bottom: max(12px, env(safe-area-inset-bottom, 0px));
+    left: max(12px, env(safe-area-inset-left, 0px));
+    z-index: 90;
+    width: auto;
+    max-height: none;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .shell.layout-daweiba .agent-workspace__messages {
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: hidden;
+  }
+
+  .shell.layout-daweiba .agent-message.assistant,
+  .shell.layout-daweiba .agent-message.assistant .agent-message__body,
+  .shell.layout-daweiba .agent-message.assistant .chat-message-body {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .shell.layout-daweiba .agent-message.assistant .agent-message__body,
+  .shell.layout-daweiba .agent-message.assistant .chat-message-body {
+    overflow-x: hidden;
+  }
+
+  .shell.layout-daweiba .agent-message.assistant .chat-message-body table {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .shell.layout-daweiba .agent-message.assistant :is(
+    .knowledge-evidence-summary,
+    .knowledge-demo-chart,
+    .knowledge-demo-chart__scroll,
+    .fee-analysis
+  ) {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .shell.layout-daweiba .agent-message.assistant :is(
+    .knowledge-evidence-summary,
+    .knowledge-evidence-summary *,
+    .zhisuan-message-paragraph
+  ) {
+    overflow-wrap: anywhere;
+  }
+
+  .shell.layout-daweiba .agent-composer,
+  .shell.layout-daweiba .agent-composer__footer,
+  .shell.layout-daweiba .agent-composer__tools {
+    min-width: 0;
+  }
+
+  .shell.layout-daweiba .agent-composer__footer {
+    gap: 8px;
+  }
+
+  .shell.layout-daweiba .agent-composer__tools {
+    flex: 1 1 auto;
+  }
+
+  .shell.layout-daweiba .agent-composer__skill-menu {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .shell.layout-daweiba .agent-composer__skill-menu > summary {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .shell.layout-daweiba .agent-composer__skill-menu > summary > strong {
+    flex: 1 1 auto;
+    max-width: none;
+    min-width: 0;
+  }
+
+  .shell.layout-daweiba .agent-composer__submit {
+    flex: 0 0 44px;
+    width: 44px;
+    min-width: 44px;
+  }
+
+  .shell.layout-daweiba .agent-workspace :is(.agent-composer__send, .agent-composer__stop) {
+    flex: 0 0 44px;
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
   }
 
   .shell.layout-daweiba .daweiba-layout-shell > .ai-dock:not(.is-collapsed) {
@@ -355,6 +465,15 @@
 @media (max-width: 620px) {
   .shell.layout-daweiba .global-nav {
     grid-template-columns: minmax(0, 1fr) auto;
+    min-height: calc(62px + env(safe-area-inset-top, 0px));
+    padding-top: calc(8px + env(safe-area-inset-top, 0px));
+  }
+
+  .shell.layout-daweiba .daweiba-layout-shell,
+  .shell.layout-daweiba .daweiba-layout-shell.is-left-collapsed,
+  .shell.layout-daweiba .daweiba-layout-shell.is-ai-collapsed,
+  .shell.layout-daweiba .daweiba-layout-shell.is-agent-workspace {
+    height: calc(100dvh - 62px - env(safe-area-inset-top, 0px));
   }
 
   .shell.layout-daweiba .global-nav > span:first-child {
@@ -376,9 +495,72 @@
   }
 
   .shell.layout-daweiba .daweiba-layout-shell > .ai-dock:not(.is-collapsed) {
+    top: calc(62px + env(safe-area-inset-top, 0px));
     width: 100vw;
     border-left: 0;
     box-shadow: none;
+  }
+
+  .shell.layout-daweiba .global-nav .professional-skill-selector__menu {
+    top: calc(70px + env(safe-area-inset-top, 0px));
+    right: max(8px, env(safe-area-inset-right, 0px));
+    bottom: max(8px, env(safe-area-inset-bottom, 0px));
+    left: max(8px, env(safe-area-inset-left, 0px));
+    padding: 12px;
+  }
+
+  .shell.layout-daweiba .professional-skill-selector__heading {
+    display: grid;
+    justify-content: stretch;
+    gap: 8px;
+  }
+
+  .shell.layout-daweiba .professional-skill-selector__heading-actions,
+  .shell.layout-daweiba .professional-skill-card__actions {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+
+  .shell.layout-daweiba .professional-skill-selector__detail-link,
+  .shell.layout-daweiba .professional-skill-card__actions button,
+  .shell.layout-daweiba .professional-skill-card__actions .is-selected-state {
+    min-height: 44px;
+    font-size: var(--dws-font-size-12);
+  }
+
+  .shell.layout-daweiba .professional-skill-card {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    gap: 8px;
+  }
+
+  .shell.layout-daweiba .professional-skill-card__topline {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .shell.layout-daweiba .professional-skill-card__content > strong {
+    font-size: var(--dws-font-size-14);
+  }
+
+  .shell.layout-daweiba .professional-skill-card__content > p {
+    overflow: visible;
+    font-size: var(--dws-font-size-12);
+    text-overflow: clip;
+    white-space: normal;
+  }
+
+  .shell.layout-daweiba .professional-skill-card__meta,
+  .shell.layout-daweiba .professional-skill-card__topline,
+  .shell.layout-daweiba .professional-skill-selector__selection {
+    font-size: var(--dws-font-size-12);
+  }
+
+  .shell.layout-daweiba .daweiba-workspace-frame .table-scroll th:not(.action-th):not(.row-number-th),
+  .shell.layout-daweiba .daweiba-workspace-frame .table-scroll td:not(.row-ai-cell):not(.preview-row-number-cell) {
+    min-width: 96px;
+    max-width: 160px;
   }
 
   .shell.layout-daweiba .daweiba-workspace-frame.is-daweiba-module-fill #daweiba-input > .action-row,

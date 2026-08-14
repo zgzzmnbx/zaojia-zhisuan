@@ -111,3 +111,19 @@ test("suppresses empty numbered fragments without disabling Word page markers", 
   assert.match(DOCX_NUMBERING_COMPAT_CSS, /counter-increment:\s*none\s*!important/);
   assert.doesNotMatch(DOCX_NUMBERING_COMPAT_CSS, /lastRenderedPageBreak/);
 });
+
+test("dark document preview is explicit and keeps paper mode as the default", async () => {
+  const [appSource, previewSource, styles] = await Promise.all([
+    readFile(new URL("../src/App.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/components/report/WordReportPreview.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/styles.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(appSource, /aria-label=\{isReportDocumentDark \? "恢复纸张文档预览" : "启用暗色文档预览"\}/);
+  assert.match(appSource, /darkPreview=\{isDarkMode && isReportDocumentDark\}/);
+  assert.match(previewSource, /darkPreview = false/);
+  assert.match(previewSource, /theme: darkPreview \? "dark" : "light"/);
+  assert.match(previewSource, /darkMode: darkPreview/);
+  assert.match(styles, /\.theme-dark[\s\S]*?\.word-report-theme-toggle/);
+  assert.doesNotMatch(styles, /\.shell\.layout-daweiba:not\(\.theme-dark\)[\s\S]*?\.word-report-theme-toggle/);
+});

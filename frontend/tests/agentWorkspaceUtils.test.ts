@@ -100,9 +100,13 @@ test("keeps preset knowledge answers in a visible five-second processing flow", 
   const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
   const css = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
   assert.match(appSource, /PRESET_KNOWLEDGE_PROCESSING_MS\s*=\s*5000/);
-  assert.match(appSource, /正在识别演示问题并加载标准知识范围/);
-  assert.match(appSource, /已命中演示知识，正在核对标准依据和来源/);
-  assert.match(appSource, /标准依据已核对，正在组织结构化答案/);
+  assert.match(appSource, /正在分析问题并查找相关知识/);
+  assert.match(appSource, /已找到相关内容，正在核对依据和来源/);
+  assert.match(appSource, /依据核对完成，正在整理回答/);
+  assert.doesNotMatch(appSource, /正在加载预置答案/);
+  assert.doesNotMatch(appSource, /正在识别演示问题并加载标准知识范围/);
+  assert.doesNotMatch(appSource, /已命中演示知识，正在核对标准依据和来源/);
+  assert.doesNotMatch(appSource, /标准依据已核对，正在组织结构化答案/);
   assert.match(appSource, /typing:\s*payload\.preset_answer\s*\?\s*false\s*:\s*undefined/);
   assert.match(appSource, /aria-valuenow=\{Math\.round\(progress\)\}/);
   assert.match(appSource, /style=\{\{ width: `\$\{progress\}%` \}\}/);

@@ -3,25 +3,25 @@ import ChartFrame from "./ChartFrame";
 import { chartTableCaption, joinChartSummary } from "./chartAccessibility";
 import { compactLabel, expandedDomain, finiteNumber, formatMoney, formatNumber, percentPosition } from "./chartFormatters";
 import {
-  aggregateSheetRisks,
   retrievalChannelData,
   skillCapabilityMatrix,
   SKILL_CAPABILITY_COLUMNS,
   warningBulletDomain,
   warningScatterData,
-  waterfallEquation,
-  type SheetRiskDatum,
   type SkillCapabilityInput,
   type WarningVisualDatum,
 } from "./visualizationUtils";
 import "./dataVisualization.css";
 
-export function ExperienceWarningVisuals({ items, lowThreshold, highThreshold }: {
+export function ExperienceWarningVisuals({ items, selectedItem, lowThreshold, highThreshold }: {
   items: WarningVisualDatum[];
+  selectedItem?: WarningVisualDatum | null;
   lowThreshold: number;
   highThreshold: number;
 }) {
-  const points = warningScatterData(items);
+  const displayItems = selectedItem ? [selectedItem] : items;
+  const points = warningScatterData(displayItems);
+  const selectedSeverity = selectedItem?.severity === "high" ? "高风险" : selectedItem?.severity === "low" ? "低风险" : "未超阈值";
   const maxX = Math.max(1, ...points.map((item) => item.x));
   const maxY = Math.max(highThreshold, 1, ...points.map((item) => item.y));
   const plot = { left: 44, right: 12, top: 12, bottom: 30, width: 420, height: 190 };
@@ -31,8 +31,8 @@ export function ExperienceWarningVisuals({ items, lowThreshold, highThreshold }:
   const y = (value: number) => plot.top + innerHeight - (value / maxY) * innerHeight;
   return (
     <div className="dv-warning-visuals">
-      <ChartFrame id="warning-scatter" eyebrow="VIS-03 · 本次预警" title="偏离率—样本数" summary={`${items.length} 项`} state={items.length ? "ready" : "empty"}>
-        <svg className="dv-svg" viewBox={`0 0 ${plot.width} ${plot.height}`} role="img" aria-label={joinChartSummary([`共 ${items.length} 项`, `低风险阈值 ${lowThreshold}%`, `高风险阈值 ${highThreshold}%`])}>
+      <ChartFrame id="warning-scatter" visualId="VIS-03" title="偏离率—样本数" summary={selectedItem ? `${selectedSeverity} · ${formatNumber(points[0]?.y ?? 0)}%` : `${items.length} 项`} state={displayItems.length ? "ready" : "empty"}>
+        <svg className="dv-svg" viewBox={`0 0 ${plot.width} ${plot.height}`} role="img" aria-label={joinChartSummary([`共 ${items.length} 项`, selectedItem ? `当前选择 ${selectedSeverity}` : "", `低风险阈值 ${lowThreshold}%`, `高风险阈值 ${highThreshold}%`])}>
           {[0, .5, 1].map((ratio) => <line className="dv-grid-line" key={ratio} x1={plot.left} x2={plot.width - plot.right} y1={plot.top + innerHeight * ratio} y2={plot.top + innerHeight * ratio} />)}
           <line className="dv-threshold-line" x1={plot.left} x2={plot.width - plot.right} y1={y(lowThreshold)} y2={y(lowThreshold)} />
           <line className="dv-threshold-line is-high" x1={plot.left} x2={plot.width - plot.right} y1={y(highThreshold)} y2={y(highThreshold)} />
@@ -40,16 +40,16 @@ export function ExperienceWarningVisuals({ items, lowThreshold, highThreshold }:
           <text className="dv-axis-label" textAnchor="end" x={plot.width - plot.right} y={plot.height - 6}>{maxX}</text>
           <text className="dv-axis-label" x={4} y={plot.top + 4}>偏离 {formatNumber(maxY)}%</text>
           {points.map((item, index) => (
-            <circle key={`${item.sheet_name}-${item.excel_row}-${item.metric}-${index}`} cx={x(item.x)} cy={y(item.y)} r={item.severity === "high" ? 6 : 5} fill={item.severity === "high" ? "#dc2626" : item.severity === "low" ? "#d97706" : "#2563eb"} stroke="#fff" strokeWidth="2">
+            <circle className={`dv-warning-point is-${item.severity}`} key={`${item.sheet_name}-${item.excel_row}-${item.metric}-${index}`} cx={x(item.x)} cy={y(item.y)} r={item.severity === "high" ? 6 : 5} stroke="#fff" strokeWidth="2">
               <title>{item.sheet_name} 第{item.excel_row}行 {item.metric}：样本 {item.x}，偏离 {formatNumber(item.y)}%</title>
             </circle>
           ))}
         </svg>
         <table className="dv-sr-table"><caption>{chartTableCaption("偏离率—样本数", points.length)}</caption><tbody>{points.map((item, index) => <tr key={index}><td>{item.sheet_name} 第{item.excel_row}行</td><td>{item.metric}</td><td>{item.x}</td><td>{item.y}%</td></tr>)}</tbody></table>
       </ChartFrame>
-      <ChartFrame id="warning-bullets" eyebrow="VIS-04 · 经验区间" title="当前值与经验范围" summary="范围自动扩展" state={items.length ? "ready" : "empty"}>
+      <ChartFrame id="warning-bullets" visualId="VIS-04" title="当前值与经验范围" summary={selectedItem ? `${selectedItem.sheet_name} 第${selectedItem.excel_row}行` : "范围自动扩展"} state={displayItems.length ? "ready" : "empty"}>
         <div className="dv-bullet-list">
-          {items.slice(0, 8).map((item, index) => {
+          {displayItems.slice(0, 8).map((item, index) => {
             const [min, max] = warningBulletDomain(item);
             const average = finiteNumber(item.experience_average, (item.experience_min + item.experience_max) / 2);
             return <div className={`dv-bullet-row is-${item.severity}`} key={`${item.sheet_name}-${item.excel_row}-${item.metric}-${index}`} title={`${item.metric}：当前 ${item.current_value}；经验 ${item.experience_min}—${item.experience_max}；均值 ${average}`}>
@@ -71,43 +71,15 @@ export type CandidateDot = { id: string; value: string | number; source_label?: 
 export function CandidatePriceDotPlot({ items, selectedId, onSelect }: { items: CandidateDot[]; selectedId: string; onSelect: (id: string) => void }) {
   const numeric = items.map((item) => ({ ...item, numeric: Number(item.value) })).filter((item) => Number.isFinite(item.numeric));
   const [min, max] = expandedDomain(numeric.map((item) => item.numeric), 0.04);
+  const recommendedId = items[0]?.id;
   return <ChartFrame id="candidate-dotplot" eyebrow="VIS-05 · 结构化候选" title="候选价格点图" summary="点选后仍需确认" compact state={numeric.length ? "ready" : "insufficient"} stateMessage="候选值不是可比较数字，继续使用原候选列表。">
     <div className="dv-candidate-dotplot">
-      <div className="dv-candidate-dotplot__points">{numeric.map((item) => <button className={selectedId === item.id ? "is-selected" : ""} type="button" key={item.id} aria-label={`选择候选 ${item.value}，${item.source_label || "未知来源"}`} aria-pressed={selectedId === item.id} title={`${item.source_label || "候选"} · ${item.value} · ${item.confidence_label || "置信度未标注"}`} style={{ left: `${percentPosition(item.numeric, min, max)}%` }} onClick={() => onSelect(item.id)} />)}</div>
+      <div className="dv-candidate-dotplot__points">{numeric.map((item) => {
+        const isRecommended = item.id === recommendedId;
+        return <button className={[isRecommended ? "is-recommended" : "", selectedId === item.id ? "is-selected" : ""].filter(Boolean).join(" ")} type="button" key={item.id} aria-label={`${isRecommended ? "最推荐，" : ""}选择候选 ${item.value}，${item.source_label || "未知来源"}`} aria-pressed={selectedId === item.id} title={`${isRecommended ? "最推荐 · " : ""}${item.source_label || "候选"} · ${item.value} · ${item.confidence_label || "置信度未标注"}`} style={{ left: `${percentPosition(item.numeric, min, max)}%` }} onClick={() => onSelect(item.id)} />;
+      })}</div>
       <div className="dv-candidate-dotplot__axis"><span>{formatNumber(min)}</span><span>{formatNumber(max)}</span></div>
     </div>
-  </ChartFrame>;
-}
-
-export type RowRiskDatum = { rowNumber: number; tone: "high" | "review" | "experience" | "standard" | "other"; label: string };
-export function RowRiskMinimap({ items, onSelect }: { items: RowRiskDatum[]; onSelect: (row: number) => void }) {
-  return <div className="dv-row-minimap" aria-label={`VIS-06 行风险迷你地图，共 ${items.length} 行`}>
-    <div className="dv-row-minimap__rail">{items.map((item) => <button className={`is-${item.tone}`} type="button" key={item.rowNumber} aria-label={`第 ${item.rowNumber} 行：${item.label}`} title={`第 ${item.rowNumber} 行 · ${item.label}`} onClick={() => onSelect(item.rowNumber)} />)}</div>
-    <div className="dv-row-minimap__legend"><span><i className="is-high" />高风险</span><span><i className="is-review" />待复核</span><span><i className="is-experience" />经验提示</span><span><i className="is-standard" />标准命中</span><span><i />其他 / 未运行</span></div>
-  </div>;
-}
-
-export function SettlementWaterfall({ reported, reviewed }: { reported: number; reviewed: number }) {
-  const equation = waterfallEquation(reported, reviewed);
-  const scale = Math.max(Math.abs(reported), Math.abs(reviewed), Math.abs(equation.difference), 1);
-  const height = (value: number) => `${Math.max(6, Math.abs(value) / scale * 100)}%`;
-  return <ChartFrame id="settlement-waterfall" eyebrow="VIS-07 · 结构化明细试算" title="审核金额瀑布" summary={equation.direction === "reduction" ? "建议审减" : "建议增加"} state="ready">
-    <div className="dv-waterfall" role="img" aria-label={`上报 ${formatMoney(reported)}，差额 ${formatMoney(equation.difference)}，审核建议 ${formatMoney(reviewed)}`}>
-      <div className="dv-waterfall__step"><strong>{formatMoney(reported)}</strong><i className="dv-waterfall__bar" style={{ height: height(reported) }} /><span>上报明细</span></div>
-      <div className={`dv-waterfall__step is-difference ${equation.direction === "increase" ? "is-increase" : ""}`}><strong>{formatMoney(Math.abs(equation.difference))}</strong><i className="dv-waterfall__bar" style={{ height: height(equation.difference) }} /><span>{equation.direction === "reduction" ? "建议审减" : "建议增加"}</span></div>
-      <div className="dv-waterfall__step"><strong>{formatMoney(reviewed)}</strong><i className="dv-waterfall__bar" style={{ height: height(reviewed) }} /><span>审核建议</span></div>
-    </div>
-    <p className="dv-waterfall__equation">{formatMoney(reported)} − ({formatMoney(equation.difference)}) = {formatMoney(reviewed)} · {equation.valid ? "等式核对通过" : "等式待核对"}</p>
-  </ChartFrame>;
-}
-
-export type SheetSummary = { sheet: string; high: number; medium: number; low: number; total: number };
-export function SheetRiskSmallMultiples({ summaries, risks = [] }: { summaries?: SheetSummary[]; risks?: SheetRiskDatum[] }) {
-  const rows = summaries?.length ? summaries : aggregateSheetRisks(risks);
-  const max = Math.max(1, ...rows.map((row) => row.total));
-  return <ChartFrame id="sheet-risk" eyebrow="VIS-08 · 同一标尺" title="分 Sheet 风险" summary={`${rows.length} 个 Sheet`} state={rows.length ? "ready" : "empty"}>
-    <div className="dv-bar-list">{rows.map((row) => <div className="dv-bar-row" key={row.sheet}><span title={row.sheet}>{compactLabel(row.sheet, 18)}</span><div className="dv-bar-track" aria-label={`${row.sheet} 共 ${row.total} 项风险`}><i style={{ width: `${row.total / max * 100}%` }} /></div><b>{row.total}</b></div>)}</div>
-    {rows.length ? <p className="dv-waterfall__equation">各 Sheet 使用共同最大值 {max}；高 / 中 / 低风险明细仍以右侧风险列表为准。</p> : null}
   </ChartFrame>;
 }
 

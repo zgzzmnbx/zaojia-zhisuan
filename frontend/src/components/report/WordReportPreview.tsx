@@ -53,6 +53,7 @@ type WordReportPreviewProps = {
   downloadUrl?: string;
   onReturnToPreview?: () => void;
   onStatusChange?: (status: WordReportPreviewStatus) => void;
+  darkPreview?: boolean;
 };
 
 type RendererBoundaryProps = {
@@ -91,9 +92,10 @@ type ViewerHostProps = {
   resource: PreviewResource;
   onError: (error: unknown, requestId: number) => void;
   onStateChange: (state: ViewerState, requestId: number) => void;
+  darkPreview: boolean;
 };
 
-function ViewerHost({ resource, onError, onStateChange }: ViewerHostProps) {
+function ViewerHost({ resource, onError, onStateChange, darkPreview }: ViewerHostProps) {
   const viewerRef = useRef<FileViewerHandle | null>(null);
   const viewerContainerRef = useRef<HTMLDivElement | null>(null);
   const Viewer = resource.Viewer;
@@ -103,7 +105,7 @@ function ViewerHost({ resource, onError, onStateChange }: ViewerHostProps) {
       // public option uses HTMLElement. The runtime plugin contract is identical.
       const renderers = [resource.wordRenderer] as unknown as NonNullable<FileViewerProps["options"]>["renderers"];
       return {
-        theme: "light",
+        theme: darkPreview ? "dark" : "light",
         locale: "zh-CN",
         styleIsolation: "shadow",
         rendererMode: "replace",
@@ -136,11 +138,11 @@ function ViewerHost({ resource, onError, onStateChange }: ViewerHostProps) {
           maxDynamicPaginationPasses: DOCX_MAX_DYNAMIC_PAGINATION_PASSES,
           strictWordCompatibility: true,
           awaitLayout: true,
-          darkMode: false,
+          darkMode: darkPreview,
         },
       };
     },
-    [resource.wordRenderer],
+    [darkPreview, resource.wordRenderer],
   );
 
   useEffect(() => {
@@ -192,7 +194,7 @@ function ViewerHost({ resource, onError, onStateChange }: ViewerHostProps) {
     <div ref={viewerContainerRef} style={{ width: "100%", height: "100%", minWidth: 0, minHeight: 0 }}>
       <Viewer
         ref={viewerRef}
-        className="word-report-file-viewer"
+        className={`word-report-file-viewer${darkPreview ? " is-dark-document-preview" : ""}`}
         aria-label={`当前 Word 报告预览：${resource.file.name}`}
       />
     </div>
@@ -211,6 +213,7 @@ export default function WordReportPreview({
   downloadUrl,
   onReturnToPreview,
   onStatusChange,
+  darkPreview = false,
 }: WordReportPreviewProps) {
   const [status, setStatus] = useState<WordReportPreviewStatus>("idle");
   const [errorMessage, setErrorMessage] = useState("");
@@ -368,6 +371,7 @@ export default function WordReportPreview({
             resource={resource}
             onError={failPreview}
             onStateChange={handleViewerStateChange}
+            darkPreview={darkPreview}
           />
         </RendererBoundary>
       )}

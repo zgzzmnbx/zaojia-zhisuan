@@ -15,9 +15,9 @@ import {
   X,
 } from "lucide-react";
 import { ChangeEvent, DragEvent, KeyboardEvent, useEffect, useMemo, useState } from "react";
-import { SettlementWaterfall, SheetRiskSmallMultiples, type SheetSummary } from "../data-visualization/ProfessionalVisuals";
 import "./settlement-audit.css";
 
+type SheetSummary = { sheet: string; high: number; medium: number; low: number; total: number };
 
 type SettlementAuditProfile = {
   rule_version: string;
@@ -209,7 +209,7 @@ export default function SettlementAuditWorkbench({ apiBase }: Props) {
       }
       const blob = await response.blob();
       acceptFile(
-        new File([blob], "结算审核演示样例.xlsx", {
+        new File([blob], "结算审核演示样例-v0.1.xlsx", {
           type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         }),
       );
@@ -524,11 +524,6 @@ export default function SettlementAuditWorkbench({ apiBase }: Props) {
               </div>
             ))}
           </div>
-          <div className="settlement-audit__visual-grid">
-            <SettlementWaterfall reported={result.summary.reported_detail_total} reviewed={result.summary.reviewed_detail_total} />
-            <SheetRiskSmallMultiples summaries={result.summary.sheet_summaries} risks={result.risks} />
-          </div>
-
           <div className="settlement-audit__scope-note">
             <Scale size={16} />
             <span>{result.scope_note}</span>

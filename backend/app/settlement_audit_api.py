@@ -30,7 +30,7 @@ SETTLEMENT_SAMPLE_PATH = (
     / "01-模块PRD"
     / "10-结算审核助手模块"
     / "evals"
-    / "结算审核演示样例.xlsx"
+    / "结算审核演示样例-v0.1.xlsx"
 )
 JOB_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 

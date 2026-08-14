@@ -46,22 +46,6 @@ export function warningBulletDomain(item: WarningVisualDatum): [number, number] 
   ]);
 }
 
-export type SheetRiskDatum = { sheet: string; severity: "high" | "medium" | "low" | string };
-
-export function aggregateSheetRisks(items: SheetRiskDatum[]) {
-  const rows = new Map<string, { sheet: string; high: number; medium: number; low: number; total: number }>();
-  items.forEach((item) => {
-    const key = item.sheet || "未标注 Sheet";
-    const row = rows.get(key) ?? { sheet: key, high: 0, medium: 0, low: 0, total: 0 };
-    if (item.severity === "high") row.high += 1;
-    else if (item.severity === "medium") row.medium += 1;
-    else row.low += 1;
-    row.total += 1;
-    rows.set(key, row);
-  });
-  return [...rows.values()].sort((a, b) => b.total - a.total || a.sheet.localeCompare(b.sheet, "zh-CN"));
-}
-
 const RETRIEVAL_CHANNELS = [
   ["bm25", "BM25"],
   ["structured", "结构化"],
@@ -121,16 +105,4 @@ export function skillCapabilityMatrix(items: SkillCapabilityInput[]) {
         }),
       };
     });
-}
-
-export function waterfallEquation(reported: number, reviewed: number) {
-  const difference = reported - reviewed;
-  const tolerance = Math.max(0.01, Math.abs(reported) * 1e-8);
-  return {
-    reported,
-    reviewed,
-    difference,
-    direction: difference >= 0 ? "reduction" as const : "increase" as const,
-    valid: Math.abs((reported - difference) - reviewed) <= tolerance,
-  };
 }

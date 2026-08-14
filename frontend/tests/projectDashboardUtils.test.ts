@@ -152,6 +152,20 @@ test("dashboard stylesheet keeps the component theme under local scope", async (
   assert.match(css, /\.project-dashboard__lifecycle/);
 });
 
+test("dashboard silently preloads code and data five seconds after entering the app", async () => {
+  const app = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const dashboard = await readFile(
+    new URL("../src/components/project-dashboard/ProjectDashboard.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(app, /PROJECT_DASHBOARD_PRELOAD_DELAY_MS = 5_000/);
+  assert.match(app, /isWelcomeScreenVisible \|\| hasOpenedProjectDashboard/);
+  assert.match(app, /setTimeout\(\(\) => \{\s*setHasOpenedProjectDashboard\(true\);\s*\}, PROJECT_DASHBOARD_PRELOAD_DELAY_MS\)/);
+  assert.match(app, /hidden=\{activeDaweibaModule !== "fill" \|\| fillWorkspaceView !== "dashboard"\}/);
+  assert.match(dashboard, /setTimeout\(\(\) => void load\(controller\.signal\), 120\)/);
+  assert.doesNotMatch(dashboard, /if \(!active\) return undefined;[\s\S]{0,200}load\(/);
+});
+
 test("project lifecycle funnel exposes cumulative stages as keyboard buttons", async () => {
   const component = await readFile(
     new URL("../src/components/project-dashboard/ProjectLifecycleFunnel.tsx", import.meta.url),

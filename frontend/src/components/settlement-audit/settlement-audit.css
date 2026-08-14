@@ -291,7 +291,8 @@
   margin: 16px 0 0;
   border: 1px solid var(--sa-border);
   border-radius: var(--dws-panel-radius);
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   background: var(--sa-surface);
   box-shadow: var(--dws-panel-shadow);
 }
@@ -792,16 +793,6 @@
   overflow: hidden;
   background: var(--sa-surface);
   box-shadow: var(--dws-panel-shadow);
-}
-
-.settlement-audit__visual-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 18px;
-}
-
-@media (max-width: 900px) {
-  .settlement-audit__visual-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
 .settlement-audit__metrics > div {

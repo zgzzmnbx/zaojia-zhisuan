@@ -17,7 +17,7 @@ SOURCE_DIR = (
 )
 TEMPLATE_PATH = SOURCE_DIR / "【结算模板】260723-勘察测量结算统一报价模板-v1.0.xlsx"
 OUTPUT_DIR = PROJECT_ROOT / "00-PRD" / "01-模块PRD" / "10-结算审核助手模块" / "evals"
-OUTPUT_PATH = OUTPUT_DIR / "结算审核演示样例.xlsx"
+OUTPUT_PATH = OUTPUT_DIR / "结算审核演示样例-v0.1.xlsx"
 EXPECTED_PATH = OUTPUT_DIR / "结算审核演示样例-预期结果.json"
 
 

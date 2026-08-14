@@ -163,7 +163,7 @@ from .professional_skills import (
 from .report import append_risk_report, ensure_risk_report_evidence, write_report
 
 
-APP_VERSION = "v5.23.0"
+APP_VERSION = "v5.23.1"
 # `/api/health.version` 是旧版运行器的兼容字段；当前发布版本通过
 # `release_version` 返回，避免旧客户端在小版本升级时误判服务不可用。
 HEALTH_API_COMPAT_VERSION = "v5.19.4"
@@ -2647,7 +2647,7 @@ async def knowledge_ask(payload: dict[str, Any] = Body(...)) -> dict[str, object
     requested_retrieval_mode = _parse_retrieval_mode(payload)
     force_knowledge = bool(payload.get("force_knowledge")) or prefix_forced
 
-    demo_answer = get_demo_answer(question) if not payload.get("row_context") else None
+    demo_answer = get_demo_answer(question)
     if demo_answer is not None:
         return {
             "answer": demo_answer["answer"],

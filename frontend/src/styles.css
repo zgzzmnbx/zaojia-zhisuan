@@ -5737,23 +5737,6 @@ h2 {
   overflow: auto;
 }
 
-.preview-table-with-minimap {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: start;
-  gap: 10px;
-  min-width: 0;
-}
-
-.preview-table-with-minimap > .table-scroll { min-width: 0; }
-
-@media (max-width: 720px) {
-  .preview-table-with-minimap { grid-template-columns: minmax(0, 1fr); }
-  .preview-table-with-minimap > .dv-row-minimap { order: 2; }
-  .preview-table-with-minimap .dv-row-minimap__rail { width: 100%; max-height: none; flex-direction: row; overflow-x: auto; }
-  .preview-table-with-minimap .dv-row-minimap__rail button { min-width: 7px; min-height: 16px; }
-}
-
 tr.preview-row-focused td {
   background-image: linear-gradient(rgba(59, 130, 246, 0.08), rgba(59, 130, 246, 0.08));
   animation: preview-row-flash 1.05s ease-out 1;
@@ -10588,10 +10571,14 @@ tbody tr:hover .row-ai-cell {
   background: var(--db-surface);
 }
 
-/* The rendered DOCX page intentionally stays paper-white in both modes so the
-   preview remains faithful to the exported Word document. */
-.shell.layout-daweiba.theme-dark .word-report-file-viewer :is(.page, [data-page]) {
+/* Paper preview remains the default. The explicit dark-preview switch delegates
+   document recoloring to renderer-word instead of mutating the exported DOCX. */
+.shell.layout-daweiba.theme-dark .word-report-file-viewer:not(.is-dark-document-preview) :is(.page, [data-page]) {
   color-scheme: light;
+}
+
+.shell.layout-daweiba.theme-dark .word-report-file-viewer.is-dark-document-preview {
+  color-scheme: dark;
 }
 
 /* High-specificity module surfaces. These selectors mirror the production
@@ -12647,6 +12634,32 @@ tbody tr:hover .row-ai-cell {
   border-left: 3px solid #f59e0b;
   border-radius: 8px;
   background: #ffffff;
+}
+
+.shell.layout-daweiba #experience-section .warning-chart-select {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: color 180ms ease, outline-color 180ms ease;
+}
+
+.shell.layout-daweiba #experience-section .warning-chart-select:hover strong {
+  color: #1d4ed8;
+}
+
+.shell.layout-daweiba #experience-section .warning-chart-select:focus-visible {
+  outline: 2px solid #bfdbfe;
+  outline-offset: 3px;
+}
+
+.shell.layout-daweiba #experience-section .warning-item.is-chart-selected {
+  border-color: #60a5fa;
+  background: #f8fbff;
 }
 
 .shell.layout-daweiba #experience-section .warning-item.severity-high {
@@ -15082,6 +15095,32 @@ tbody tr:hover .row-ai-cell {
 .shell.layout-daweiba .daweiba-module-list {
   gap: 5px;
   padding: 14px 14px 16px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: rgba(148, 163, 184, 0.32) transparent;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+
+.shell.layout-daweiba .daweiba-module-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.shell.layout-daweiba .daweiba-module-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.shell.layout-daweiba .daweiba-module-list::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.32);
+  background-clip: padding-box;
+}
+
+.shell.layout-daweiba .daweiba-module-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.52);
+  background-clip: padding-box;
 }
 
 .shell.layout-daweiba .daweiba-module-item {
@@ -20068,4 +20107,215 @@ tbody tr:hover .row-ai-cell {
   border-color: var(--fill-assist-border-strong);
   background: var(--db-bg-alt);
   color: var(--fill-assist-text-muted);
+}
+
+/* Dark-mode correction authority.
+   Keep these selectors theme-scoped so light-mode colors and geometry remain untouched. */
+.shell.layout-daweiba.theme-dark .welcome-screen.is-light .welcome-product-frame::before {
+  border-color: var(--db-border);
+}
+
+.shell.layout-daweiba.theme-dark .welcome-screen.is-light .welcome-kicker {
+  border-color: var(--db-border);
+  background: var(--db-surface-tint);
+  color: #93c5fd;
+  box-shadow: 0 8px 22px rgb(2 6 23 / 22%);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-preview .table-scroll {
+  color-scheme: dark;
+  scrollbar-color: #64748b #172033;
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-preview .preview-tabs {
+  color-scheme: dark;
+  scrollbar-color: #64748b #172033;
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-preview .table-scroll::-webkit-scrollbar-track,
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-preview .preview-tabs::-webkit-scrollbar-track,
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-preview .table-scroll::-webkit-scrollbar-corner,
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-preview .preview-tabs::-webkit-scrollbar-corner {
+  background: #172033;
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-preview .table-scroll::-webkit-scrollbar-thumb,
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-preview .preview-tabs::-webkit-scrollbar-thumb {
+  border-color: #172033;
+  background: #64748b;
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-preview .preview-horizontal-scrollbar::-webkit-slider-runnable-track,
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-preview .preview-horizontal-scrollbar::-moz-range-track {
+  background: #213049;
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-preview .preview-horizontal-scrollbar::-webkit-slider-thumb,
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-preview .preview-horizontal-scrollbar::-moz-range-thumb {
+  background: #64748b;
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-preview .table-scroll td.preview-cell-editable:hover {
+  background: var(--db-primary-soft);
+  box-shadow: inset 0 0 0 1px rgb(96 165 250 / 28%);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-preview .table-scroll td.preview-cell-editable:is(.is-editing, .is-saving) {
+  background: #15335c;
+  box-shadow: inset 0 0 0 1px rgb(96 165 250 / 48%);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-preview .preview-window .window-primary-button.is-complete,
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-preview .preview-window .window-primary-button.is-complete:disabled {
+  border-color: #244d82;
+  background: var(--db-primary-soft);
+  color: #93c5fd;
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-experience #experience-section .warning-jump-button {
+  border-color: var(--db-border);
+  background: var(--db-surface-tint);
+  color: #93c5fd;
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-experience .dv-warning-visuals > .dv-chart-frame {
+  border-color: var(--db-border);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-experience #experience-section .warning-jump-button:hover {
+  border-color: var(--db-primary);
+  background: #15335c;
+  color: #bfdbfe;
+}
+
+.shell.layout-daweiba.theme-dark .agent-workspace .zhisuan-action-button.secondary,
+.shell.layout-daweiba.theme-dark .agent-workspace .chat-message.assistant .zhisuan-action-button.secondary {
+  border-color: var(--db-border);
+  background: var(--db-surface-tint);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .agent-workspace .zhisuan-action-button.secondary:hover:not(:disabled),
+.shell.layout-daweiba.theme-dark .agent-workspace .chat-message.assistant .zhisuan-action-button.secondary:hover:not(:disabled) {
+  border-color: var(--db-primary);
+  background: var(--db-primary-soft);
+  color: #bfdbfe;
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-report .daweiba-report-toolbar-actions .download-button.secondary {
+  border-color: var(--db-border);
+  background: var(--db-surface-tint);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-report .daweiba-report-toolbar-actions .download-button.secondary:hover:not(.is-disabled) {
+  border-color: var(--db-primary);
+  background: var(--db-primary-soft);
+  color: #bfdbfe;
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-report .daweiba-report-state {
+  border-color: var(--db-border);
+  background: var(--db-surface-tint);
+  color: var(--db-text-muted);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-report .daweiba-report-state.is-ready {
+  border-color: #1d5b3a;
+  background: #10291d;
+  color: #86efac;
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-report .daweiba-report-preview-head-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  max-width: 70%;
+  overflow: visible;
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-report .daweiba-report-preview-head-actions > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-report .word-report-theme-toggle {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  min-height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--db-border);
+  border-radius: 6px;
+  background: var(--db-surface-tint);
+  color: var(--db-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-report .word-report-theme-toggle:hover,
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-report .word-report-theme-toggle[aria-pressed="true"] {
+  border-color: var(--db-primary);
+  background: var(--db-primary-soft);
+  color: #bfdbfe;
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-report .word-report-theme-toggle:focus-visible {
+  outline: 2px solid var(--db-primary);
+  outline-offset: 2px;
+}
+
+.shell.layout-daweiba.theme-dark .project-dashboard .project-dashboard__source {
+  border-color: var(--pd-border);
+  background: var(--pd-control);
+  color: var(--pd-text);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-workspace-frame.is-daweiba-module-fill .daweiba-fill-quality-card .widescreen-ring {
+  background:
+    radial-gradient(circle at center, var(--db-surface) 0 52%, transparent 53%),
+    conic-gradient(
+      #73a77c 0 var(--wide-ok),
+      #c8a96a var(--wide-ok) var(--wide-low),
+      #a55f66 var(--wide-low) 100%
+    );
+  box-shadow: inset 0 0 0 1px rgb(148 163 184 / 16%);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-layout-shell > .ai-dock .quick-command-row button {
+  border-color: var(--db-border);
+  background: var(--db-surface-tint);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-layout-shell > .ai-dock .quick-command-row button:hover:not(:disabled) {
+  border-color: var(--db-primary);
+  background: var(--db-primary-soft);
+  color: #bfdbfe;
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-layout-shell > .ai-dock .chat-message.assistant.chat-message--task-progress .chat-message-body {
+  border: 1px solid var(--db-border);
+  background: var(--db-surface-tint);
+  color: var(--db-text);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-layout-shell > .ai-dock .agent-progress-message__icon {
+  background: var(--db-primary-soft);
+  color: #93c5fd;
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-layout-shell > .ai-dock .agent-progress-message__heading strong {
+  color: var(--db-text-strong);
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-layout-shell > .ai-dock .agent-progress-message__heading span {
+  color: #93c5fd;
+}
+
+.shell.layout-daweiba.theme-dark .daweiba-layout-shell > .ai-dock .agent-progress-message__track {
+  background: #213049;
 }

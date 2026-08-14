@@ -22,7 +22,7 @@ SAMPLE_PATH = (
     / "01-模块PRD"
     / "10-结算审核助手模块"
     / "evals"
-    / "结算审核演示样例.xlsx"
+    / "结算审核演示样例-v0.1.xlsx"
 )
 SETTLEMENT_UI_PATH = (
     PROJECT_ROOT

@@ -44,7 +44,7 @@ def test_health_endpoint():
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
     assert response.json()["version"] == "v5.19.4"
-    assert response.json()["release_version"] == "v5.23.0"
+    assert response.json()["release_version"] == "v5.23.1"
 
 
 def test_web_result_review_endpoint_uses_backend_frozen_output(tmp_path, monkeypatch):
@@ -2997,7 +2997,15 @@ def test_knowledge_demo_answers_bypass_search_and_model(monkeypatch, question, p
 
     response = TestClient(app).post(
         "/api/knowledge/ask",
-        json={"question": question, "force_knowledge": True},
+        json={
+            "question": question,
+            "force_knowledge": True,
+            "row_context": {
+                "sheet_name": "表2 测量",
+                "row_number": 9,
+                "values": {"技术工作费调整系数": "0.22"},
+            },
+        },
     )
 
     assert response.status_code == 200

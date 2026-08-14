@@ -67,16 +67,15 @@ import ZhisuanFeeAnalysisCharts from "./components/agent-workspace/ZhisuanFeeAna
 import CurrentTaskMenu from "./components/task-context/CurrentTaskMenu";
 import TaskDetailDrawer from "./components/task-context/TaskDetailDrawer";
 import type { BusinessTask, TaskTarget } from "./components/task-context/taskContextUtils";
+import StatusPanelCarousel from "./components/status-panel/StatusPanelCarousel";
 import {
   CandidatePriceDotPlot,
   ExperienceWarningVisuals,
   RetrievalChannelChart,
   ReviewerStatusMatrix,
   ReviewRoundPhaseBand,
-  RowRiskMinimap,
   TrustedExperienceBars,
   WorkloadGroupedBars,
-  type RowRiskDatum,
 } from "./components/data-visualization/ProfessionalVisuals";
 import { buildFeeAnalysis, type FeeAnalysis } from "./components/agent-workspace/feeAnalysis";
 import { detectZhisuanCommand, type ZhisuanCommand } from "./components/agent-workspace/zhisuanCommands";
@@ -105,6 +104,7 @@ import {
 
 const ProjectDashboard = lazy(() => import("./components/project-dashboard/ProjectDashboard"));
 const SettlementAuditWorkbench = lazy(() => import("./components/settlement-audit/SettlementAuditWorkbench"));
+const PROJECT_DASHBOARD_PRELOAD_DELAY_MS = 5_000;
 const DEFAULT_API_BASE = import.meta.env.DEV ? "http://127.0.0.1:8000" : "";
 const API_BASE = import.meta.env.VITE_API_BASE ?? DEFAULT_API_BASE;
 const API_BASE_LABEL = API_BASE.replace(/^https?:\/\//, "") || window.location.host;
@@ -1224,6 +1224,10 @@ type WarningDetail = {
     note?: string;
   }>;
 };
+
+function warningSelectionKey(warning: Pick<WarningDetail, "sheet_name" | "excel_row" | "metric">) {
+  return `${warning.sheet_name}::${warning.excel_row}::${warning.metric}`;
+}
 
 type ExperienceImportSummary = {
   pool_path: string;
@@ -2374,6 +2378,7 @@ function DaweibaApp() {
   const [reportPreviewRevision, setReportPreviewRevision] = useState(0);
   const [reportPreviewUpdateMessage, setReportPreviewUpdateMessage] = useState("");
   const [reportPreviewStatus, setReportPreviewStatus] = useState<WordReportPreviewStatus>("idle");
+  const [isReportDocumentDark, setIsReportDocumentDark] = useState(false);
   const [outputRowFilterSettings, setOutputRowFilterSettings] = useState<OutputRowFilterSettings>(readInitialOutputRowFilterSettings);
   const [pendingPreviewJump, setPendingPreviewJump] = useState<PreviewJumpTarget | null>(null);
   const [focusedPreviewJump, setFocusedPreviewJump] = useState<PreviewJumpTarget | null>(null);
@@ -2576,6 +2581,7 @@ function DaweibaApp() {
   const [workloadCaptureResult, setWorkloadCaptureResult] = useState<WorkloadCaptureResult | null>(null);
   const [workloadPreviewCountdown, setWorkloadPreviewCountdown] = useState<number | null>(null);
   const [showAllWarnings, setShowAllWarnings] = useState(false);
+  const [selectedWarningKey, setSelectedWarningKey] = useState("");
   const warningActualProgressPercent = warningProgress.total_rows > 0
     ? Math.min(100, Math.round((warningProgress.processed_rows / warningProgress.total_rows) * 100))
     : warningProgress.status === "completed" ? 100 : 0;
@@ -2782,6 +2788,14 @@ function DaweibaApp() {
       setHasOpenedProjectDashboard(true);
     }
   }, [activeDaweibaModule]);
+
+  useEffect(() => {
+    if (isWelcomeScreenVisible || hasOpenedProjectDashboard) return undefined;
+    const timer = window.setTimeout(() => {
+      setHasOpenedProjectDashboard(true);
+    }, PROJECT_DASHBOARD_PRELOAD_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [hasOpenedProjectDashboard, isWelcomeScreenVisible]);
 
   useEffect(() => {
     const isProjectDashboardActive =
@@ -3164,20 +3178,7 @@ function DaweibaApp() {
   );
   const warningSummary = result?.summary.warning_summary;
   const warningDetails = result?.summary.warning_details ?? [];
-  const previewRiskRows = useMemo<RowRiskDatum[]>(() => {
-    const sheetName = normalizePreviewSheetName(activePreview.sheet_name);
-    return visiblePreviewRows.map(({ row, sourceIndex }) => {
-      const rowNumber = previewExcelRowNumber(activePreview, sourceIndex, sheetConfigs);
-      const warning = warningDetails.find((item) => normalizePreviewSheetName(item.sheet_name) === sheetName && item.excel_row === rowNumber);
-      const review = result?.summary.review_details?.find((item) => item.excel_row === rowNumber);
-      const rowText = row.map((value) => String(value ?? "")).join(" ");
-      if (warning?.severity === "high") return { rowNumber, tone: "high", label: "高风险" };
-      if (review || /待复核|字段冲突|多候选/.test(rowText)) return { rowNumber, tone: "review", label: "待复核" };
-      if (/第二层|经验提示/.test(rowText)) return { rowNumber, tone: "experience", label: "第二层经验提示" };
-      if (/第一层|标准命中/.test(rowText)) return { rowNumber, tone: "standard", label: "第一层标准命中" };
-      return { rowNumber, tone: "other", label: warning ? `${warning.severity_label || "预警"}` : "其他 / 未运行" };
-    });
-  }, [activePreview, result, sheetConfigs, visiblePreviewRows, warningDetails]);
+  const selectedWarning = warningDetails.find((warning) => warningSelectionKey(warning) === selectedWarningKey) ?? warningDetails[0] ?? null;
   const hasCurrentReport = Boolean(
     result?.downloads.report
     && result.summary.output_report
@@ -8100,11 +8101,11 @@ function DaweibaApp() {
       if (payload.preset_answer) {
         window.clearTimeout(evidenceTimer);
         window.clearTimeout(modelTimer);
-        replaceZhisuanMessage(thinking, "正在识别演示问题并加载标准知识范围...", "thinking", { typing: false });
+        replaceZhisuanMessage(thinking, "正在分析问题并查找相关知识...", "thinking", { typing: false });
         await waitUntilElapsed(processingStartedAt, 1700, controller.signal);
-        replaceZhisuanMessage(thinking, "已命中演示知识，正在核对标准依据和来源...", "thinking", { typing: false });
+        replaceZhisuanMessage(thinking, "已找到相关内容，正在核对依据和来源...", "thinking", { typing: false });
         await waitUntilElapsed(processingStartedAt, 3500, controller.signal);
-        replaceZhisuanMessage(thinking, "标准依据已核对，正在组织结构化答案...", "thinking", { typing: false });
+        replaceZhisuanMessage(thinking, "依据核对完成，正在整理回答...", "thinking", { typing: false });
         await waitUntilElapsed(processingStartedAt, PRESET_KNOWLEDGE_PROCESSING_MS, controller.signal);
       }
       const answer = formatKnowledgeAnswer(payload, { forcedKnowledge: options.forcedKnowledge });
@@ -8336,13 +8337,6 @@ function DaweibaApp() {
     };
     setActiveDaweibaModule("preview");
     setActivePreviewSheetName(sheetName);
-    setPendingPreviewJump(target);
-    setFocusedPreviewJump(target);
-  }
-
-  function jumpToPreviewRow(excelRow: number) {
-    const sheetName = activePreview.sheet_name || previewSheetLabel(activePreview, 0);
-    const target = { sheetName, excelRow, metric: "" };
     setPendingPreviewJump(target);
     setFocusedPreviewJump(target);
   }
@@ -10022,12 +10016,6 @@ function DaweibaApp() {
     ...item,
     percent: result ? Math.round((item.value / daweibaChartTotal) * 100) : 0,
   }));
-  const daweibaStatusRows = [
-    { label: "输入行", value: daweibaInputRows },
-    { label: "可视化", value: daweibaPreviewRows },
-    { label: "待复核", value: daweibaReviewCount },
-    { label: "预警", value: daweibaWarningCount },
-  ];
   const uploadRowSummary = result ? `${result.summary.total_data_rows} 行` : "待转换";
   const experienceInfoRows = result
     ? result.summary.matched_rows + result.summary.physical_experience_rows + result.summary.technical_experience_rows
@@ -10861,62 +10849,26 @@ function DaweibaApp() {
                   ))}
                 </nav>
                 <div className="daweiba-status-panel" aria-label="匹配状态仪表盘">
-                  <div className="daweiba-status-chart">
-                    <svg className="daweiba-status-svg" viewBox="0 0 210 150" role="img" aria-label="匹配状态环形图">
-                      <defs>
-                        <linearGradient id="daweiba-status-blue-gradient" x1="0" y1="0" x2="1" y2="1">
-                          <stop offset="0%" stopColor="#2563eb" />
-                          <stop offset="38%" stopColor="#60a5fa" />
-                          <stop offset="72%" stopColor="#93c5fd" />
-                          <stop offset="100%" stopColor="#dbeafe" />
-                        </linearGradient>
-                      </defs>
-                      <g className="daweiba-status-donut" transform="translate(105 75) rotate(-90)">
-                        <circle className="daweiba-status-track" cx="0" cy="0" r="44" pathLength="100" />
-                        {daweibaStatusSegments.map((segment) => (
-                          <circle
-                            className="daweiba-status-segment"
-                            cx="0"
-                            cy="0"
-                            r="44"
-                            pathLength="100"
-                            key={segment.id}
-                            stroke={segment.color}
-                            strokeDasharray={`${segment.percent} ${100 - segment.percent}`}
-                            strokeDashoffset={-segment.offset}
-                          />
-                        ))}
-                      </g>
-                      <g className="daweiba-status-lines" aria-hidden="true">
-                        <path d="M76 45 L52 25" />
-                        <path d="M149 75 L181 75" />
-                        <path d="M77 106 L52 126" />
-                      </g>
-                    </svg>
-                    <div className="daweiba-status-center">
-                      <strong>{result ? result.summary.total_data_rows : 0}</strong>
-                      <span>Total</span>
-                    </div>
-                    <div className="daweiba-status-callouts" aria-label="状态分布标注">
-                      {daweibaStatusCallouts.map((callout) => (
-                        <span className={callout.className} key={callout.id} style={{ "--callout-color": callout.color } as CSSProperties}>
-                          {callout.value} ({callout.percent}%)
-                        </span>
-                      ))}
-                    </div>
-                  </div>
+                  <StatusPanelCarousel
+                    segments={daweibaStatusSegments}
+                    callouts={daweibaStatusCallouts}
+                    totalRows={result ? result.summary.total_data_rows : null}
+                    previewRows={result ? visiblePreviewRows.length : null}
+                    reviewRows={result ? result.summary.review_rows : null}
+                    warningRows={warningSummary?.executed ? Number(warningSummary.warning_rows ?? 0) : null}
+                    hasSkill={Boolean(result?.professional_skill || selectedProfessionalSkill)}
+                    hasResult={Boolean(result)}
+                    matchingStatus={result?.summary.matching_status ?? null}
+                    warningExecuted={Boolean(warningSummary?.executed)}
+                    hasReport={hasCurrentReport}
+                    isProcessing={isProcessing}
+                    isBatchMatching={isBatchMatching}
+                    isRunningWarnings={isRunningWarnings}
+                  />
                   <div className="daweiba-status-legend">
                     <span><i className="is-ok" />匹配</span>
                     <span><i className="is-review" />复核</span>
                     <span><i className="is-warning" />预警</span>
-                  </div>
-                  <div className="daweiba-status-rows">
-                    {daweibaStatusRows.map((row) => (
-                      <span key={row.label}>
-                        <strong>{row.value}</strong>
-                        {row.label}
-                      </span>
-                    ))}
                   </div>
                 </div>
               </div>
@@ -11584,13 +11536,11 @@ function DaweibaApp() {
                     <span className="preview-tabs-count">共 {previewSheets.length} 个</span>
                   </div>
                 )}
-                <div className="preview-table-with-minimap">
-                  <RowRiskMinimap items={previewRiskRows} onSelect={jumpToPreviewRow} />
-                  <div
-                    className="table-scroll"
-                    ref={previewScrollRef}
-                    style={{ "--preview-cell-max-chars": `${previewColumnPreferences.maxDisplayChars}ch` } as CSSProperties}
-                  >
+                <div
+                  className="table-scroll"
+                  ref={previewScrollRef}
+                  style={{ "--preview-cell-max-chars": `${previewColumnPreferences.maxDisplayChars}ch` } as CSSProperties}
+                >
                   <table>
                     <thead>
                       <tr>
@@ -11710,7 +11660,6 @@ function DaweibaApp() {
                       })}
                     </tbody>
                   </table>
-                  </div>
                 </div>
               </div>
             </div>
@@ -11880,21 +11829,31 @@ function DaweibaApp() {
                   </div>
                   <ExperienceWarningVisuals
                     items={warningDetails}
+                    selectedItem={selectedWarning}
                     lowThreshold={warningSummary.low_risk_threshold_percent ?? 5}
                     highThreshold={warningSummary.high_risk_threshold_percent ?? 20}
                   />
                   {warningDetails.length > 0 ? (
                     <div className="warning-list">
-                      {visibleWarnings.map((warning, index) => (
+                      {visibleWarnings.map((warning, index) => {
+                        const warningKey = warningSelectionKey(warning);
+                        const isChartSelected = selectedWarning ? warningSelectionKey(selectedWarning) === warningKey : false;
+                        return (
                         <div
-                          className={`warning-item severity-${warning.severity}`}
+                          className={`warning-item severity-${warning.severity} ${isChartSelected ? "is-chart-selected" : ""}`}
                           key={`${warning.sheet_name}-${warning.excel_row}-${warning.metric}-${index}`}
                         >
                           <div className="warning-item-main">
-                            <div className="warning-item-heading">
+                            <button
+                              className="warning-item-heading warning-chart-select"
+                              type="button"
+                              aria-pressed={isChartSelected}
+                              aria-label={`在图表中查看 ${warning.sheet_name} 第 ${warning.excel_row} 行 ${warning.metric}`}
+                              onClick={() => setSelectedWarningKey(warningKey)}
+                            >
                               <span className="warning-severity-badge">{warning.severity_label ?? (warning.severity === "high" ? "高风险" : warning.severity === "low" ? "低风险" : "无预警")}</span>
                               <strong>{warning.sheet_name} 第 {warning.excel_row} 行 · {warning.metric}</strong>
-                            </div>
+                            </button>
                             {warning.row_key && <small>{warning.row_key}</small>}
                             {warning.match_mode_detail && <small>匹配模式：{warning.match_mode_detail}</small>}
                             <p className="warning-item-message">{warning.message}</p>
@@ -11917,14 +11876,18 @@ function DaweibaApp() {
                               className="warning-jump-button"
                               type="button"
                               title={`跳转到 ${warning.sheet_name} 第 ${warning.excel_row} 行`}
-                              onClick={() => jumpToWarningPreview(warning)}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                jumpToWarningPreview(warning);
+                              }}
                             >
                               <FileSpreadsheet size={14} />
                               跳到表格
                             </button>
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                       {warningDetails.length > 6 && (
                         <button className="warning-more-button" type="button" onClick={() => setShowAllWarnings((current) => !current)}>
                           {showAllWarnings ? "收起预警" : `查看全部 ${warningDetails.length} 条预警`}
@@ -12447,7 +12410,24 @@ function DaweibaApp() {
                       <span className={`daweiba-report-preview-dot is-${reportPreviewStatus}`} aria-hidden="true" />
                       <strong>文档预览</strong>
                     </div>
-                    <span>{result.summary.output_report || "等待报告生成"}</span>
+                    {isDarkMode ? (
+                      <span className="daweiba-report-preview-head-actions">
+                        <span>{result.summary.output_report || "等待报告生成"}</span>
+                        <button
+                          className="word-report-theme-toggle"
+                          type="button"
+                          aria-pressed={isReportDocumentDark}
+                          aria-label={isReportDocumentDark ? "恢复纸张文档预览" : "启用暗色文档预览"}
+                          title={isReportDocumentDark ? "恢复纸张文档预览" : "启用暗色文档预览"}
+                          onClick={() => setIsReportDocumentDark((current) => !current)}
+                        >
+                          {isReportDocumentDark ? <Sun size={14} /> : <Moon size={14} />}
+                          {isReportDocumentDark ? "纸张" : "暗色"}
+                        </button>
+                      </span>
+                    ) : (
+                      <span>{result.summary.output_report || "等待报告生成"}</span>
+                    )}
                   </div>
                   {activeDaweibaModule === "report" && (
                     <WordReportPreview
@@ -12464,6 +12444,7 @@ function DaweibaApp() {
                       downloadUrl={reportDownloadHref}
                       onReturnToPreview={() => setActiveDaweibaModule("preview")}
                       onStatusChange={setReportPreviewStatus}
+                      darkPreview={isDarkMode && isReportDocumentDark}
                     />
                   )}
                   <p className="daweiba-report-preview-note">网页预览用于快速核对，正式排版以下载后的 Word 文件为准。</p>
