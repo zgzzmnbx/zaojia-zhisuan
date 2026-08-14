@@ -163,7 +163,7 @@ from .professional_skills import (
 from .report import append_risk_report, ensure_risk_report_evidence, write_report
 
 
-APP_VERSION = "v5.23.2"
+APP_VERSION = "v5.23.3"
 # `/api/health.version` 是旧版运行器的兼容字段；当前发布版本通过
 # `release_version` 返回，避免旧客户端在小版本升级时误判服务不可用。
 HEALTH_API_COMPAT_VERSION = "v5.19.4"

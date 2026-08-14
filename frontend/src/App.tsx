@@ -118,7 +118,7 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.23.0";
+const APP_VERSION = "v5.23.3";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const PRICE_KNOWLEDGE_ROW_COUNT = 560;
 const FORCE_KNOWLEDGE_PREFIXES = ["查库：", "查库:", "#知识库"] as const;
@@ -7352,10 +7352,12 @@ function DaweibaApp() {
   }
 
   async function loadProfessionalSkills() {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 15000);
     setIsProfessionalSkillsLoading(true);
     setProfessionalSkillsError("");
     try {
-      const response = await fetch(`${API_BASE}/api/professional-skills`);
+      const response = await fetch(`${API_BASE}/api/professional-skills`, { cache: "no-store", signal: controller.signal });
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
         throw new Error(apiErrorMessage(payload, `读取专业能力清单失败：${response.status}`));
@@ -7378,8 +7380,13 @@ function DaweibaApp() {
     } catch (reason) {
       setProfessionalSkills([]);
       setSelectedProfessionalSkillId("");
-      setProfessionalSkillsError(reason instanceof Error ? reason.message : "读取专业能力清单失败");
+      setProfessionalSkillsError(
+        reason instanceof DOMException && reason.name === "AbortError"
+          ? "专业能力清单加载超时，请点击重新加载"
+          : reason instanceof Error ? reason.message : "读取专业能力清单失败",
+      );
     } finally {
+      window.clearTimeout(timeoutId);
       setIsProfessionalSkillsLoading(false);
     }
   }
