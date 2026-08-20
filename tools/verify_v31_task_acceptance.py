@@ -21,7 +21,7 @@ from app import main as main_module  # noqa: E402
 
 
 BASELINE_DIR = PROJECT_ROOT / "08-测试与演示" / "测试-V3.1-260802"
-INPUT_PATH = BASELINE_DIR / "【项目例子】【测试输入】可行性研究勘察测量控制价计算 -v3.1【批注-完备】.xlsx"
+INPUT_PATH = BASELINE_DIR / "【项目例子】【测试输入】可行性研究勘察测量控制价计算 -v3.1【演示】 .xlsx"
 ANSWER_EXCEL = BASELINE_DIR / "【答案-对应版本v3.1】【输出】-控制价计算表-20260802-0123-隐藏空行.xlsx"
 ANSWER_WORD = BASELINE_DIR / "【答案-对应版本v3.1】【输出】-控制价报告-.docx"
 EVIDENCE_DIR = PROJECT_ROOT / "Codex-Temp" / "acceptance" / "task-p0-v31"
@@ -194,8 +194,12 @@ def compare_word(actual_path: Path, answer_path: Path) -> dict[str, object]:
         for index, (actual, answer) in enumerate(zip_longest(actual_cover, answer_cover, fillvalue=""), start=1)
         if actual != answer
     ]
-    actual_core = actual_lines[actual_core_index:] if actual_core_index >= 0 else []
-    answer_core = answer_lines[answer_core_index:] if answer_core_index >= 0 else []
+    def normalized_business_core(lines: list[str], start: int) -> list[str]:
+        core = lines[start:] if start >= 0 else []
+        return ["[输入文件]" if line.startswith("输入文件：") else line for line in core]
+
+    actual_core = normalized_business_core(actual_lines, actual_core_index)
+    answer_core = normalized_business_core(answer_lines, answer_core_index)
     core_differences = [
         {"index": index, "actual": actual, "answer": answer}
         for index, (actual, answer) in enumerate(zip_longest(actual_core, answer_core, fillvalue=""), start=1)

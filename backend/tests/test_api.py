@@ -44,7 +44,7 @@ def test_health_endpoint():
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
     assert response.json()["version"] == "v5.19.4"
-    assert response.json()["release_version"] == "v5.23.3"
+    assert response.json()["release_version"] == "v5.23.4"
 
 
 def test_web_result_review_endpoint_uses_backend_frozen_output(tmp_path, monkeypatch):
@@ -2681,6 +2681,57 @@ def test_risk_report_returns_prompt_debug_without_api_key(tmp_path, monkeypatch)
     assert Path(payload["debug"]["prompt_markdown"]).exists()
     assert "secret-from-backend-env" not in str(payload["debug"])
     assert captured["messages"] == payload["debug"]["messages"]
+
+
+def test_demo_risk_report_uses_embedded_text_without_calling_model(tmp_path, monkeypatch):
+    job_id = "demo-risk"
+    job_dir = tmp_path / job_id
+    job_dir.mkdir()
+    workbook = Workbook()
+    workbook.active.append(["项目", "单价"])
+    workbook.active.append(["测试", 123])
+    workbook.save(job_dir / "样例-填价结果-【codex】.xlsx")
+    document = Document()
+    document.add_heading("五、其他需要注意的事项", level=1)
+    output_report = job_dir / "样例-处理报告-【codex】.docx"
+    document.save(output_report)
+    (job_dir / "样例-处理报告-【codex】.md").write_text("## 五、其他需要注意的事项\n", encoding="utf-8")
+    (job_dir / "process-state.json").write_text(
+        json.dumps(
+            {
+                "project_name": "任意项目名",
+                "input_filename": "【演示】【项目例子】【测试输入】可行性研究勘察测量控制价计算.xlsx",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(main_module, "RUNTIME_DIR", tmp_path)
+    monkeypatch.setattr(main_module, "DEMO_RISK_REPORT_TEXT", "一、本次处理结论\n这是程序内置的演示报告固定正文。")
+
+    def fail_if_model_called(*args, **kwargs):
+        raise AssertionError("带【演示】的文件生成风险报告时不得调用大模型")
+
+    monkeypatch.setattr(main_module, "call_chat_completion", fail_if_model_called)
+
+    response = TestClient(app).post("/api/risk-report", data={"job_id": job_id})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["risk_report"] == "一、本次处理结论\n这是程序内置的演示报告固定正文。"
+    assert payload["generated_by_model"] is False
+    assert payload["risk_report_mode"] == "demo_preset"
+    assert payload["debug"] is None
+    assert not list(job_dir.glob("*提示词-【codex】.md"))
+    output_text = "\n".join(paragraph.text for paragraph in Document(output_report).paragraphs)
+    assert "这是程序内置的演示报告固定正文。" in output_text
+
+
+def test_demo_risk_report_filename_matching_is_scoped():
+    assert main_module._is_demo_report_task({"input_filename": "【演示】测试项目.xlsx"}) is True
+    assert main_module._is_demo_report_task({"input_filename": "测试项目【演示】.xlsx"}) is True
+    assert main_module._is_demo_report_task({"project_name": "【演示】测试项目", "input_filename": "普通项目.xlsx"}) is False
+    assert main_module._is_demo_report_task({"input_filename": "普通项目.xlsx"}) is False
 
 
 def test_risk_report_supplements_material_structured_evidence(tmp_path, monkeypatch):

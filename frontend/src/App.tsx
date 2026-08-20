@@ -123,7 +123,7 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.23.3";
+const APP_VERSION = "v5.23.4";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const PRICE_KNOWLEDGE_ROW_COUNT = 560;
 const FORCE_KNOWLEDGE_PREFIXES = ["查库：", "查库:", "#知识库"] as const;
@@ -7958,13 +7958,20 @@ function DaweibaApp() {
         const payload = await response.json().catch(() => null);
         throw new Error(payload?.detail ?? `风险报告生成失败：${response.status}`);
       }
-      const payload = (await response.json()) as { risk_report: string; debug?: LlmDebugInfo };
+      const payload = (await response.json()) as {
+        risk_report: string;
+        debug?: LlmDebugInfo;
+        generated_by_model?: boolean;
+        risk_report_mode?: string;
+      };
       if (!isCurrentResultJob(requestJobId)) return;
       setRiskReport(payload.risk_report);
       markReportPreviewUpdated(requestJobId, "风险报告已写入 Word，正在刷新真实预览…");
-      recordLlmDebug("风险报告", payload.debug);
-      replaceZhisuanMessage(thinking, `风险报告已生成，也会照常写入 Word 报告。\n\n${payload.risk_report}`, "model", {
-        llmDebug: payload.debug,
+      if (payload.generated_by_model !== false) {
+        recordLlmDebug("风险报告", payload.debug);
+      }
+      replaceZhisuanMessage(thinking, `风险报告已生成，也会照常写入 Word 报告。\n\n${payload.risk_report}`, payload.generated_by_model === false ? "command" : "model", {
+        llmDebug: payload.generated_by_model === false ? undefined : payload.debug,
         llmDebugAnswer: payload.risk_report,
       });
       appendZhisuanMessage(

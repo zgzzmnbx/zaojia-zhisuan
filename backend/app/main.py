@@ -163,7 +163,7 @@ from .professional_skills import (
 from .report import append_risk_report, ensure_risk_report_evidence, write_report
 
 
-APP_VERSION = "v5.23.3"
+APP_VERSION = "v5.23.4"
 # `/api/health.version` 是旧版运行器的兼容字段；当前发布版本通过
 # `release_version` 返回，避免旧客户端在小版本升级时误判服务不可用。
 HEALTH_API_COMPAT_VERSION = "v5.19.4"
@@ -222,6 +222,30 @@ RISK_REPORT_KNOWLEDGE_QUERIES = [
     "附加调整系数为什么不能连乘？",
 ]
 DEMO_SAMPLE_TOKENS = ("输入100", "空单价100")
+DEMO_RISK_REPORT_FILENAME_TOKEN = "【演示】"
+DEMO_RISK_REPORT_TEXT = """一、本次处理结论
+本次共处理数据100行，完成价格回填99行，其中精确匹配99行，原有价格保留1行，待复核0行，冲突0行。实物工作费调整系数第一层标准规则未命中，全部100行采用第二层经验提示；技术工作费调整系数第一层命中99行，第二层经验提示1行，待复核0行。总体匹配完成度较高，但经验池预警提示存在需重点关注的异常项，建议在出报告前完成人工复核。
+二、主要风险概览
+1. 基价偏离风险
+表2-通用工程测量费用第5行基价当前值为500000，经验池平均值为4274，偏离率达11598.6%。该行虽实现字段完全匹配，但基价数值与历史经验值差异极大，存在输入要素、单位选用或人工填值错误的风险，需重点核实。
+2. 实物工作费调整系数偏离风险
+表3-地质测绘第6行实物工作费调整系数当前值1.3，经验池平均值1.15，经验范围1~1.3，偏离率13.04%，虽未超过高风险阈值，但已超过低风险阈值，仍需结合项目实际条件复核取值合理性。
+3. 实物工作费调整系数全部依赖第二层经验提示
+本次数据中实物工作费调整系数第一层标准规则未命中，100行全部回填第二层经验数。该情况不影响当前流程，但意味着本次测算的实物系数均无第一层标准规则背书，建议在报告中明确标注，并提示后续规则完善后需重新校验。
+三、重点复核建议
+1. 建议优先复核表2-通用工程测量费用第5行基价500000的来源与计算口径，核对输入要素、单位、数量及原始取值依据，确认是否存在单位错填、价格单位与汇总单位不一致或误填人工值等情况。
+2. 建议结合项目实际情况复核表3-地质测绘第6行实物工作费调整系数1.3的合理性，重点确认该行对应的地形、地质条件及勘察难度是否足以支撑取上限值，并参考历史项目经验范围1~1.3进行判断。
+3. 建议对全部实物工作费调整系数第二层经验提示行进行抽检，核实经验数来源（即知识库J列的经验数值）与当前项目特征是否匹配，避免因要素描述相似但实际工况不同导致系数误用。
+四、规则依据提示
+1. 依据知识库匹配规则说明，实物工作费调整系数第一层标准规则暂未启用，当前匹配顺序为：跳过第一层，若单价知识库唯一命中且对应J列存在可解析经验数，则采用第二层经验数并标黄；若第二层未命中，则标红待复核。本次处理结果符合该规则流程。
+2. 技术工作费调整系数采用第一层标准规则，本次命中99行，另1行走第二层经验提示，该处理结果正常，但需关注第二层经验提示行在报告中的标注情况。
+3. 经验池预警仅用于异常值提示和人工参考，不参与价格裁决。其找同类采用“字段完全匹配”模式，本次两处预警均基于该模式产生，需作为重点复核线索，但不得据此直接改动基价或系数。
+4. 上述高风险基价偏离可能存在输入要素、单位、来源依据等错误，但在完成人工核对前不构成价格修改依据，请以复核结论为准。
+五、后续处理建议
+1. 在正式报告中明确列出本次实物工作费调整系数全部为第二层经验提示的结果，并在报告说明中提示“实物工作费调整系数第一层标准规则暂未启用”，避免审查方误认为该系数已有正式标准依据。
+2. 对高风险基价行，建议补充编制说明或提供原始计算表，列明该行要素对应的勘察测量工作内容、工作量及计价来源，以便审查方核实。
+3. 低风险系数行建议在报告备注中说明取值理由，必要时附类似项目的历史取值区间对比，增强可追溯性。
+4. 后续若实物工作费调整系数第一层规则启用，建议重新跑批本次数据，将第二层经验提示行与第一层规则结果进行比对，统一后形成最终控制价文件。"""
 WARNING_PROGRESS_DEFAULT = {
     "status": "idle",
     "processed_rows": 0,
@@ -2163,6 +2187,23 @@ async def generate_risk_report(
     if not excel_matches or not report_matches or not markdown_matches:
         raise HTTPException(status_code=404, detail="任务文件不完整，请先完成转换")
 
+    if _is_demo_report_task(state):
+        risk_text = DEMO_RISK_REPORT_TEXT
+        risk_md_path = job_dir / "大模型风险报告-【codex】.md"
+        risk_md_path.write_text(risk_text + "\n", encoding="utf-8")
+        append_risk_report(report_matches[0], risk_text)
+        task_tracking = _sync_business_task_from_job(job_dir, activity="risk_report")
+        return _attach_job_skill({
+            "job_id": job_id,
+            "risk_report": risk_text,
+            "knowledge_sources": [],
+            "downloads": {"report": f"/api/download/{job_id}/report"},
+            "debug": None,
+            "generated_by_model": False,
+            "risk_report_mode": "demo_preset",
+            "task_tracking": task_tracking,
+        }, job_dir)
+
     markdown_text = markdown_matches[0].read_text(encoding="utf-8")
     knowledge_evidence, knowledge_sources = _build_risk_report_knowledge_evidence(runtime_context, job_dir)
     config = LlmConfig(provider=provider, model=model, base_url=base_url)
@@ -2191,6 +2232,11 @@ async def generate_risk_report(
         "debug": _build_llm_debug(config, messages, prompt_path),
         "task_tracking": task_tracking,
     }, job_dir)
+
+
+def _is_demo_report_task(state: dict[str, object]) -> bool:
+    input_name = Path(str(state.get("input_filename") or "")).name.strip()
+    return DEMO_RISK_REPORT_FILENAME_TOKEN in input_name
 
 
 GENERAL_MODEL_FALLBACK_NOTICE = "已自动转为大模型回答"
