@@ -1,6 +1,6 @@
 {
   "name": "guankanzhisuan-frontend",
-  "version": "5.23.4",
+  "version": "5.23.5",
   "private": true,
   "type": "module",
   "scripts": {

@@ -123,7 +123,7 @@ const OLD_APP_SUBTITLES = [
   "长输管道工程勘察测量最高投标限价编制智能体",
   "长输管道勘察测量最高投标限价编制智能体",
 ];
-const APP_VERSION = "v5.23.4";
+const APP_VERSION = "v5.23.5";
 const WELCOME_SCREEN_VARIANT = "light" as "light" | "dark";
 const PRICE_KNOWLEDGE_ROW_COUNT = 560;
 const FORCE_KNOWLEDGE_PREFIXES = ["查库：", "查库:", "#知识库"] as const;
@@ -1296,6 +1296,7 @@ const EMPTY_WARNING_PROGRESS: WarningProgress = {
 const TASK_PROGRESS_TICK_MS = 160;
 const TASK_PROGRESS_SETTLE_MS = 420;
 const PRESET_KNOWLEDGE_PROCESSING_MS = 5000;
+const DEMO_RISK_REPORT_PROCESSING_MS = 5000;
 
 function nextContinuousTaskProgress(current: number) {
   if (current < 18) return Math.min(18, current + 3.6);
@@ -2820,14 +2821,14 @@ function DaweibaApp() {
   }, [chatMessages]);
 
   useEffect(() => {
-    if (activeDaweibaModule !== "agent") return undefined;
+    if (activeDaweibaModule !== "agent" && (isAiDockCollapsed || !isChatOpen)) return undefined;
     const frame = window.requestAnimationFrame(() => {
-      const log = agentChatLogRef.current;
+      const log = activeDaweibaModule === "agent" ? agentChatLogRef.current : chatLogRef.current;
       if (!log) return;
       log.scrollTop = log.scrollHeight;
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [activeDaweibaModule]);
+  }, [activeDaweibaModule, isAiDockCollapsed, isChatOpen]);
 
   useEffect(() => {
     if (activeDaweibaModule !== "agent") return undefined;
@@ -7942,6 +7943,7 @@ function DaweibaApp() {
     body.append("provider", llmSettings.provider);
     body.append("model", llmSettings.model);
     body.append("base_url", llmSettings.baseUrl);
+    const riskReportStartedAt = performance.now();
     const thinking = appendZhisuanMessage("正在汇总本次匹配结果和费用信息...", "thinking", { typing: false });
     const thinkingTimer = window.setTimeout(() => {
       replaceZhisuanMessage(thinking, "正在检索本地知识库依据，补充报告说明...", "thinking", { typing: false });
@@ -7964,6 +7966,12 @@ function DaweibaApp() {
         generated_by_model?: boolean;
         risk_report_mode?: string;
       };
+      if (payload.risk_report_mode === "demo_preset") {
+        const remainingMs = Math.max(0, DEMO_RISK_REPORT_PROCESSING_MS - (performance.now() - riskReportStartedAt));
+        if (remainingMs > 0) {
+          await new Promise<void>((resolve) => window.setTimeout(resolve, remainingMs));
+        }
+      }
       if (!isCurrentResultJob(requestJobId)) return;
       setRiskReport(payload.risk_report);
       markReportPreviewUpdated(requestJobId, "风险报告已写入 Word，正在刷新真实预览…");
@@ -8154,6 +8162,8 @@ function DaweibaApp() {
         : "";
       const retrievalModeUsed = payload.retrieval_mode_used
         ?? (payload.preset_answer ? "curated_demo" : isRowReview ? "classic" : knowledgeRetrievalMode);
+      const canSaveKnowledgeCandidate = payload.evidence_found
+        && (!payload.preset_answer || payload.preset_id !== OFFLINE_DEMO_FILL_PRESET_ID);
       replaceZhisuanMessage(thinking, answer, payload.preset_answer ? "command" : payload.evidence_found ? "model" : "command", {
         typing: payload.preset_answer ? false : undefined,
         rowDetailContext: options.rowDetailContext,
@@ -8167,7 +8177,7 @@ function DaweibaApp() {
         llmDebug: payload.debug ?? undefined,
         llmDebugAnswer: payload.answer,
         knowledgeChart: payload.chart ?? undefined,
-        knowledgeCandidate: payload.evidence_found && !payload.preset_answer
+        knowledgeCandidate: canSaveKnowledgeCandidate
           ? {
               title: question.length > 30 ? `${question.slice(0, 30)}…` : question,
               question,

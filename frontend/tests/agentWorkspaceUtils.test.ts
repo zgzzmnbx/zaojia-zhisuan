@@ -99,6 +99,7 @@ test("animates the preset knowledge bar chart for 1.5 seconds", async () => {
 test("keeps preset knowledge answers in a visible five-second processing flow", async () => {
   const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
   const css = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+  assert.match(appSource, /if \(payload\.preset_answer\) return payload\.answer/);
   assert.match(appSource, /PRESET_KNOWLEDGE_PROCESSING_MS\s*=\s*5000/);
   assert.match(appSource, /正在分析问题并查找相关知识/);
   assert.match(appSource, /已找到相关内容，正在核对依据和来源/);
@@ -108,6 +109,11 @@ test("keeps preset knowledge answers in a visible five-second processing flow", 
   assert.doesNotMatch(appSource, /已命中演示知识，正在核对标准依据和来源/);
   assert.doesNotMatch(appSource, /标准依据已核对，正在组织结构化答案/);
   assert.match(appSource, /typing:\s*payload\.preset_answer\s*\?\s*false\s*:\s*undefined/);
+  assert.match(
+    appSource,
+    /const canSaveKnowledgeCandidate = payload\.evidence_found\s*&&\s*\(!payload\.preset_answer \|\| payload\.preset_id !== OFFLINE_DEMO_FILL_PRESET_ID\)/,
+  );
+  assert.match(appSource, /knowledgeCandidate:\s*canSaveKnowledgeCandidate/);
   assert.match(appSource, /aria-valuenow=\{Math\.round\(progress\)\}/);
   assert.match(appSource, /style=\{\{ width: `\$\{progress\}%` \}\}/);
   assert.match(appSource, /tone === "processing"[\s\S]*rotate\(\$\{frame \* 24\}deg\)/);
@@ -292,4 +298,13 @@ test("current task is isolated to the global nav menu and does not alter workspa
   assert.match(designTokens, /--dws-button-fg:\s*#ffffff;/);
   assert.match(taskCss, /\.global-task-menu__actions button\.is-primary,[\s\S]*color:\s*var\(--dws-button-fg\) !important;[\s\S]*-webkit-text-fill-color:\s*var\(--dws-button-fg\);/s);
   assert.match(taskCss, /\.global-task-menu__actions button\.is-primary svg\s*\{[^}]*color:\s*currentColor;[^}]*stroke:\s*currentColor;/s);
+});
+
+test("scrolls the active large or small Zhisuan conversation to the latest message after switching", async () => {
+  const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
+  assert.match(
+    appSource,
+    /activeDaweibaModule !== "agent" && \(isAiDockCollapsed \|\| !isChatOpen\)[\s\S]*activeDaweibaModule === "agent" \? agentChatLogRef\.current : chatLogRef\.current[\s\S]*log\.scrollTop = log\.scrollHeight/,
+  );
+  assert.match(appSource, /\[activeDaweibaModule, isAiDockCollapsed, isChatOpen\]/);
 });
